@@ -92,14 +92,37 @@ public:
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
     // `wheels` false: its wheels are off (the pit crew has them).
+    // The moving parts of one car's body as its script sets them (a few cars': docs/formats/model.md "What a car's script
+    // reads"): the script's state, run on with that car's values; the parts it turns (0x48 by a register) and the shapes
+    // it blends (0x4C), as that car shows them.
+    struct Motion {
+        mdls::ScriptState state;
+        u32 time_ms = 0;
+        std::vector<render::Mat4> turns;                       // per turned part: its matrix in the model's frame
+        std::vector<float> shown;                              // per blend weight: the one the shapes show
+        std::array<std::unique_ptr<render::GpuModel>, 2> band; // those shapes (per brake lamp state), made at the first change
+    };
+    // The game's values the script reads (CarModel +0x40, +0x48, +0x74, +0x78): the brake, the engine's speed (RaceCarModel
+    // vf22 0x451AB0: int(F +0x738); 0 in a showroom), the driver's two pedals (vf31; 0 when the cockpit gives none).
+    struct MotionInput {
+        float brake = 0, engine_rpm = 0, pedal_left = 0, pedal_right = 0;
+        bool brake_lamps = false;
+    };
+    // Null for a body without moving parts.
+    std::unique_ptr<Motion> make_motion() const;
+    void restart_motion(Motion& m) const;
+    // `seconds` on: the model's time (+0x34 in milliseconds, trunc(1000 x the step), 0x451110), the script's per-step and
+    // draw entries with the values, the parts' matrices and the blended shapes from its registers.
+    void step_motion(Motion& m, float seconds, const MotionInput& in) const;
+    // `motion`: this car's moving parts (null: at rest, as a still draw).
     void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60,
-                   const LodView* view = nullptr, bool wheels = true) const;
+                   const LodView* view = nullptr, bool wheels = true, const Motion* motion = nullptr) const;
     // A wheel away from the car: in a hub's frame, made as a left one (its outer face at -x).
     void add_loose_wheel(std::vector<render::DrawItem>& items, int wheel, const render::Mat4& hub) const;
     // The shadow under the car: after the course, before any car.
     // The car mirrored in the road under it (a wet road's reflection, the course's flag): the plane
     // through the tires' contacts. False when the car is not on a road it can mirror in.
-    bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const;
+    bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, const Motion* motion = nullptr) const;
     // That mirror (course space to course space).
     bool road_mirror(const CarState& s, render::Mat4& out) const;
     // `light`: the light it stands in (null: the course's, in full).
@@ -125,9 +148,7 @@ public:
     const std::vector<posture::Cockpit>& cockpits() const { return cockpits_; }
     // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
     bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
-    // The body's script (the model set's, a few cars': the pace cars' light bars) run on: `seconds` of the model's time
-    // (its +0x34 counts milliseconds, 0x451110), the shapes its draw blends by the script's weight moved to it.
-    // Nothing for a car without one.
+    // The flashing lamps' patterns run on `seconds` (RaceCarModel::vf3, one for every car of the model).
     void animate(float seconds);
     void restart_animation();
     // The lamp level it was built with (0 off, 1 on: the course's night, or a car the race lights; RaceBase::vf38).
@@ -141,8 +162,9 @@ public:
 
 private:
     void build_gt3(ByteSpan car_file, const Options& opt, const std::string& name); // car_visual_prologue.cpp
-    // A model to the GPU now, or kept for upload() when made by make_unuploaded.
-    void to_gpu(std::unique_ptr<render::GpuModel>& slot, gt3r::scene::Model m);
+    // A model to the GPU now, or kept for upload() when made by make_unuploaded. `prepared`: its reflections weighed and
+    // its textures shared already.
+    void to_gpu(std::unique_ptr<render::GpuModel>& slot, gt3r::scene::Model m, bool prepared = false);
     std::vector<std::pair<std::unique_ptr<render::GpuModel>*, gt3r::scene::Model>> unuploaded_;
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]
@@ -181,23 +203,31 @@ private:
     int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
-    // The body's script and the shapes its weight moves (a pace car's light bar band, 0x4C by `builtin_tw`): taken out of the
-    // body, per brake lamp state, each mesh's with its vertices at both ends of the weight.
-    struct ScriptMorph {
+    // The body's moving parts: its script, the shapes under a turn by a register (each a model of its own, drawn turned
+    // about the program's matrix there) and the shapes its blend weights move (taken out of the body into a band: their
+    // vertices at every weight 0 and at each weight's 1), per brake lamp state.
+    struct Moving {
         mdls::Script script;
-        mdls::ScriptState state;
-        int time_cell = -1, weight_cell = -1;
-        u32 time_ms = 0;
-        float shown = -1; // the weight the band shows now
+        int time_cell = -1, rpm_cell = -1, left_cell = -1, right_cell = -1, brake_cell = -1, taillamp_cell = -1, timezone_cell = -1;
+        std::vector<u16> weights; // the registers of the band's blends
         struct Band {
-            std::vector<gt3r::scene::Mesh> meshes;
-            std::vector<std::vector<gt3r::scene::Vertex>> ends;
-            std::unique_ptr<render::GpuModel> gpu; // drawn with the body's pictures, made at the first animate
+            std::vector<gt3r::scene::Mesh> meshes;                       // at every weight 0 (textures of `gpu`)
+            std::vector<std::vector<std::vector<gt3r::scene::Vertex>>> ends; // [weight][mesh][vertex] at that weight's 1
+            std::unique_ptr<render::GpuModel> gpu;                       // as built: the still draw's
         };
         std::array<Band, 2> band;
+        struct Part {
+            u8 op = 0; // the command (0x48: a turn by an angle and an axis) and its register
+            u16 cell = 0;
+            std::array<float, 16> pivot{}, pivot_inverse{}; // the program's matrix there (row vectors)
+            std::array<std::unique_ptr<render::GpuModel>, 2> gpu;
+        };
+        std::vector<Part> parts;
+        std::vector<render::Mat4> still_turns; // the parts at rest (the still registers')
     };
-    void split_band(gt3r::scene::Model& m, const gt3r::scene::Model& other, ScriptMorph::Band& band);
-    std::unique_ptr<ScriptMorph> morph_;
+    void split_band(gt3r::scene::Model& m, const std::vector<gt3r::scene::Model>& ends, Moving::Band& band);
+    std::vector<render::Mat4> part_matrices(const mdls::ScriptState& st) const;
+    std::unique_ptr<Moving> moving_;
     int lamp_level_ = 0;
     std::vector<std::pair<int, float>> lamp_flash_; // per lit-list lamp: its flashing pattern (0 none) and phase
     std::array<float, 2> flash_time_{};             // the two patterns' times
