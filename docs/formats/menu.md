@@ -641,12 +641,15 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   15, note 15, no time) and the mission's page comes back as before the run with `canReplay` 1 (Replay and Save
   added). ✔ The original's mission 1 exited (reference 21-gtmode-deep `mission1_page_after_exit.png`); ours the
   same, and a finished run's Results.
-- **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
+- **A license test** (0x1105A8) keeps a graded run's result (gold 9, silver 10, bronze 11) in its unit and its ranking
+  (time, result, the real date, the pass code); a run without a grade (the run's +0x88 not 2, 3 or 4) is kept nowhere
+  (ours writes it into the unit: RULES_AUDIT.md). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
-  original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
-  Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
+  original's calendar shows. **A course's visit** is one day of the diary, put when its sequence ends whatever the runs
+  (0x42F448, place 15, note 14, no time: the machine test 0x115E90, the practice 0x1184DC, the photo drive 0x11B0D8; the free
+  run 0x1179F8 with the session's best time and note 13 when it beat the course's record, else 14; ours puts one per run:
+  RULES_AUDIT.md); Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 - **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
   best score (+0x230) when higher, at most 255, shown on the course page.

@@ -125,8 +125,9 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
   the time limit is over and it leads). Event 5 for the car; the player's finish shows the
   middle message `RaceFinish` (+0x130) for 3.7 s with a 0.3 s fade (`RaceDisplay::vf36`
   0x3A0228, vf41 0x3A1568) and the finish view (camera value 11, ❓ what it shows).
-- Order: ❓ the comparison itself; taken here as crossings first, a car still running ahead of
-  a finished one on equal crossings, finished cars by their finish, running ones by distance.
+- Order (0x365BC0 with its comparison 0x3659E8, `RaceFlow::sort_order`): more crossings first; two finished cars by their
+  finish, two running ones by their distance; of one finished and one running on equal crossings the running one, but the
+  finished one in a test that ends at its goal and on a course without a lap.
 - The cars race on after the player's finish; each finishes at its next crossing.
 
 ## The results
@@ -305,9 +306,9 @@ inputs to step 900, then full throttle and full brake from step S. The hold ends
 So the time is lowest when the car stops just inside the box's near edge. A part brake can recover a brake begun too
 early: S 964 with the brake at 2700 of 4096 from step 1000 gives 10.148.
 
-The other sequences (time trial, events, championships, licenses, missions, machine test, free
-run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
-single race's commands are run here.
+Every sequence's commands go through the one handler of the race's menus (`screen_race.cpp` `update_quick`); each
+sequence's own rules (what it records, its diary day, the commands it does not do yet) are listed by sequence in
+[RULES_AUDIT.md](../RULES_AUDIT.md).
 
 ## An arcade single race's options
 
@@ -531,14 +532,14 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
 | A license test's page's scene | `screen_race.cpp` `stand`, `start_replay(page)` | GT4 (mode 2 from 0x11D1B8: the last run's replay; black before a run) | the replay's sound under the page; what the replay does at its end (ours: again) |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md), the roof view's by its mount as the program's angles show (`shown_angle`); their springs ❓ | the on-board camera's own lens |
-| Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
+| Laps, crossings, times, finish, the order | `race_flow.*` | GT4 (0x358608, vf21 0x357B98, the order 0x365BC0 / 0x3659E8); a race's time limit not given to the race (RULES_AUDIT.md) | the time-limited finish (vf21, cond + 0xF850) |
 | License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*`; headless `race/demonstration_run.*` (`gt4tool race <disc> demos us`) | GT4 (the recordings on our own race: starts, hold, run-up by the driver, rules, cones). ✔ 69 of the 70 US tests with a recorded time end on it to the millisecond (B-6 is 34 ms early, as in the program's own run of the file). B-8's car is not in the US database; 14 files record no time | |
 | The disc's recorded races (the Replay Theater's Demo tab) | `screen_race.cpp` `load_recorded_race`, `play_demo`; headless `race/recorded_race.*` | GT4: the race set up from the file (replay.md): start, cars, drivers, pit stops; a pad run by its records, a B-spec run by its driver and the recorded commands, a free run from the recorder's moment. ✔ All thirteen of the US disc's end on their recorded times and best laps, in the app too | the replay's own play list (+0x148) |
 | A run of ours kept as the program's, a card's replay file played | `race/race_recording.*`, `formats/replay/demonstration.*` (`encode`), `screen_race.cpp` `recording`, `begin_behind`; `gt4tool race <disc> recording` | GT4: the recorder's stream, the race's header, the cipher and the card's scrambling (replay.md "A replay of ours"); arcade single races and license tests. Ours: the saved replay file round it (states, details) |
 | Free runs: time trial, free run, Gran Turismo mode's practice | `screen_race.cpp` `free_run`, `apply_course_start`, `Session::count_rolling` | GT4 (DynamicsConductorFreeRun: vf30 0x3F5670 the run-up, vf14 the hand-over, vf37 no laps) | the best lap's ghost |
-| The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
+| The pad's controls | `input/race_input.*`, `sim/rules_input.*` | GT4 (the port's report 0x43CF90, the frame's use; [input.md](../specs/input.md)) | |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
 | The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
