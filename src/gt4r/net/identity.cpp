@@ -1,5 +1,6 @@
 #include "gt4r/net/identity.h"
 
+#include <algorithm>
 #include <cctype>
 
 namespace gt4r::net {
@@ -22,6 +23,20 @@ std::string refusal_text(const std::string& text, bool update_required) {
     if (!t.empty()) t[0] = char(std::toupper(static_cast<unsigned char>(t[0])));
     if (!t.empty() && t.back() != '.') t += '.';
     return t;
+}
+
+std::string online_name(const std::optional<std::string>& configured) {
+    if (!configured) return kDefaultOnlineName;
+    const std::string& t = *configured;
+    size_t from = 0, to = t.size();
+    while (from < to && std::isspace(static_cast<unsigned char>(t[from]))) ++from;
+    while (to > from && std::isspace(static_cast<unsigned char>(t[to - 1]))) --to;
+    size_t n = std::min(to - from, kOnlineNameBytes);
+    // (Not through a letter of several bytes: a cut before one of its continuation bytes drops the letter.)
+    if (n < to - from)
+        while (n > 0 && (static_cast<unsigned char>(t[from + n]) & 0xC0) == 0x80) --n;
+    const std::string name = t.substr(from, n);
+    return name.empty() ? std::string(kDefaultOnlineName) : name;
 }
 
 } // namespace gt4r::net

@@ -114,9 +114,15 @@ console's card and its dialogs instead, as the original shows them: `GT4R_MENU c
 - The common `ConfirmDialog`'s `open` (the scripts reach it through `context.getCommonPage`) answers the texts a card would ask,
   found by the disc's own page and key (`kRules`), without opening the page; a real failure is told once with the save's folder.
 - Texts that only speak of a card are reworded (English: `reword_card_texts`).
-- The boot: CheckRoot's questions are answered, so an empty folder goes to the opening movie and the title with no game loaded;
-  Gran Turismo mode then goes to the name entry (`startCreateGameData`), and `createGameData` writes the game. The program's own
-  boot goes to the project the game was saved in (`endBoot`): Gran Turismo mode's map for a game saved there.
+- The boot: CheckRoot's questions are answered. With no game (a first boot, an empty folder) its question whether to make the
+  game's data is answered yes, as a player answers it with a blank card: the game's name entry (BootProject::EntryRoot), then
+  `createGameData` writes the game, the introduction (ExplainRoot), the opening movie and the title. The name entry has no way
+  back (its Cancel deletes a letter; an empty name is "No letters"; No at "Are you sure" stays on it), as in the original. Without a
+  game nothing is saved by itself: what Arcade writes into the game data (favorite cars, a single race's best A-spec points) would
+  be lost at quit (the options are also kept apart, in `gt4r-options.txt`; photos and replays are files of their own).
+  A game that cannot be read is told once, then the boot goes on as with no game: the name entry, and the new game in a folder
+  of its own (the unreadable one is kept as it is). The program's own boot goes to the project
+  the game was saved in (`endBoot`): Gran Turismo mode's map for a game saved there.
 - Prologue's `memcard` project is not run: its boot loads the game there and the title comes; its save and load items are the saved
   games' page. It has no new game's page: its first change makes the game.
 - Saving by itself (`autosave`): at each page opened or closed, with no script running, when the bytes a save would write differ
