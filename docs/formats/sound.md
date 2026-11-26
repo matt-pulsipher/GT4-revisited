@@ -18,7 +18,9 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | Part | Runs | Follows |
 |---|---|---|
 | The SPU2: voices, PS-ADPCM, envelopes, interpolation, the reverb unit | the shared `gt3r::VoiceMixer`, `gt3r::SpuReverb` | the hardware (not program code) |
+| A voice's level when it changes | the shared `gt3r::VoiceMixer`: every change slews to the new level, full scale in about 5 ms (256 samples) | **the shared engine's, not Gran Turismo 4's**: the SPU2 takes a voice's level (VOLL / VOLR, fixed mode) at once, and the driver eases nothing itself but what its rules say (the layer players' 0x1000 a step, the effects' level slides); a level change lands up to 5 ms later and softer than the original's. Wanted from the engine: a mixer whose changes land at once (a per-mixer switch) |
 | The sound driver: the two sequencers, the effect sequences, held notes, each voice's level and pitch (0x559330 .. 0x55E600) | `sound_driver.*` | Gran Turismo 4's; the lfo is not built (no voice of the discs is heard to waver) |
+| The driver's voices: which of its 46 a sound takes, and which it cuts when none is free (0x55C758, 0x55D0B0, 0x55D1C0) | `sound_driver.*` (records over the shared mixer's voices), `layer_player.*` | Gran Turismo 4's (the shared mixer's own stealing rule is not used) |
 | The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
 | A car's frame and mix (0x3B5E80, 0x392640): views, gains, microphones, panner, Doppler, the master, its fades and ducks | `car_sound.*`, `race_sound.*`, `race_tables.*` | Gran Turismo 4's, tables from the disc's program; on Prologue's disc its own (0x378870, 0x3A18A8: "Prologue" below) |
 | The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, in every output mode as the program does it: the shared mixer's option is on while a disc is open (`with_surround_cue`; the shared engine's own screens keep their setting) |
@@ -30,7 +32,7 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); the slots a course allows (0x3922B0) are not applied, as a wheel's notes follow the surface under it |
 | The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170), which music a run plays (0x3C0208, 0x389D48, 0x3A0228, 0x3E1C80, 0x3E1EA0) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's; Prologue's race music silent as its options have it |
 | The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music at its own level 1.0 (its level setter 0x421AB8 has no caller) |
-| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`), at the program's levels (the SPU2's registers in the saved states); the original plays a stream on two SPU2 voices with the SPU2's interpolation, ours resamples it apart from the voices |
+| Streams (`.ads`): reading, decoding, playing | `stream_voices.*`: a PS-ADPCM piece on two of the shared mixer's voices (its music bus), as the IOP's stream module plays it on core 1's voices 22 and 23; anything else (a mod's PCM `.ads`) through the shared `gt3r::AudioEngine` stream player | Gran Turismo 4's voices: the SPU2 pitch rate x 4096 / 48000 (3763 at 44.1 kHz), envelope 0x000F / 0x0000, no reverb, the level x 16384 on each voice's side, the piece from its start again when it repeats (the headers' loop fields are -1), the SPU2's interpolation. The stream module itself is not in `CORE.GT4` (its reading ahead is ours: two seconds at once, the rest on a thread) |
 | Pit sounds | `RaceSound::pit_effect`, `RaceSound::refueling`; the Drive world takes the stop's bit 0x200 | `jackdown` as Gran Turismo 4's pit scene plays it (0x35BE38, for the car shown 🔎), heard in the app's B-spec stop; the crew's (`wheelgun`, `dropnut`, `droptire`, `jackup`: their motions' channels), `oiltank` and the held `refueling` wait for the pit crews' scene (0x3CFA98, 0x3D03E0), which is to call these two |
 
 ## What is on the discs (`gt4tool sound <disc> survey`)
@@ -227,6 +229,29 @@ side gains, pitch factor and pan from whoever started it.
 tone's keys; the caller sets the two side gains, the pitch factor, a pan and a priority
 every frame. It sends to the reverb when any of the tone's flags is set.
 
+**Voices** (0x55C758, 0x55D0B0, 0x55D1C0; the records at 0x6518C8 + 0xA8, 0xE0 bytes each). The driver keeps
+48 voice records and hands out 46 (record i is SPU2 voice i of core i / 24; records 46 and 47 are the stream's two,
+core 1's 22 and 23). Every request may take any of the 46 (its mask, 0x6C8BD0 and the sequencers' own, is
+0x3FFFFFFFFFFF in every saved state). A record keeps +0x34 its priority (signed 32 bits), +0x40 a voice group, +0x1A
+bit 4 a "kept" flag, +0x14 its age (the driver's steps since it sounded, counted by 0x55D890) and +0x48 a serial (the
+order it was handed out, from a counter at +0xA0). A free record comes first: the head of a free list, onto whose head
+0x55D890 puts each record whose voice has ended, in the records' order (so the last ended is reused first). With none
+free:
+
+| Who | Rule | Its voice takes |
+|---|---|---|
+| a held note (0x559EB0), a layer player (0x558FD8), an effect sequence given a priority (0x611AA0) | 0x55D0B0: the record of the lowest priority at or under the new one's; among equals the oldest by age, and of equal ages the later record (0x55D070). None at or under it: no voice | the caller's priority, sent again every frame; an effect's voice is kept when its tone's flag 0x01 is set |
+| a music note (0x611CF0) | 0x55D1C0 → 0x55D148: the first handed out (the lowest serial) of all, whatever its priority | priority 0, group 0 |
+| an effect sequence without one (priority -1, the default of 0x55A748) | the first handed out of its tone's voice group (tone byte 0, when not 0), else of the voices no tone keeps | the tone's priority (tone byte 1) and group |
+
+The cut voice's record takes a new serial (0x55D028) and the new sound starts on it at once. In the saved states the
+menus' and the races' effect sequences have priority 0x7FFFFFFF (they take a voice from anything); a race's held notes
+and layer players |level| × 2147483520 (0x392640, 0x398B70: in the EE's floats, at most 0x7FFFFFFE), sent again each
+step. A race uses all 46: in the saved states of Tsukuba's replay and of Route 5 at night none is free (25 / 21
+layer players' voices, 21 / 25 held notes).
+`SoundDriver` keeps these records itself and plays each on one of the shared mixer's voices (whose own stealing rule
+is then never used); `audio::level_priority` is the race's priority of a level. Tested: `sound_driver_voice_records`.
+
 **The output's level.** A voice at side gain 0x3FFF plays its samples at full scale; the voices'
 sum is held to 16 bits; a stream plays its samples at its level. Measured: the menus' `cursor`
 and `ok` in the original are our rendering at the same gains (1.79 to 1.91 times the shared
@@ -243,7 +268,12 @@ recordings -17 to -19 dB, a few samples at full scale). Prologue's menu music at
 music option reaches full scale, as its recording does (its arcade pages at -11.6 dB).
 
 **Reverb.** The game sets both SPU2 cores to effect mode 4 ("studio C") at depth 0x0FFF when
-the sequenced music's banks load, as Gran Turismo 3 does at boot. ❓ What the races set.
+the sequenced music's banks load (0x460ED8, both cores, the work areas ending at 0x1FFFFF and 0x1DFFFF), the
+effect-attribute call's only caller (0x55CC10): nothing sets another mode. A race moves only the depth, by the
+road under the camera (the course's sound below). The SPU2s of all 389 saved states of the reference (both discs: menus,
+pre-race pages, races from every view, replays, license tests, the B-spec demos) hold studio C's coefficients on
+both cores, and the depth 0x0FFF (open road and menus), 0x3FFF (Route 5 at night in its tunnel: 0.5) or 0x1FFF (the
+B-3 demos: 0.25). The shared mixer's boot setting is the same mode and depth, so it stays.
 
 Measured on renderings (`gt4tool sound <disc> seq-wav`, `tests/test_sound.cpp`): the notes
 of `home`, `arcade`, `gtauto` and Prologue's sequence 5 sit on the A = 440 Hz grid (0 cents
@@ -484,7 +514,11 @@ sides' crossfaded levels).
   `PROLOGIC2`); a new game's is 1 (the original's saved states).
 - **The surround cue** (the panner's two flags): a sound behind the camera has one side inverted
   (in front, x >= 0: the left follows the right's flag, x < 0 the right the left's; behind, the
-  same with the flag's opposite). The program does it in **every** output mode: the original's
+  same with the flag's opposite). The flags are the car's frame's (0x391AF0, after the panner 0x39A7B0): x and z
+  over the distance, z read from the place before the quarter metre's move (a sound at the camera, or just behind it,
+  counts as behind: its left side inverted), the distance after it; Prologue's mix (0x3A18A8) takes the moved place
+  (a sound at the camera counts as ahead). The rule is the shared `gt3r::SurroundCue`'s, z = 0 behind and x = 0 on
+  the right in both, the camera's forward being the program's -z. The program does it in **every** output mode: the original's
   stereo recordings of the nose view carry the exhaust's left side inverted (its players' volumes
   -5464 / +5464 in the saved state; the recording's two sides correlate +0.28 there, +0.90 from
   the chase view). Here the shared mixer's surround option is on while a disc is open (`with_surround_cue`; the
@@ -797,6 +831,13 @@ the Doppler constant at 0x378B88) but other tables:
   `sound_race_prologue_master`.
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
+- **Its whine** (0x3B8E88) is Gran Turismo 4's rule (0x34FED0) on its own record, the shared engine's layout four bytes
+  on (the record at car + 0xD8): the clutch's torque (+0x4F8), the gear (+0x43A) and its ratio against the first's (the
+  driveline block's +0x3C + 4 gear), the clutch's state (+0x43B, none while open), the driven axles' speed by the layout
+  (0x3B99B8: rear +0x460, front +0x45C, their mean for 3 and 10, rear + k (front - rear) for 8: Gran Turismo 4's cases),
+  with layout 7's motors (0x3BEE58) and a one-speed box (0x3CD378: the driveline's +0x12 = 3) as Gran Turismo 4's. A car
+  whines when its byte at car + 0xC58 is set (❓ what sets it; ours: the gearbox's `GEAR` row, as on Gran Turismo 4's disc).
+  `sound_state` reads them from the session's record (test `sound_race_prologue_whine_inputs`).
 
 ## Checked against the original
 
@@ -845,6 +886,15 @@ memory matched against the disc's `.ads` by their data; levels × 16383):
 | Tsukuba (start, first corner, replay), Grand Canyon, Gran Turismo mode's free run, Route 5 at night, Seattle at dusk | `race_35`, `race_50` (the arcade race's start), `race_37`, `race_68`, `race_40` (`racing`) | 4416: the racing level 0.3 × the race music option 115 / 128 |
 | License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
 | Prologue's starting grid page | `str10j` | 16383 |
+
+**On two voices, against the original.** The Time Trial walk's pre-race page (`11-license-tt/arcade_time_trial_walk_to_prerace.mp4`,
+from 120 s: `gt4qm-02` 1.97 s in, correlation 0.96) against the piece rendered on two SPU2 voices (`stream-wav ... spu`)
+and against the stored samples resampled plainly to 48 kHz, each laid on the recording by one gain at 0.2 .. 2 kHz, by
+2 kHz bands from 2 to 20 kHz: the voices within 0.2 dB of the recording up to 18 kHz (+1.3 at 18 .. 20 kHz), the plain
+resampling 0.2 .. 0.7 dB over at 2 .. 6 kHz, 1.5 .. 3.2 over at 6 .. 12 kHz and 4.6 .. 6.7 over from 12 kHz. Ours plays the
+voices (`sound_stream_voices_on_disc`: the level of every second at 0.2 .. 2 kHz as stored, 2.8 dB under it at 8 .. 12 kHz).
+The shared mixer has 46 voices for the driver's 46 and these two: with a stream on and 44 of the driver's sounding, the
+driver's rule chooses the voice a new sound cuts.
 
 **A menu stream's level** (0x4608C8, kind -2, 0x460220 → 0x45FFF8 → 0x45FFC0): the script's volume × `sdvol` level 0 (0.3),
 no option; `option.menu_bgm_volume` (0x180AA8) is the raw option / 128, so the pages that pass it play at 0.3 × 115 / 128,

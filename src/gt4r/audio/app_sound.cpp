@@ -17,31 +17,41 @@ bool ends_with(const std::string& s, const char* tail) {
 
 } // namespace
 
-StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs) {
+StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs, StreamVoices* voices) {
     StreamPlayer p;
-    p.play = [&audio, &vfs](const std::string& path, bool repeat, float level) {
+    p.play = [&audio, &vfs, voices](const std::string& path, bool repeat, float level) {
+        if (voices) {
+            voices->stop();
+            if (voices->play(path, repeat, level)) {
+                audio.stop_music();
+                if (sound_log()) LOG_INFO("Sound: stream %s%s at %.4f on two voices", path.c_str(), repeat ? ", repeating" : "", double(level));
+                return true;
+            }
+        }
         const bool ok = audio.play_music(vfs, path, repeat, stream_request(level));
         if (sound_log()) LOG_INFO("Sound: stream %s%s at %.4f%s", path.c_str(), repeat ? ", repeating" : "", double(level), ok ? "" : ": not played");
         return ok;
     };
-    p.stop = [&audio] {
-        if (sound_log() && audio.music_playing()) LOG_INFO("Sound: stream stopped");
+    p.stop = [&audio, voices] {
+        if (sound_log() && (audio.music_playing() || (voices && voices->playing()))) LOG_INFO("Sound: stream stopped");
+        if (voices) voices->stop();
         audio.stop_music();
     };
-    p.pause = [&audio](bool paused) {
+    p.pause = [&audio, voices](bool paused) {
         if (sound_log()) LOG_INFO("Sound: stream %s", paused ? "paused" : "on");
+        if (voices) voices->pause(paused);
         if (paused)
             audio.pause_music();
         else
             audio.resume_music();
     };
-    p.playing = [&audio] { return audio.music_playing(); };
+    p.playing = [&audio, voices] { return (voices && voices->playing()) || audio.music_playing(); };
     return p;
 }
 
 AppSound::AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs)
-    : audio_(audio), vfs_(vfs), driver_(audio.voices()), library_(std::make_shared<SoundLibrary>(vfs)),
-      menu_(library_, driver_, stream_player(audio, vfs)) {
+    : audio_(audio), vfs_(vfs), driver_(audio.voices()), stream_voices_(audio.voices(), vfs), library_(std::make_shared<SoundLibrary>(vfs)),
+      menu_(library_, driver_, stream_player(audio, vfs, &stream_voices_)) {
     // The game's output level on the app's mixer while a disc is open (the shared engine's own
     // screens keep its half level).
     with_output_level(audio_.voices());
@@ -59,6 +69,7 @@ AppSound::AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs)
 }
 
 AppSound::~AppSound() {
+    stream_voices_.stop();
     gt3r::AudioEngine& audio = audio_;
     audio.voices().set_master_volume(gt3r::VoiceMixer::kOutputTrim);
     audio.voices().set_surround_cue(surround_cue_before_);
@@ -67,6 +78,7 @@ AppSound::~AppSound() {
 }
 
 void AppSound::stop() {
+    stream_voices_.stop();
     driver_.stop_all();
     preview_note_ = 0;
 }
@@ -87,6 +99,7 @@ std::string AppSound::preview(const std::string& path) {
         const int count = int(bank.sequences->sequences.size()), n = preview_next_++ % count;
         const sound::SqtSummary s = sound::summarize_sequence(*bank.sequences, size_t(n));
         audio_.stop_music();
+        stream_voices_.stop();
         driver_.stop_all();
         driver_.set_volume(SoundDriver::Kind::Music, library_->levels().level(1, sound::VolumeTable::Sequence));
         driver_.play_music(bank.bank, bank.sequences, n);
