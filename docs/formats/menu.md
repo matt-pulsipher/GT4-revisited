@@ -641,12 +641,25 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   15, note 15, no time) and the mission's page comes back as before the run with `canReplay` 1 (Replay and Save
   added). ✔ The original's mission 1 exited (reference 21-gtmode-deep `mission1_page_after_exit.png`); ours the
   same, and a finished run's Results.
-- **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
-  -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
-  it when there was no run or its result is 13: every visit to a test's page is a day, as the
-  original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
+- **A license test** (0x1105A8) keeps a graded run only (the race's grade +0x88: 2 gold, 3 silver, 4 bronze, as
+  results 9, 10, 11): its unit and its ranking (time, result, the real date, the pass code); a failed or unfinished
+  run is kept nowhere. Its day is the test's sequence's (0x11CB38 keeps a result from 13 and a best from 359,999,999;
+  a graded run faster than the best takes both): when it ends (Exit, or NEXT_RACE to the next test; 0x110800) the
+  diary gets that day (result, note 14, time), or a day with nothing in it when no run was graded: every visit to a
+  test's page is a day, as the original's calendar shows. The page has no Replay after a demonstration (0x11CED8) nor
+  after a run that ended under 2 s on the race clock (0x11CE3C; ❓ the test's settings then reloaded, 0x1100D0, not
+  done). **A course's run** (0x115A90) is a day of the diary;
   Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
+
+- **The course rankings**: a driven time trial run (0x112620 -> 0x113320) or free run (0x116E20 -> 0x117898, only
+  when the run made a best-lap recording, race information +0x98; ❓ here: a lap timed) whose best lap (0x35E3F0) beats
+  the sequence's best goes into the course's ranking (MCourseRecord's unit, made when it has none, 0x433C10; insert
+  0x433260: the time, the real date, the car's code, the pass code) and becomes BestTime (the Session Record); a B-spec
+  run inserts nothing. A machine test the car finished (+0x5B6) inserts its best lap every run (0x1161A0): the 400 m
+  test into the machine record's unit 0 (mt400_lasvegas into 3, 0x116268), the 1000 m into 1 (0x116440), the top speed
+  into 2 by speed (0x1165B8, 0x433348; not here: the machine test's conductor is not built). ❓ The race's kind (+0xD68
+  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. The pass code (0x10F718 -> 0x44B258: 83 bits
+  of ten fields, the car's place in 11 bits, the course's in 9) is not made: "--------". `game_race.cpp` race_finished.
 
 - **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
   best score (+0x230) when higher, at most 255, shown on the course page.

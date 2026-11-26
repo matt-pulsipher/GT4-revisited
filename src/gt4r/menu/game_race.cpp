@@ -568,6 +568,29 @@ s64 Runtime::race_finished(const RaceResult& r) {
         day.code = d.code(kCourseTable, r.course);
         break;
     }
+    // The course rankings (Gran Turismo 4's; Prologue keeps its own). A driven run (mode 0; a B-spec run's sequence inserts
+    // nothing) whose best lap beats the sequence's best: the time trial's (0x112620 -> 0x113320) and the free run's (0x116E20
+    // -> 0x117898, inside its "the run made a best-lap recording", race information +0x98: ❓ here a lap timed) go into the
+    // course's ranking (its unit made when it has none, 0x433C10), and the best is the menus' BestTime. A machine test the car
+    // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
+    // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
+    // (0x1165B8, 0x433348): not run here (the machine test's own conductor is not built), so not inserted. ❓ The race's kind
+    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code (0x10F718 ->
+    // 0x44B258) is not made: "--------".
+    if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
+        std::string car;
+        for (const RaceResult::Finisher& f : r.order)
+            if (f.entry == 0) car = f.car;
+        const s32 have = work.get("BestTime"); // (the sequence's best: none before a run, 0x112E78 / 0x117718)
+        if ((r.course_kind == 7 || r.course_kind == 1) && (have <= 0 || r.best_lap_ms < u32(have))) {
+            if (const int u = course_record_unit(d, s, r.course, true); u >= 0) ranking_insert(d, s.course_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+            work.set("BestTime", s32(r.best_lap_ms));
+        } else if (r.course_kind == 6 && r.finished) {
+            const u8 kind = row.size() > 0x10 ? u8(row[0x10] - 6) : 0;
+            const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
+            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+        }
+    }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player
     // drove and finished keeps its A-spec points when they are the course's best (0x111E98: the course of the race's row,
     // its record made when it has none, 0x433C10; 0x4336D0: at most 255), shown on the course page.

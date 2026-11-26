@@ -88,6 +88,7 @@ struct RaceResult {
     int place = 0;         // 0: first
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
+    u32 best_lap_ms = 0;   // the player's car's best lap (0x35E3F0; 0: none)
     std::string pass_code; // a ranking entry's (up to 32 characters)
     std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
     float distance_m = 0;  // what the car driven covered

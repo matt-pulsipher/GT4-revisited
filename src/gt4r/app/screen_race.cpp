@@ -3704,6 +3704,7 @@ private:
             r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
+        if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.best_lap_ms = u32(best);
         // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
         if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
             r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
@@ -3724,7 +3725,8 @@ private:
         } catch (const std::exception& e) {
             LOG_WARN("Race result: %s", e.what());
         }
-        if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
+        // (The time trial's and the free run's BestTime: the result routine's, with the course ranking's insert.)
+        if (sequence_ == "machinetest" || is_license(sequence_) || (menus_->is_prologue() && (sequence_ == "time_trial" || sequence_ == "freerun"))) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)
             const s64 best = is_license(sequence_) ? (r.finished && r.result != "failed" ? s64(r.time_ms) : -1) : flow.car(0).best_lap_ms;
             s32 have = w.get("BestTime");
