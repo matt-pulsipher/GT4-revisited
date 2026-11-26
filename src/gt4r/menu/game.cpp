@@ -273,7 +273,7 @@ int GameState::add_car(GarageEntry e) {
 
 void GameState::suspend_series(bool keep) {
     suspended = keep;
-    if (!keep) return;
+    if (!keep) return void(series = {}); // (closed: retired or run to its end; entered again it starts anew)
     suspended_racecode = series.label;
     suspended_session = series.races_run;
 }

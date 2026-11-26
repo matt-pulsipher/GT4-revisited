@@ -1020,10 +1020,13 @@ void Runtime::set_focus(LiveWidget& page, const std::shared_ptr<LiveWidget>& w) 
 }
 
 // The focus bits: the focused widget's, and every parent's of a widget that has them, each picture (0x263A68, 0x207208).
+// Only the top page's focus has them (vf92: the focus bit is "this is the focus of the context's
+// top page", 0x2319C0 / 0x235C00): a page under a dialog shows its focused widget at rest.
 // (❓ Prelight is the widget the cursor points at: here the focused one.)
 void Runtime::mark_focus(LiveWidget& page) {
     std::vector<std::weak_ptr<LiveWidget>> now;
-    for (std::shared_ptr<LiveWidget> w = page.focus.lock(); w;) {
+    const bool top = !pages_.empty() && pages_.back().get() == &page;
+    for (std::shared_ptr<LiveWidget> w = top ? page.focus.lock() : nullptr; w;) {
         now.push_back(w);
         LiveWidget* up = w.get() == &page ? nullptr : w->parent_widget();
         w = up ? up->self() : nullptr;

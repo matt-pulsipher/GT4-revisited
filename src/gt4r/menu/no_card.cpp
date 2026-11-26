@@ -243,6 +243,9 @@ void autosave(Runtime& rt) {
         const auto option = s.options.find("auto_save");
         if (!s.valid_game_data || n->card().exists() != 0 || (option != s.options.end() && std::holds_alternative<int>(option->second) && std::get<int>(option->second) == 0)) return;
     }
+    // Not while a championship runs (the original saves on the map only, which a running championship reaches only by leaving
+    // it: then it is kept, 0x119BD8): such a save would hold the series' page with no series and no menu stack.
+    if (!prologue && !s.series.label.empty() && !s.suspended) return;
     const u32 now = print_of(*n);
     if (!n->saved_print) { // the game as it was loaded (or a disc just started)
         n->saved_print = now;

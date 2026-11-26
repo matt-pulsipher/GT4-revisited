@@ -241,7 +241,8 @@ in the reference's saved states, all twelve looked at).
 
 Setting active (0x265FF0), focus (0x266098) or insensitive (0x266200) on a face sets its parent's
 too, up to the first that is no face. Each picture a widget's focus bit is whether it is the
-focused widget and its prelight bit whether it is the one the cursor points at (0x263A68); a box
+focus of the context's top page (0x2319C0: the last page pushed; 0x235C00 its focus), so a page under a dialog
+shows its focused widget at rest, and its prelight bit whether it is the one the cursor points at (0x263A68); a box
 with a child that has one has it too (0x207208, the list's rows 0x2B3518), so all the parents of
 the focused widget have both (measured: five saved states). A list box's chosen row has the cursor's
 prelight while the list has the focus, and no focus bit (0x2B3518). ❓ Else the pointed widget is the
@@ -872,8 +873,9 @@ original's does (to the pixel, `disc_menu_text_layout`).
 
 **Tool tips** (mToolTipFace): the text is the page's `TOOLTIP|<key>` (0x249B70; ❓ the key's
 own text when there is none, and nothing when the key has no text either). A tip is its page's when it loads (0x24A020 calls attach,
-0x249FB8: the page's +0xEC), and then shows the focused widget's tool tip (the nearest with
-`tooltip` and a `tooltip_key`); `remove()` takes it off the page (0x249FF0; here its text is
+0x249FB8: the page's +0xEC), and then shows the focused widget's own tool tip (0x235CF8, called on focus entry by
+mWidget::vf81 0x265610: the root's focus +0xC8, its `tooltip` flag +0x98 bit 25 and its `tooltip_key` +0x8C; no parent's:
+with an option's list open, its rows have none and the strip is empty, as in the original's pictures); `remove()` takes it off the page (0x249FF0; here its text is
 cleared too) and `attach()` puts it back. It is not aligned (its style's `aligned` off,
 0x248DD0). Its motion (update 0x24A840, states 0x24A2F8 by the table at 0x699310; constructor
 0x248DD0: +0x148 8, +0x14C 10, +0x10C 1): a new text is measured; when it fits 95 % of the
