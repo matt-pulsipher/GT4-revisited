@@ -1038,7 +1038,14 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     const float* sky = course.sky_color();
     const float* ground = course.ground_color();
     for (int i = 0; i < 3; ++i) o.env_sky[i] = sky[i], o.env_horizon[i] = ground[i], o.env_ground[i] = ground[i];
+    // The cars' reflection passes: weighted C0 + C1 min(cos, 0) with the course's C0 = Env0 +0x34 and C1 = +0x34 x +0x30 (put on the
+    // passes' own rows: CarVisual's weigh_reflections); a pass without rows takes 1 + +0x30 min(cos, 0) here, at full strength.
     o.reflection_fresnel = 0.8f;
+    if (const ByteSpan e0 = course.section(course::kSlotEnv); e0.size() >= 0x38) {
+        float k;
+        std::memcpy(&k, e0.data() + 0x30, 4);
+        if (std::isfinite(k)) o.reflection_fresnel = std::clamp(k, 0.0f, 1.0f);
+    }
     o.reflection_strength = 1.0f;
     return o;
 }
