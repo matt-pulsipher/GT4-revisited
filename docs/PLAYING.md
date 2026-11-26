@@ -280,7 +280,8 @@ cameras to the race's views. On a pad whose right stick does nothing else it loo
 
 The ones a player meets first:
 
-- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device.
+- Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
+  `photos/`.
 
 ## Scripted play (for checks)
 

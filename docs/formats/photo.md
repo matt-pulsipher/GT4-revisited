@@ -17,7 +17,9 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The scene (course, car, lights, shadows) | `app/race_world.*` | as in the races: Gran Turismo 4's files and rules drawn by the shared engine |
 | The finder's depth of field | the shared engine's pass (the program's own, `0x399550`, has the same steps) | 🔎 the blur steps are of the shared engine's 448-line picture; the program counts in the finder's own 190 lines and shows none of the smallest |
 | The finder's color correction | the shared engine's grade pass, a curve through the gamma's middle value | 🔎 the photo itself uses the program's gamma table |
-| Not built | developing a film, the printer and the USB memory (their pages open), the photo drive (`PhotoPause`, `racephoto.strb`) | |
+| The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
+| The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
+| Not built | developing a film, the photo drive (`PhotoPause`, `racephoto.strb`) | |
 
 ## The sequence
 

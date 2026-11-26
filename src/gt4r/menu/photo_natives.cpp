@@ -125,8 +125,9 @@ std::shared_ptr<script::Reference> render_member(Runtime& rt, const std::string&
             return Value{};
         });
     if (n == "outUSBStorage") return method(n, [r](Vm&, const Value&, Args) { return out_usb(*r); });
-    // A printer: none is connected (the page says so).
-    if (n == "scanPrinter") return method(n, [](Vm&, const Value&, Args) { return Value::integer(0); });
+    // A printer: none is connected. The program loads the printer's driver and finds no printer to open: "no_printer"
+    // (0x1CA878; "OK" with one), which the print page shows as "Printer not connected.".
+    if (n == "scanPrinter") return method(n, [](Vm&, const Value&, Args) { return Value::string("no_printer"); });
     if (n == "printout" || n == "cleaning" || n == "nozzleCheck") return method(n, [](Vm&, const Value&, Args) { return Value::string("no_printer"); });
     if (n == "getPrinterProgress" || n == "getSupportPaper" || n == "getSupportMedia" || n == "isFuchinashi")
         return method(n, [](Vm&, const Value&, Args) { return Value::integer(0); });
