@@ -2,6 +2,13 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <string>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace gt4r::test {
 
@@ -42,6 +49,23 @@ const std::vector<std::unique_ptr<Disc>>& discs() {
 
 int main(int argc, char** argv) {
     using namespace gt4r::test;
+    // The tests' folders (temp_directory_path() / "gt4r-...") under a folder of this run's own, so
+    // two runs at once (two worktrees' suites) never share one; taken away at the end.
+    namespace fs = std::filesystem;
+    std::error_code ec;
+#if defined(_WIN32)
+    const fs::path own = fs::temp_directory_path(ec) / ("gt4r-tests-" + std::to_string(_getpid()));
+#else
+    const fs::path own = fs::temp_directory_path(ec) / ("gt4r-tests-" + std::to_string(getpid()));
+#endif
+    const bool made = !ec && fs::create_directories(own, ec) && !ec;
+    if (made) {
+#if defined(_WIN32)
+        _putenv_s("TMP", own.string().c_str()), _putenv_s("TEMP", own.string().c_str());
+#else
+        setenv("TMPDIR", own.c_str(), 1);
+#endif
+    }
     int ran = 0, skipped = 0;
     for (const TestCase& t : registry()) {
         if (argc > 1 && !std::strstr(t.name, argv[1])) continue;
@@ -59,5 +83,6 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("%d run, %d skipped, %d failed checks\n", ran, skipped, failures());
+    if (made) fs::remove_all(own, ec);
     return failures() ? 1 : 0;
 }
