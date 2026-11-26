@@ -52,6 +52,7 @@ void DriveCamera::reset(const CarState& car) {
     side_ = look_ = 0;
     shake_pitch_ = {}, shake_yaw_ = {};
     for (Spring& j : jolt_) j = {};
+    wobble_pitch_ = {}, wobble_yaw_ = {}, shake_side_ = {}, shake_heave_ = {};
 }
 
 float DriveCamera::draw() {
@@ -123,6 +124,15 @@ void DriveCamera::step(const CarState& car, float h) {
         input[3] = m * either(draw(), 0.8f, 0.4f), input[4] = m * either(draw(), 0.2f, 0.05f), input[5] = m * either(draw(), 0.3f, 0.03f);
     }
     for (int k = 0; k < 6; ++k) jolt_[k].step(input[k]);
+
+    // The places without bit 2: the wobbles' strength by the speed squared, (v^2 - 7.716) / 493.83 within 0 .. 1 (10 to 80 km/h
+    // squared, 0x37A728); the shakers by the body's accelerations.
+    const float strength = std::clamp((render::dot(v3(car.velocity), v3(car.velocity)) - 7.716f) / 493.83f, 0.0f, 1.0f);
+    for (Wobble* w : {&wobble_pitch_, &wobble_yaw_}) {
+        if (draw() < 0.3f) w->target = draw() * 2 - 1;
+        w->x += (w->target - w->x) * strength * 0.4f;
+    }
+    shake_side_.step(car.accel_side * 0.5f), shake_heave_.step(car.accel_up * 2);
     const RVec vel = v3(car.velocity);
     shake_speed_ = std::clamp(render::length(vel), 2.7777778f, 33.333332f) / 33.333332f;
     // The sideways look eases by 0.2 of the rest a step; the stick's way round the car over about 0.2 s.
@@ -186,9 +196,12 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
     }
     // The other views ride the body: its heading, pitch and roll.
     RVec right = v3(car.right), up = v3(car.up), ahead = v3(car.forward);
+    if (mount != kInCar && (m.flags & 4) == 0) // (the side and heave shakers move a place without bit 2: 0x37B6BC)
+        m.pos.x += 2 * std::clamp(shake_side_.x, -1.0f, 1.0f), m.pos.y -= 2 * std::clamp(shake_heave_.x, -1.0f, 1.0f);
     p.eye = origin + right * m.pos.x + up * m.pos.y - ahead * m.pos.z;
     if (mount == kInCar) {
-        ahead = turn(ahead, right, nod_), up = turn(up, right, nod_);
+        const float nod = car.nod_given ? car.nod : nod_; // (the simulation's sway, read at 0x34A760)
+        ahead = turn(ahead, right, nod), up = turn(up, right, nod);
         p.fov = kOnBoardAngle;
         if (look_back) ahead = ahead * -1.0f, right = right * -1.0f;
         // Looking aside, then a hit's jolt, then the shake nearest the eye: 2 and 8 degrees by the speed.
@@ -216,6 +229,13 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
         ahead = turn(ahead, right, pitch), up = turn(up, right, pitch);
         const float roll = (look_back ? -m.roll : m.roll) * kPi / 180.0f;
         right = turn(right, ahead, roll), up = turn(up, ahead, roll);
+        if ((m.flags & 4) == 0) {
+            // A place without bit 2 (0x37B690): nearest the eye the wobbles, 0.7 degrees each at their full -1 .. 1, in pitch
+            // and yaw; the eye moved across and up by twice the side and heave shakers' outputs (each within -1 .. 1).
+            const float wyaw = 0.7f * std::clamp(wobble_yaw_.x, -1.0f, 1.0f) * kPi / 180.0f, wpitch = 0.7f * std::clamp(wobble_pitch_.x, -1.0f, 1.0f) * kPi / 180.0f;
+            ahead = turn(ahead, up, -wyaw), right = turn(right, up, -wyaw);
+            ahead = turn(ahead, right, -wpitch), up = turn(up, right, -wpitch);
+        }
         p.fov = m.zoom > 0.1f && std::isfinite(m.zoom) ? 2 * std::atan(1.0f / m.zoom) : kOnBoardAngle;
     }
     p.view = view_of(p.eye, right, up, ahead);
