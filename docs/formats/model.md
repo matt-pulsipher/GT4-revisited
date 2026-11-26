@@ -554,6 +554,11 @@ classic2, 0x0A driver_nike, 0x0E driver, 0x0F driver_mtr with a co-driver, else 
 other kinds none (0x20 never comes here: those cars have their own set). On this disc only
 `cthm0001` (kind 1) and `toyt0030` (0x0F) go that way. `character/driver.mdl`: five models,
 `RHAND_BONE` 0 and `LHAND_BONE` 1 (the gloves), `SKINNING` 2, `CRANIUM2` 3, `CRANIUM` 4, 20 bones.
+**Cockpit kind 0 with a set of its own** (`nike0001`, the Nike One; `ford0013`, the Model T, which Single Race refuses):
+0x3B5700 sets RaceCarModel +0x1670 for them (0x38FE30 succeeds), and 0x403260 resets the driver's record and stops there
+(it steps nothing for kind 0). ✔ Yet the original draws no driver: PCSX2, Arcade Single Race at Tsukuba, the Nike One in
+the opening TV shots and in the chase view, no figure at the seat (-0.30, 0.38, 0) the parts block gives nor anywhere
+above the shell. 🔎 What keeps it from drawing is not read; ours draws none for kind 0 (`figure_class`), which matches.
 
 **The skeleton** (HumanModel +0x10, the "pdiRiderman" body library 0x414000-0x424000): 20 nodes,
 names in program table 0x622A50: PELVIS, L/RTHIGH, L/RSHANK, L/RFOOT, LOWER_SPINE, MIDDLE_SPINE,
