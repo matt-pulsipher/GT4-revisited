@@ -496,10 +496,17 @@ operand 0x8000 + i.
 | `dirtiness` | the car's dirt (the body's draw also sets a render value to 1 - it 🔎) | 0 |
 | `wing` | the first moving-aero value (callback 6's) | 0 |
 
-- **Brake lamps by script** (27 bodies: `ac__0014`, `bmw_0002`, ...): registers `gtalc<n>`
-  and `gtala<n>` per lamp; the script sets `gtalc` to 1 and `gtala` to 1 while `brake` is
-  above 0, else 0, and the program draws the lit lens under `0x54 gtalc, gtalc, gtalc, gtala`:
-  a colour scale whose alpha switches the lens on. A still model's zero registers leave it off.
+- **Brake lamps by script** (27 race bodies, `car/lod`: `ac__0014`, `bmw_0002`, ...; 21 menu bodies, `car/menu`): registers
+  `gtalc<n>` and `gtala<n>` per lamp; the script sets `gtalc` to 1 and `gtala` to 1 while `brake` is above 0, else 0, and
+  the program draws the lit lens under `0x54 gtalc, gtalc, gtalc, gtala`: a colour scale whose alpha switches the lens on.
+  Here each body is built with the registers its script gives with the brake off and on (`mdls::still_registers`), and a
+  draw under a colour scale whose alpha is 0 is left out (`mdls::to_gtm1`). ✔ The BMW 120i's and the AC 427's lenses lit
+  only while braking (before, `0x54` was a no-op and the lenses were lit all the time).
+- **The cars with a script** (`gt4tool car-scripts`; 1,691 car files, 8,366 model sets, 57 with a script on 31 models):
+  the brake lamps above (reading `brake`); the pace car's band (`niss0088`, `time`); `benz0001` (`engineRPM`, `time` →
+  three turns, 0x48); `dmlr0001` (`engineRPM`, the pedals, `time` → two morphs and two turns; its menu body the turns
+  only); `nike0001` (the pedals, `time` → two morphs). No script reads `timezone`, `steering`, `steering_rot`,
+  `dirtiness`, `wing` or `taillamp`.
 - **The pace car's light bar** (`niss0088`, `r34_gtr_v_gtcolor_pc_01`): its script sets `builtin_tw0` = (time mod 1000) /
   1000 (and `builtin_br0` 0), the weight of a 0x4C morph whose second key moves the u of a band of 14 vertices around the
   bar's middle box (x ±0.21 .. ±0.29, y 1.27 .. 1.35, z 0.30 .. 0.40; nearest level of detail only) by +2: a 32 x 16 beam

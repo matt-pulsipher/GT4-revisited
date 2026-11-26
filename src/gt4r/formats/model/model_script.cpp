@@ -259,4 +259,21 @@ bool run_script(const Script& s, s32 entry, ScriptState& st, const ScriptCallbac
     return false;
 }
 
+std::vector<u32> still_registers(const Script& s, std::span<const std::pair<std::string, float>> hosts) {
+    if (s.empty()) return {};
+    ScriptState st(s);
+    for (const auto& [name, value] : hosts) {
+        const int cell = s.host_cell(name);
+        if (name == "time" || name == "timezone") st.set_host(cell, u32(s32(value)));
+        else st.set_host_f(cell, value);
+    }
+    for (const Script::Entries& e : s.models)
+        if (e.setup >= 0) run_script(s, e.setup, st);
+    for (const Script::Entries& e : s.models)
+        if (e.tick >= 0) run_script(s, e.tick, st);
+    for (const Script::Entries& e : s.models)
+        if (e.draw >= 0) run_script(s, e.draw, st);
+    return st.registers;
+}
+
 } // namespace gt4r::mdls

@@ -254,12 +254,19 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
     }
     // A body whose script sets a blend weight its draw reads (0x4C: the pace cars' light bars, from `time`): the body
     // built again at the blend's other end, for the shapes that move between the two.
+    mdls::Script script;
+    try {
+        script = mdls::Script::parse(body);
+    } catch (const std::exception&) {
+    }
+    // A scripted body's registers for its still draws, the brake off and on (the brake lamps by script: their lenses under
+    // 0x54's `gtala`, 1 while `brake` is above 0).
+    std::array<std::vector<u32>, 2> still_registers;
+    for (int brake = 0; brake < 2; ++brake) {
+        const std::pair<std::string, float> hosts[] = {{"brake", brake ? 1.0f : 0.0f}, {"taillamp", brake ? 1.0f : 0.0f}, {"timezone", float(opt.lamp_level)}};
+        still_registers[size_t(brake)] = mdls::still_registers(script, hosts);
+    }
     {
-        mdls::Script script;
-        try {
-            script = mdls::Script::parse(body);
-        } catch (const std::exception&) {
-        }
         int weight = -1;
         for (const mdls::Script::Variable& v : script.registers)
             if (v.name.find("_tw") != std::string::npos) weight = weight < 0 ? int(v.cell) : weight;
@@ -267,12 +274,13 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             morph_ = std::make_unique<ScriptMorph>();
             morph_->state = mdls::ScriptState(script);
             morph_->time_cell = script.host_cell("time"), morph_->weight_cell = weight;
-            morph_->script = std::move(script);
+            morph_->script = script;
         }
     }
     const auto body_levels = [&](int brake, float morph_weight) {
         mdls::Scene base = body_scene(brake != 0, opt.lamp_level, spoiler);
         base.morph_weight = morph_weight;
+        base.registers = still_registers[size_t(brake)];
         scene::Model m = build_levels(body, 0, base, kLevels, 0, name);
         if (!far_body.empty()) {
             mdls::Scene sc = base;

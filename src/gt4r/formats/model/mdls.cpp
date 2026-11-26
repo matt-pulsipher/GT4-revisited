@@ -72,6 +72,10 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
     std::set<size_t> seen;
     std::vector<size_t> work{start};
     std::map<size_t, int> weight_at; // a case's: the weight's register before its switch
+    // With the script's registers given: whether the colour scale on a path has a zero alpha (0x54 from registers, a car's
+    // brake lens under `gtala` while the brake is off; 0x52 the same from its floats), its draws not drawn.
+    std::map<size_t, bool> hidden_at;
+    const bool by_registers = !scene.registers.empty();
     std::vector<std::pair<size_t, size_t>> inside; // Scene::only_inside: the constructs kept
     std::vector<std::pair<size_t, size_t>> draws;  // the commands that draw: place, size
     const ByteSpan d(b);
@@ -82,6 +86,7 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
         size_t pc = work.back();
         work.pop_back();
         int weight = weight_at.count(pc) ? weight_at[pc] : -1; // the register of the last 0x4C on this path
+        bool hidden = hidden_at.count(pc) ? hidden_at[pc] : false;
         while (seen.insert(pc).second) {
             need(pc, 1);
             const u8 op = b[pc];
@@ -98,6 +103,7 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
                 for (u32 k = 0; k < n; ++k) {
                     work.push_back(size_t(s64(tab + 2 * k) + s16_at(d, tab + 2 * k)));
                     weight_at.emplace(work.back(), weight);
+                    hidden_at.emplace(work.back(), hidden);
                 }
                 if (op == 0x06 && scene.only_inside >= 0 && id == u32(scene.only_inside) && n) {
                     // The construct: from its first case to where the jump after the table leads.
@@ -160,6 +166,22 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
             if (n < 0) throw FormatError("MDLS draw program: unknown command");
             need(a, size_t(n));
             if (op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35) draws.emplace_back(pc, size_t(n) + 1);
+            if (by_registers && op == 0x54) {
+                const u32 r = rd16(d, a + 6);
+                float alpha = 0;
+                if (r < scene.registers.size()) std::memcpy(&alpha, &scene.registers[r], 4);
+                hidden = !(alpha > 0);
+            } else if (by_registers && op == 0x52) {
+                float alpha;
+                std::memcpy(&alpha, b.data() + a + 12, 4);
+                hidden = !(alpha > 0);
+            }
+            if (hidden && (op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35)) {
+                ++st.replaced_commands;
+                std::fill(b.begin() + ptrdiff_t(pc), b.begin() + ptrdiff_t(a) + n, kNop);
+                pc = a + size_t(n);
+                continue;
+            }
             if (op == 0x4C) weight = int(rd16(d, a));
             if (weights && weight >= 0) { // (the register each shape drawn has its weight from)
                 if (op == 0x04) (*weights)[b[a]] = u16(weight);
