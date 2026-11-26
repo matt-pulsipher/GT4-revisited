@@ -22,10 +22,11 @@ struct Rule {
     const char* project = nullptr; // only there
 };
 
-// The texts by the disc's pages and keys. The answers are the ones that lead on: at the boot "no" to making the game's data and
-// "continue" without it (Gran Turismo mode starts a new game when it is chosen), elsewhere "yes" to what only a card would ask.
+// The texts by the disc's pages and keys. The answers are the ones that lead on: at the first boot (no game yet) "yes" to making
+// the game's data, so the game's own name entry comes before the title as with a blank card (Arcade's options, favorites and
+// records then go into a game from the start), elsewhere "yes" to what only a card would ask.
 const Rule kRules[] = {
-    {"BootProject::CheckRoot", "no_gt4_data_create_data_now?", 0},
+    {"BootProject::CheckRoot", "no_gt4_data_create_data_now?", 1},
     {"BootProject::CheckRoot", "no_card_need_n_byte_continue?", 1},
     {"BootProject::CheckRoot", "no_free_space_need_n_byte_continue?", 1},
     {"BootProject::CheckRoot", "please_insert_n_byte_free_card", 1},

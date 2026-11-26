@@ -47,6 +47,23 @@ struct NoCard : Flow {
         rt->settle();
         return page() == "TopRoot" && dialogs.empty();
     }
+    // A first boot (no game yet): no card question, the game's name entry at once; a name entered, the game made, the title.
+    bool first_boot() {
+        rt->boot();
+        rt->start_project(rt->first_project());
+        for (int i = 0; i < 400 && page() != "EntryRoot" && !rt->finished(); ++i) rt->update(), see();
+        rt->settle();
+        return dialogs.empty() && enter_name() && rt->game().valid_game_data;
+    }
+    // The same, then Gran Turismo mode's map.
+    bool first_boot_to_gt_mode() {
+        if (!first_boot()) return false;
+        for (int i = 0; i < 6 && focus() != "GTmode"; ++i) press({menu::Key::Down});
+        press({menu::Key::Accept});
+        if (!rt->finished() || rt->wanted_project() != "gtmode" || !rt->advance()) return false;
+        rt->settle();
+        return page() == "TopRoot";
+    }
     // A name of one letter entered, to the title again.
     bool enter_name() {
         if (page() != "EntryRoot") return false;
@@ -82,19 +99,84 @@ TEST(disc_menu_no_card_new_game) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const fs::path dir = fresh("gt4r-test-nocard");
+    {
+        NoCard f(*disc, dir);
+        f.rt->boot();
+        f.rt->start_project(f.rt->first_project());
+        for (int i = 0; i < 400 && f.page() != "EntryRoot" && !f.rt->finished(); ++i) f.rt->update(), f.see();
+        f.rt->settle();
+        // A first boot: no card question, the game's name entry.
+        CHECK(f.page() == "EntryRoot" && f.dialogs.empty());
+        // No way back from it, as in the original: Cancel deletes a letter, an empty name is told, No at the question stays.
+        f.press({menu::Key::Cancel, menu::Key::Cancel});
+        CHECK(f.page() == "EntryRoot" && !f.rt->finished());
+        for (int i = 0; i < 8 && f.focus() != "key_enter"; ++i) f.press({menu::Key::Right});
+        if (f.focus() == "key_enter") {
+            f.rt->key(menu::Key::Accept);
+            f.rt->settle(), f.see();
+            CHECK(f.dialogs.size() == 1); // "No letters"
+            f.press({menu::Key::Accept});
+            CHECK(f.page() == "EntryRoot");
+        }
+        f.dialogs.clear();
+        const bool named = f.enter_name();
+        for (const std::string& d : f.dialogs) std::printf("  shown: %s\n", d.c_str());
+        if (!named)
+            for (const auto& line : f.rt->log()) std::printf("  %s\n", line.c_str());
+        // The name's question, then the game's own introduction; the title with the game made.
+        CHECK(named && f.rt->project()->name() == "arcade" && f.rt->game().username == "P");
+        CHECK(fs::exists(dir / "memorycard" / "BASCUS-97328GAMEDATA" / "BASCUS-97328GAMEDATA") && f.rt->game().valid_game_data);
+        // Gran Turismo mode: its map at once, no name asked again.
+        for (int i = 0; i < 6 && f.focus() != "GTmode"; ++i) f.press({menu::Key::Down});
+        f.press({menu::Key::Accept});
+        CHECK(f.rt->finished() && f.rt->wanted_project() == "gtmode" && f.rt->advance());
+        f.rt->settle();
+        CHECK(f.page() == "TopRoot" && f.rt->project()->name() == "gtmode");
+        CHECK(f.clean());
+    }
+    {
+        // The next launch: the game loaded, no name entry.
+        NoCard f(*disc, dir);
+        CHECK(f.title() && f.rt->game().valid_game_data && f.rt->game().username == "P");
+    }
+    fs::remove_all(dir);
+}
+
+// What Arcade writes into the game data (a favorite car, a single race's best A-spec points, an option) is in the game made at
+// the first boot, saved by itself, and there at the next launch.
+TEST(disc_menu_no_card_arcade_kept) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const fs::path dir = fresh("gt4r-test-nocard7");
+    auto call = [](NoCard& f, const Value& o, const char* m, std::vector<Value> a) {
+        return f.rt->vm().call(f.rt->vm().attribute(o, m), std::span<const Value>(a.data(), a.size()));
+    };
+    auto record = [&](NoCard& f, const char* what) { return f.rt->vm().attribute(f.rt->vm().lookup("game"), what); };
+    {
+        NoCard f(*disc, dir);
+        CHECK(f.first_boot());
+        call(f, record(f, "favorite_car"), "append", {Value::string("nsx_r_02")});
+        f.rt->game().options["race_display_map"] = s32(0);
+        f.rt->game().race_session.sequence = "single_race";
+        menu::RaceResult r;
+        r.kind = menu::RaceResult::Kind::Course, r.course_kind = 7, r.course = "tsukuba", r.finished = true, r.place = 0, r.score = 42, r.time_ms = 60000;
+        for (int e = 0; e < 6; ++e) {
+            menu::RaceResult::Finisher c;
+            c.entry = e, c.car = "nsx_r_02", c.time_ms = u32(60000 + e);
+            r.order.push_back(c);
+        }
+        f.rt->race_finished(r);
+        f.rt->game().race_session = {};
+        menu::autosave(*f.rt); // (as at the next page)
+        CHECK(f.clean());
+    }
     NoCard f(*disc, dir);
-    CHECK(f.title());
-    for (const std::string& d : f.dialogs) std::printf("  shown: %s\n", d.c_str());
-    f.press({menu::Key::Down, menu::Key::Accept});
-    CHECK(f.rt->finished() && f.rt->advance());
-    f.rt->settle();
-    const bool named = f.enter_name();
-    for (const std::string& d : f.dialogs) std::printf("  shown: %s\n", d.c_str());
-    if (!named)
-        for (const auto& line : f.rt->log()) std::printf("  %s\n", line.c_str());
-    CHECK(named && f.dialogs.size() == 1);
-    CHECK(fs::exists(dir / "memorycard" / "BASCUS-97328GAMEDATA" / "BASCUS-97328GAMEDATA") && f.rt->game().valid_game_data);
-    CHECK(f.clean());
+    CHECK(f.title() && f.rt->game().valid_game_data);
+    CHECK(call(f, record(f, "favorite_car"), "has", {Value::string("nsx_r_02")}).truthy());
+    const Value unit = call(f, record(f, "course_record"), "getUnit", {Value::string("tsukuba")});
+    CHECK(unit.p && f.rt->vm().attribute(unit, "best_score").i == 42);
+    CHECK(f.rt->game().option_int("race_display_map", 1) == 0);
+    fs::remove_all(dir);
 }
 
 // With a game: loaded at the boot, Gran Turismo mode at once; saved by itself when it has changed; a second game beside it; the
@@ -105,11 +187,7 @@ TEST(disc_menu_no_card_games) {
     const fs::path dir = fresh("gt4r-test-nocard2");
     {
         NoCard f(*disc, dir);
-        CHECK(f.title());
-        f.press({menu::Key::Down, menu::Key::Accept});
-        CHECK(f.rt->finished() && f.rt->advance());
-        f.rt->settle();
-        CHECK(f.enter_name() && f.rt->game().username == "P");
+        CHECK(f.first_boot() && f.rt->game().username == "P");
     }
     save::SaveLibrary lib(dir.string(), "BASCUS-97328");
     const std::string first = lib.current();
@@ -185,11 +263,7 @@ TEST(disc_menu_no_card_no_autosave_in_a_championship) {
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const fs::path dir = fresh("gt4r-test-nocard6");
     NoCard f(*disc, dir);
-    CHECK(f.title());
-    f.press({menu::Key::Down, menu::Key::Accept});
-    CHECK(f.rt->finished() && f.rt->advance());
-    f.rt->settle();
-    CHECK(f.enter_name());
+    CHECK(f.first_boot_to_gt_mode());
     save::SaveLibrary lib(dir.string(), "BASCUS-97328");
     const std::string game = lib.current();
     menu::GameState& s = f.rt->game();
@@ -212,19 +286,15 @@ TEST(disc_menu_no_card_no_autosave_in_a_championship) {
     fs::remove_all(dir);
 }
 
-// A folder that cannot be written: said once, with the folder; a game that cannot be read: said once at the boot, which goes on,
-// and stays as it is when a new one is made.
+// A folder that cannot be written: said once, with the folder; a game that cannot be read: said once at the boot, which goes on
+// to the name entry as with no game, and stays as it is when the new one is made.
 TEST(disc_menu_no_card_failures) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const fs::path dir = fresh("gt4r-test-nocard3");
     {
         NoCard f(*disc, dir);
-        CHECK(f.title());
-        f.press({menu::Key::Down, menu::Key::Accept});
-        CHECK(f.rt->finished() && f.rt->advance());
-        f.rt->settle();
-        CHECK(f.enter_name());
+        CHECK(f.first_boot());
         f.press({menu::Key::Down, menu::Key::Accept});
         for (int i = 0; i < 6 && !f.rt->finished(); ++i) f.press({menu::Key::Down, menu::Key::Accept});
         CHECK(f.rt->finished() && f.rt->advance());
@@ -265,16 +335,11 @@ TEST(disc_menu_no_card_failures) {
             for (const auto& line : f.rt->log()) std::printf("  %s\n", line.c_str());
         if (!f.dialogs.empty()) std::printf("  shown: %s\n", f.dialogs[0].c_str());
         f.press({menu::Key::Accept});
-        for (int i = 0; i < 400 && f.page() != "MovieRoot" && !f.rt->finished(); ++i) f.rt->update();
+        // Then as with no game: the name entry, and the new game in a folder of its own.
+        for (int i = 0; i < 400 && f.page() != "EntryRoot" && !f.rt->finished(); ++i) f.rt->update();
         f.rt->settle();
-        f.press({menu::Key::Start});
-        CHECK(f.rt->finished() && f.rt->advance());
-        f.rt->settle();
-        CHECK(f.page() == "TopRoot" && !f.rt->game().valid_game_data);
-        f.press({menu::Key::Down, menu::Key::Accept});
-        CHECK(f.rt->finished() && f.rt->advance());
-        f.rt->settle();
-        CHECK(f.enter_name() && fs::file_size(file) == 7);
+        CHECK(f.page() == "EntryRoot" && !f.rt->game().valid_game_data);
+        CHECK(f.enter_name() && f.rt->game().valid_game_data && fs::file_size(file) == 7);
         const save::SaveLibrary lib(dir.string(), "BASCUS-97328");
         CHECK(lib.cards().size() == 2 && lib.current() != (dir / "memorycard").string());
         CHECK(f.clean());

@@ -52,15 +52,6 @@ OnlineDisc& online_side() {
     return d;
 }
 
-std::string option_text(const menu::GameState& g, const char* name) { return g.option_text(name); }
-
-std::string player_name(menu::Runtime* rt) {
-    // The LAN machine name; a new game's ("Player1") gives way to the game's own name.
-    std::string name = rt ? option_text(rt->game(), "LAN_machine_name") : std::string();
-    if ((name.empty() || name == "Player1") && rt && !rt->game().username.empty()) name = rt->game().username;
-    return name.empty() ? std::string("Player1") : name;
-}
-
 // The player's unit of power (of PS): the game's option.
 struct PowerUnit {
     float factor = 1;
@@ -164,6 +155,7 @@ public:
         online_setup(app);
         take_power_unit(rt.game());
         server_ = app.config().get("online", "server").value_or("");
+        name_ = net::online_name(app.config().get("online", "name"));
         port_ = std::atoi(app.config().get("online", "port").value_or(std::to_string(net::kLanPort)).c_str());
         if (port_ <= 0 || port_ > 65000) port_ = net::kLanPort;
         auto number = [&](const char* key, int otherwise) { return std::atoi(app.config().get("online", key).value_or(std::to_string(otherwise)).c_str()); };
@@ -208,7 +200,7 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header(page_ == Page::Host ? (through_server_ ? "OPEN A LOBBY WITH A CODE" : "OPEN A LOBBY ON THE LOCAL NETWORK") : "MULTI-LAN RACE", player_name(&rt_));
+        ui.header(page_ == Page::Host ? (through_server_ ? "OPEN A LOBBY WITH A CODE" : "OPEN A LOBBY ON THE LOCAL NETWORK") : "MULTI-LAN RACE", name_);
         if (page_ == Page::Connecting) {
             ui.text_center(150, connecting_text_, colors::kText);
             ui.footer("{Triangle}: stop");
@@ -265,8 +257,8 @@ private:
                                  through_server([this] { type("The lobby's code", last_code_, [this](const std::string& t) { last_code_ = t, join_code(t); }); });
                              }, {}});
             rows_.push_back({"This copy", "", "", {}, {}});
-            rows_.push_back({"Your name", player_name(&rt_), "What the others see (the option's LAN machine name).",
-                             [this] { type("Your name", player_name(&rt_), [this](const std::string& t) { set_name(t); }); }, {}});
+            rows_.push_back({"Your name", name_, "What the other players see. Your own, apart from the Gran Turismo mode player's name.",
+                             [this, a] { type("Your name", name_, [this, a](const std::string& t) { set_name(*a, t); }); }, {}});
             rows_.push_back({"Internet server", server_.empty() ? std::string("none chosen") : server_, "The server that gives the codes and carries what cannot go straight. Your own can be typed here.",
                              [this, a] { type("The server", server_.empty() ? std::string(kOfferedServer) : server_, [this, a](const std::string& t) { set_server(*a, t); }); }, {}});
         } else if (page_ == Page::Approve) {
@@ -306,11 +298,11 @@ private:
         }
     }
 
-    void set_name(const std::string& t) {
-        std::string name = t.substr(0, 16);
-        if (name.empty()) return;
-        rt_.game().options["LAN_machine_name"] = name;
-        rt_.save_options();
+    // The online name is the app's setting, not the saved game's: the game's LAN machine name only mirrors it for the pages.
+    void set_name(App& app, const std::string& t) {
+        name_ = net::online_name(t);
+        app.config().set("online", "name", name_);
+        app.save_config();
     }
     void set_server(App& app, const std::string& t) {
         server_ = std::string(gt3r::trim(t));
@@ -332,9 +324,9 @@ private:
         }
         menu::GameState& g = rt_.game();
         g.options["LAN_host"] = s32(host), g.options["LAN_style"] = std::string("play");
-        g.options["LAN_machine_name"] = player_name(&rt_);
+        g.options["LAN_machine_name"] = name_;
         g.options["LAN_player_num"] = s32(players_), g.options["LAN_monitor_num"] = s32(0);
-        l.begin(player_name(&rt_));
+        l.begin(name_);
         if (host)
             l.change([&](net::Member& m) { m.rules = menu::rules_from_options(g), m.rules.ghost_ping_ms = ghost_ms_, m.limits = limits_; });
         page_ = Page::Connecting, connecting_text_ = text, waiting_ = 0;
@@ -345,14 +337,14 @@ private:
         if (changed_) app.save_config(), rt_.save_options();
         std::string error;
         Session& s = net::lobby().session();
-        const bool ok = through_server_ ? s.host_via(server_, player_name(&rt_), "", 0, &error) : host_lan(s, port_, player_name(&rt_), &error);
+        const bool ok = through_server_ ? s.host_via(server_, name_, "", 0, &error) : host_lan(s, port_, name_, &error);
         begin(ok, error, true, through_server_ ? "Asking " + server_ + " for a code..." : std::string("Opening the lobby..."));
     }
     void join(const std::string& address) {
         if (address.empty()) return;
         std::string error, at = address;
         if (at.find(':') == std::string::npos) at += ":" + std::to_string(port_);
-        begin(net::lobby().session().join(at, player_name(&rt_), "", 0, &error), error, false, "Joining " + at + "...");
+        begin(net::lobby().session().join(at, name_, "", 0, &error), error, false, "Joining " + at + "...");
     }
     void join_code(const std::string& code) {
         if (!rv::valid_code(rv::normalize_code(code))) {
@@ -360,7 +352,7 @@ private:
             return;
         }
         std::string error;
-        begin(net::lobby().session().join_code(server_, code, player_name(&rt_), "", 0, &error), error, false, "Joining " + rv::format_code(rv::normalize_code(code)) + "...");
+        begin(net::lobby().session().join_code(server_, code, name_, "", 0, &error), error, false, "Joining " + rv::format_code(rv::normalize_code(code)) + "...");
     }
 
     void connecting(App& app, net::Lobby& l) {
@@ -422,7 +414,7 @@ private:
     int port_ = net::kLanPort, players_ = 2, ghost_ms_ = 150, waiting_ = 0;
     net::LobbyLimits limits_;
     bool through_server_ = false, changed_ = false;
-    std::string server_, message_, connecting_text_, last_address_, last_code_;
+    std::string server_, name_, message_, connecting_text_, last_address_, last_code_;
     std::function<void()> approved_;
     // The text being typed.
     gt3r::TextKeyboard keys_;

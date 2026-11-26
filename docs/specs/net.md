@@ -389,8 +389,10 @@ player's car, the barrier's round, and the host's settings.
   car's as it races), garage cars or cars as sold, every car or the favorites, contact by round trip. The course is the
   pages'. Each player's gearbox, aids and tires are his own (the driving options; a garage car's own parts).
 - **The connection's page** (`app/screen_online.cpp`) stands in for the `network` project: the lobbies found on the local
-  network, open one, join by address; open one with a code, join with a code; the player's name (the option's LAN machine
-  name), the server. Text is typed on a keyboard, or with a pad on a keyboard shown.
+  network, open one, join by address; open one with a code, join with a code; the player's name, the server. Text is typed
+  on a keyboard, or with a pad on a keyboard shown. The name is the app's own setting (`config.ini` [online] name, at most
+  16 bytes; `net::online_name`), apart from the Gran Turismo mode player's name; none chosen, it is a new game's LAN machine
+  name, "Player1". The game's option `LAN_machine_name` is set to it when a lobby is opened or joined, for the pages.
 - **The players' panel**: on the matching page always (the code or the address to join, who is there, the link and round
   trip of each, the rules; the host's Start begins with the players there), on the other pages with Select: the host
   removes a player (Square), anyone leaves the lobby (Start). It says why a car cannot race here.
