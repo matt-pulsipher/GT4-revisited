@@ -22,7 +22,8 @@ struct CarFeel {
     bool pad_output = false;   // the pad drives it (control source 0, driver kind 0): else nothing is sent
     float speed = 0;           // m/s
     float throttle = 0, brake = 0; // the pedals as the input phase left them, 0 .. 1
-    u8 rumble = 0;             // the pad block's +0x01: the vibration's level 0 .. 127
+    u8 rumble = 0;             // the pad block's +0x01: the large motor (the vibration's level 0 .. 127)
+    u8 small = 0;              // the pad block's +0x00: the small motor (bit 0 on; Gran Turismo 4's vibration leaves it 0)
     float steer_force = 0;     // the wheel's force -1 .. 1, positive clockwise (the pad block's +0x02: 0x80 at rest, less below)
     struct Wheel {
         bool grounded = false;
@@ -59,8 +60,9 @@ public:
     // window's focus, its screen going.
     void stop(gt3r::InputManager& input, int player);
 
-    // The two models' motors, for tests.
-    gt3r::PadRumble rumble(bool original, bool dualsense) const { return model_.rumble(original, dualsense); }
+    // The motors: "Gran Turismo 4 original" the pad block as the program's port packs it for the pad (0x552200: bit 0 of
+    // +0x00 the small motor, on or off; +0x01 the large motor's byte as it is), else the shared engine's Modern rumble.
+    gt3r::PadRumble rumble(bool original, bool dualsense) const;
     gt3r::ForceFeedbackState force(const FeedbackOptions& options) const;
     bool feeling() const { return age_ <= kHold; }
 

@@ -44,6 +44,7 @@ CarFeel car_feel(const sim::Session& s, size_t car) {
     f.speed = std::fabs(c.speed.host());
     f.throttle = c.throttle_pedal.host(), f.brake = c.brake_pedal.host();
     f.rumble = gt4 || s.prologue_rules() ? g.feel.pad[1] : u8(std::clamp(int(c.rumble), 0, 255));
+    f.small = gt4 || s.prologue_rules() ? g.feel.pad[0] : 0;
     f.steer_force = std::clamp(float(0x80 - int(s.steer_force(car))) / 127.0f, -1.0f, 1.0f);
     const rules::WheelLayout& l = s.wheel_layout(car);
     const int n = gt4 ? std::min<int>(l.count, 4) : 4;
@@ -121,6 +122,14 @@ void RaceFeedback::step(const CarFeel& feel, float dt) {
     age_ = 0;
 }
 
+gt3r::PadRumble RaceFeedback::rumble(bool original, bool dualsense) const {
+    if (!original) return model_.rumble(false, dualsense);
+    gt3r::PadRumble r;
+    if (!feel_.pad_output) return r;
+    r.small = (feel_.small & 1) ? 255 : 0, r.large = feel_.rumble;
+    return r;
+}
+
 gt3r::ForceFeedbackState RaceFeedback::force(const FeedbackOptions& options) const {
     gt3r::ForceFeedbackState f;
     f.speed_kmh = feel_.speed * 3.6f;
@@ -139,7 +148,7 @@ void RaceFeedback::frame(gt3r::InputManager& input, int player, const FeedbackOp
     if (!feeling() || !feel_.pad_output) return stop(input, player);
     age_ += dt;
     sent_ = true;
-    input.set_rumble(player, options.vibration ? model_.rumble(input.gt3_rumble(player), input.dualsense(player)) : gt3r::PadRumble{});
+    input.set_rumble(player, options.vibration ? rumble(input.gt3_rumble(player), input.dualsense(player)) : gt3r::PadRumble{});
     if (options.vibration || options.wheel) input.set_force_feedback(player, force(options));
     else input.stop_force_feedback(player);
     jolt_ = 0;
