@@ -18,6 +18,7 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | Part | Runs | Follows |
 |---|---|---|
 | The SPU2: voices, PS-ADPCM, envelopes, interpolation, the reverb unit | the shared `gt3r::VoiceMixer`, `gt3r::SpuReverb` | the hardware (not program code) |
+| A voice's level when it changes | the shared `gt3r::VoiceMixer`: every change slews to the new level, full scale in about 5 ms (256 samples) | **the shared engine's, not Gran Turismo 4's**: the SPU2 takes a voice's level (VOLL / VOLR, fixed mode) at once, and the driver eases nothing itself but what its rules say (the layer players' 0x1000 a step, the effects' level slides); a level change lands up to 5 ms later and softer than the original's. Wanted from the engine: a mixer whose changes land at once (a per-mixer switch) |
 | The sound driver: the two sequencers, the effect sequences, held notes, each voice's level and pitch (0x559330 .. 0x55E600) | `sound_driver.*` | Gran Turismo 4's; the lfo is not built (no voice of the discs is heard to waver) |
 | The driver's voices: which of its 46 a sound takes, and which it cuts when none is free (0x55C758, 0x55D0B0, 0x55D1C0) | `sound_driver.*` (records over the shared mixer's voices), `layer_player.*` | Gran Turismo 4's (the shared mixer's own stealing rule is not used) |
 | The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
