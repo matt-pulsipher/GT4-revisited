@@ -98,3 +98,33 @@ TEST(view_jolt_camera) {
     const race::ViewPose chase = cam.pose(s, body, mounts, race::DriveCamera::kChase, false);
     CHECK(std::fabs(chase.view.transform_point({chase.eye.x + 10, chase.eye.y, chase.eye.z}).y) < 1e-3f);
 }
+
+TEST(view_shakes_by_place) {
+    race::CarSpec spec;
+    race::CarState s = level_car();
+    s.velocity = {30, 0, 0};
+    std::vector<race::CameraMount> mounts(21);
+    mounts[0] = {{0, 1.0f, 0.2f}, 0, 0, 0, 2.0503f, 5};
+    mounts[5] = {{0, 0.6f, -2.0f}, 0, 0, 0, 2.4142f, 5};  // a front bumper: bit 2, steady
+    mounts[20] = {{0, 0.6f, -2.0f}, 0, 0, 0, 2.4142f, 3}; // a place without bit 2 (as 14 .. 19): it wobbles and heaves
+    const gt3r::render::Mat4 body = gt3r::render::Mat4::identity();
+    race::DriveCamera cam;
+    cam.reset(s);
+    const race::ViewPose still5 = cam.pose(s, body, mounts, 5, false), still20 = cam.pose(s, body, mounts, 20, false);
+    float moved5 = 0, moved20 = 0, turned20 = 0;
+    for (int i = 0; i < 60; ++i) {
+        s.accel_up = (i & 1) ? 6.0f : -6.0f; // a rough road's heave
+        cam.step(s, 1.0f / 60);
+        const race::ViewPose p5 = cam.pose(s, body, mounts, 5, false), p20 = cam.pose(s, body, mounts, 20, false);
+        moved5 = std::max(moved5, std::fabs(p5.eye.y - still5.eye.y));
+        moved20 = std::max(moved20, std::fabs(p20.eye.y - still20.eye.y));
+        const gt3r::render::Vec3 a = p20.view.transform_point({p20.eye.x + 10, p20.eye.y, p20.eye.z});
+        turned20 = std::max(turned20, std::fabs(a.y) + std::fabs(a.x));
+    }
+    CHECK(moved5 < 1e-5f && moved20 > 0.003f && turned20 > 1e-3f);
+    // The in-car view takes the simulation's nod where it is given: 2 degrees looks 2 degrees up.
+    s.nod_given = true, s.nod = 2 * 3.14159265f / 180;
+    const race::ViewPose p = cam.pose(s, body, mounts, race::DriveCamera::kInCar, false);
+    const gt3r::render::Vec3 a = p.view.transform_point({p.eye.x + 10, p.eye.y, p.eye.z});
+    CHECK(std::fabs(a.y + 10 * std::tan(2 * 3.14159265f / 180)) < 0.02f);
+}

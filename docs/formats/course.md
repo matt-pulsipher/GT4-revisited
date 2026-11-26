@@ -542,9 +542,12 @@ meets a car once, then no more: 0x3E3C48 sets its +0x45), u8 the hull's points (
 from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x10's offset an `MDLS` of
 2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
 sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
-kind's shape where the road puts it (within 400 m). The cars knock them about (`race/gadget_bodies.*`, below). Tsukuba's cones stand a
-metre above the road file's surface under them (on the pit lane, not in the road file): near its
-place a body keeps the floor it stood on (❓ a stand-in for the surface the program finds there). Their shadows: model 2k + 1 thrown along the light
+kind's shape where the road puts it (within 400 m). The cars knock them about (`race/gadget_bodies.*`, below). A record's
+height is not where the body stands: the set-up drops it onto the road file's surface (below). Many records are placed
+level above the road (Infineon's 26 at 25.83 or 20.42, over a road 1.2 to 29 m lower, Tsukuba's pit cones at 11.20 over 9.6 to
+10.1, Laguna Seca's two boards at 0 over a road at -16.8 and -15.7); the program's bodies in the reference's saved
+states (26-endurance `fc_pitwindow_00`, 24-arcade-grids `state_laguna_seca_ka_prerace`) sit on the road file's surface,
+as ours do, within 5 mm on all 18 and 34. Their shadows: model 2k + 1 thrown along the light
 onto the road's plane under the body (0x3E4968; on the level it stands on where that is above the road file's surface), the
 alpha by the light on the road there (0x3983E0); the body's lights scaled by it too (0x398058).
 
@@ -558,7 +561,9 @@ under it (n, d), +0x44 its kind, +0x45 a once-only kind's count after it met a c
 The turn matrix from the angles (0x3E24F0): rows (cb cc - sa sb sc, -ca sc, sb cc + sa sc cb), (cb sc + sa cc sb,
 ca cc, sb sc - sa cc cb), (-ca sb, sa, ca cb), the body's axes in course space.
 
-- **Set-up** (0x3E2710): at rest, hull points 0..2 counted 2 (resting), the road's plane found from 1 m above;
+- **Set-up** (0x3E2710): at rest, hull points 0..2 counted 2 (resting), the road's plane found from 1 m above the
+  record (0x3E29F8 → 0x3E5A30: the first road triangle straight down from the point, through the road's box to its
+  bottom, however far; the step asks from the body's center);
   a kind with flag bit 1 stays as placed; else turned from up (0, 1, 0) onto the plane's normal (0x3E2268), the
   angles taken back from the matrix (0x3E2600), hull point 0 set on the plane.
 - **Step** (0x3E2B28, every body each frame, 0x3E5040): a once-only kind that met a car counts steps and is

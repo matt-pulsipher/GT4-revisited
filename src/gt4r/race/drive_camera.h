@@ -107,6 +107,13 @@ private:
         void step(float input);
     };
     Spring jolt_[6];
+    // The places without bit 2 (0x37B690): two wobbles that the speed drives (0x384A70: each sixtieth, on a draw under 0.3,
+    // a new target in -1 .. 1; 0.4 x the strength of the way to it), and two shakers that the body's lateral and heave
+    // accelerations drive (0x37AAB8: x 0.5, x 2).
+    struct Wobble {
+        float x = 0, target = 0;
+    } wobble_pitch_, wobble_yaw_;
+    Shaker shake_side_, shake_heave_;
     float shake_speed_ = 0;
     bool shake_on_ = true;
     u32 seed_ = 0x87654321u;

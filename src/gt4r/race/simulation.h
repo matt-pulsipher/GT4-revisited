@@ -89,6 +89,13 @@ struct CarState {
     // change of velocity along the body and across it (to its right), m/s, scaled.
     bool jolt = false;
     float jolt_forward = 0, jolt_side = 0;
+    // The body's pitch against the ground's, followed (the simulation's sway, cond + 0xCAB8 + 0x18; radians): the in-car
+    // view's nod, where `nod_given`.
+    bool nod_given = false;
+    float nod = 0;
+    // The body's lateral acceleration and its heave acceleration less gravity along up (F +0x554 / +0x558, m/s^2): the
+    // cameras of places without bit 2 shake by them.
+    float accel_side = 0, accel_up = 0;
     bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };
 
