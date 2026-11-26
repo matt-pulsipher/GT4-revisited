@@ -73,11 +73,15 @@ s32 SoundDriver::next_serial() {
     return s == 0x7FFFFFFF ? 0 : s;
 }
 
+bool SoundDriver::has_free() const { return !free_.empty() && mixer_.active_voices() < gt3r::VoiceMixer::kVoices; }
+
 // A free record (0x55C758: the head of the free list), else one by the claim's rule, its voice cut
 // (0x55D028); the record takes a new serial either way.
 int SoundDriver::claim(const Claim& c) {
     int pick = -1;
-    if (!free_.empty()) {
+    // (The shared mixer has 46 voices for the driver's 46 and the stream's two: with the stream's on and
+    // every other voice sounding, a free record waits and the rule picks the voice to cut.)
+    if (has_free()) {
         pick = free_.back();
         free_.pop_back();
     } else if (c.take == Claim::Take::ByPriority) {
@@ -86,6 +90,7 @@ int SoundDriver::claim(const Claim& c) {
         s32 best = c.priority, age = 0;
         for (int i = 0; i < int(slots_.size()); ++i) {
             const Slot& s = slots_[size_t(i)];
+            if (!s.busy) continue;
             if (s.priority < best || (s.priority == best && s.age >= age)) pick = i, best = s.priority, age = s.age;
         }
     } else {
@@ -93,6 +98,7 @@ int SoundDriver::claim(const Claim& c) {
         s32 best = 0x7FFFFFFF;
         for (int i = 0; i < int(slots_.size()); ++i) {
             const Slot& s = slots_[size_t(i)];
+            if (!s.busy) continue;
             if (c.group >= 0 && s.group != c.group) continue;
             if (c.skip_kept && s.kept) continue;
             if (s.serial < best) pick = i, best = s.serial;
@@ -675,12 +681,8 @@ void SoundDriver::effect_note_on(Effect& e, int program, int key, int velocity) 
         return;
     }
     const SlotSetup setup{tone.priority(), tone.group(), false};
-    if (tone.group() != 0 && !free_.empty()) {
-        key_on(*e.bank, e.bank->adpcm, *p, tone, v, tone.reverb(), Claim{}, setup);
-        return;
-    }
     if (tone.group() != 0) {
-        bool any = false;
+        bool any = has_free();
         for (const Slot& s : slots_) any |= s.busy && s.group == tone.group();
         if (any) {
             Claim c;

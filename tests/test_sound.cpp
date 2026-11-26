@@ -8,6 +8,9 @@
 #include "gt4r/audio/render.h"
 #include "gt4r/audio/sound_driver.h"
 #include "gt4r/audio/sound_library.h"
+#include "gt4r/audio/stream_voices.h"
+#include "gt4r/audio/analysis.h"
+#include "formats/ads.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/sound/inst_bank.h"
 #include "gt4r/formats/sound/sound_index.h"
@@ -986,4 +989,69 @@ TEST(sound_equipped_cars_on_disc) {
     }
     std::printf("  %zu cars: %zu the same from their stock parts, %zu another exhaust bank with another muffler\n", cars, same, other);
     CHECK(cars > 700 && same == cars && other > 100);
+}
+
+// A streamed piece on two voices (stream_voices.h): the voices' level (the saved states' 4416 and 4915), the piece
+// at its level through the two seconds read at once and on, the SPU2's interpolation taking 1 to 4 dB off from 8 kHz
+// (the original's pre-race page within 0.2 dB of a rendering on SPU2 voices, a plain resampling up to 6 dB brighter),
+// the pause, the end of a piece played once.
+TEST(sound_stream_voices_on_disc) {
+    CHECK(audio::StreamVoices::voice_level(0.26953125f) == 4416 && audio::StreamVoices::voice_level(0.3f) == 4915);
+    CHECK(audio::StreamVoices::voice_level(1.0f) == 0x3FFF && audio::StreamVoices::voice_level(-1.0f) == 0);
+    Disc* gt4 = nullptr;
+    for (const auto& d : test::discs())
+        if (d->info().game == Game::GT4) gt4 = d.get();
+    if (!gt4) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&gt4->volume());
+    audio::OfflineSound s(false);
+    audio::StreamVoices streams(s.mixer(), vfs);
+    CHECK(!streams.play("bgm/us/none.ads", false, 1.0f) && !streams.playing());
+    const std::string path = "bgm/us/gt4qm-02.ads";
+    const float level = 0.26953125f;
+    CHECK(streams.play(path, false, level) && streams.playing());
+    s.advance_seconds(6.0);
+    CHECK(streams.playing());
+    // The piece as stored, at its own rate.
+    const Bytes data = disc_file(*gt4, path);
+    const gt3r::AdsHeader h = gt3r::AdsHeader::parse(data);
+    CHECK(h.sample_rate == 44100 && h.channels == 2);
+    gt3r::AdsStream plain_stream(h, [&data](u64 off, void* out, size_t len) {
+        const size_t n = off < data.size() ? std::min<size_t>(len, data.size() - size_t(off)) : 0;
+        std::memcpy(out, data.data() + off, n);
+        std::memset(static_cast<u8*>(out) + n, 0, len - n);
+    }, false);
+    std::vector<s16> plain(size_t(6 * 44100) * 2);
+    plain.resize(plain_stream.read(plain.data(), plain.size() / 2) * 2);
+    const audio::Signal ours = audio::signal_from(s.pcm), stored = audio::signal_from(plain, 44100);
+    const double gain_db = 20 * std::log10(double(audio::StreamVoices::voice_level(level)) / 16384.0);
+    const auto band = [](const audio::Signal& x, double lo, double hi, double from, double to) {
+        const std::vector<double> t = audio::band_track(audio::slice(x, from, to), lo, hi, 0.05);
+        double p = 0;
+        for (double db : t) p += std::pow(10.0, db / 10);
+        return 10 * std::log10(p / double(std::max<size_t>(t.size(), 1)));
+    };
+    // Each second the same level at 0.2 .. 2 kHz (the handover at two seconds included).
+    for (int k = 0; k < 5; ++k) {
+        const double o = band(ours, 200, 2000, k + 0.5, k + 1.5), p = band(stored, 200, 2000, k + 0.5, k + 1.5) + gain_db;
+        std::printf("  %d .. %d s: 0.2 .. 2 kHz %.1f dB (stored %.1f)\n", k, k + 1, o, p);
+        CHECK(std::fabs(o - p) < 0.5);
+    }
+    const double top = band(ours, 8000, 12000, 0.5, 5.5) - band(stored, 8000, 12000, 0.5, 5.5) - gain_db;
+    std::printf("  8 .. 12 kHz %.1f dB against the stored samples\n", top);
+    CHECK(top < -1.0 && top > -5.0);
+    // The pause: silent and holding its place; on again.
+    streams.pause(true);
+    const size_t at = s.pcm.size();
+    s.advance_seconds(0.5);
+    CHECK(peak(std::vector<s16>(s.pcm.begin() + long(at), s.pcm.end()), 0.05, 0.5) == 0 && streams.playing());
+    streams.pause(false);
+    const size_t on = s.pcm.size();
+    s.advance_seconds(0.5);
+    CHECK(peak(std::vector<s16>(s.pcm.begin() + long(on), s.pcm.end()), 0.05, 0.5) > 1000);
+    streams.stop();
+    CHECK(!streams.playing());
+    // A piece played once ends (a jingle: gt4jg-12a, a few seconds).
+    CHECK(streams.play("bgm/us/gt4jg-12a.ads", false, 0.3f));
+    s.advance_seconds(20.0);
+    CHECK(!streams.playing());
 }

@@ -31,7 +31,7 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); the slots a course allows (0x3922B0) are not applied, as a wheel's notes follow the surface under it |
 | The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170), which music a run plays (0x3C0208, 0x389D48, 0x3A0228, 0x3E1C80, 0x3E1EA0) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's; Prologue's race music silent as its options have it |
 | The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music at its own level 1.0 (its level setter 0x421AB8 has no caller) |
-| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`), at the program's levels (the SPU2's registers in the saved states); the original plays a stream on two SPU2 voices with the SPU2's interpolation, ours resamples it apart from the voices |
+| Streams (`.ads`): reading, decoding, playing | `stream_voices.*`: a PS-ADPCM piece on two of the shared mixer's voices (its music bus), as the IOP's stream module plays it on core 1's voices 22 and 23; anything else (a mod's PCM `.ads`) through the shared `gt3r::AudioEngine` stream player | Gran Turismo 4's voices: the SPU2 pitch rate x 4096 / 48000 (3763 at 44.1 kHz), envelope 0x000F / 0x0000, no reverb, the level x 16384 on each voice's side, the piece from its start again when it repeats (the headers' loop fields are -1), the SPU2's interpolation. The stream module itself is not in `CORE.GT4` (its reading ahead is ours: two seconds at once, the rest on a thread) |
 | Pit sounds | `RaceSound::pit_effect`, `RaceSound::refueling`; the Drive world takes the stop's bit 0x200 | `jackdown` as Gran Turismo 4's pit scene plays it (0x35BE38, for the car shown 🔎), heard in the app's B-spec stop; the crew's (`wheelgun`, `dropnut`, `droptire`, `jackup`: their motions' channels), `oiltank` and the held `refueling` wait for the pit crews' scene (0x3CFA98, 0x3D03E0), which is to call these two |
 
 ## What is on the discs (`gt4tool sound <disc> survey`)
@@ -885,6 +885,15 @@ memory matched against the disc's `.ads` by their data; levels × 16383):
 | Tsukuba (start, first corner, replay), Grand Canyon, Gran Turismo mode's free run, Route 5 at night, Seattle at dusk | `race_35`, `race_50` (the arcade race's start), `race_37`, `race_68`, `race_40` (`racing`) | 4416: the racing level 0.3 × the race music option 115 / 128 |
 | License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
 | Prologue's starting grid page | `str10j` | 16383 |
+
+**On two voices, against the original.** The Time Trial walk's pre-race page (`11-license-tt/arcade_time_trial_walk_to_prerace.mp4`,
+from 120 s: `gt4qm-02` 1.97 s in, correlation 0.96) against the piece rendered on two SPU2 voices (`stream-wav ... spu`)
+and against the stored samples resampled plainly to 48 kHz, each laid on the recording by one gain at 0.2 .. 2 kHz, by
+2 kHz bands from 2 to 20 kHz: the voices within 0.2 dB of the recording up to 18 kHz (+1.3 at 18 .. 20 kHz), the plain
+resampling 0.2 .. 0.7 dB over at 2 .. 6 kHz, 1.5 .. 3.2 over at 6 .. 12 kHz and 4.6 .. 6.7 over from 12 kHz. Ours plays the
+voices (`sound_stream_voices_on_disc`: the level of every second at 0.2 .. 2 kHz as stored, 2.8 dB under it at 8 .. 12 kHz).
+The shared mixer has 46 voices for the driver's 46 and these two: with a stream on and 44 of the driver's sounding, the
+driver's rule chooses the voice a new sound cuts.
 
 **A menu stream's level** (0x4608C8, kind -2, 0x460220 → 0x45FFF8 → 0x45FFC0): the script's volume × `sdvol` level 0 (0.3),
 no option; `option.menu_bgm_volume` (0x180AA8) is the raw option / 128, so the pages that pass it play at 0.3 × 115 / 128,

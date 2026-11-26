@@ -208,6 +208,7 @@ private:
 
     // (all with mutex_ held)
     int claim(const Claim& c);               // a slot (its old voice cut), -1 when none
+    bool has_free() const;                   // a free record, and a voice of the mixer for it
     s32 next_serial();
     void age_slots();                        // once a step: ended voices go back to the free list, the others age
     void release_slot(int slot);
