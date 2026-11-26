@@ -7,6 +7,7 @@
 
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/demonstration_run.h"
+#include "gt4r/race/recorded_race.h"
 #include "gt4r/sim/program.h"
 
 #include <cstdio>
@@ -30,5 +31,36 @@ TEST(japan_demonstrations_on_japan_rules_disc) {
         const race::DemonstrationRun r = race::run_demonstration(*disc, sdb, label);
         std::printf("  %s: recorded %d ms, ours %d ms (failed %d) %s\n", label, r.recorded_ms, r.ended_ms, r.fail, r.error.c_str());
         CHECK(r.ran && r.fail == 0 && r.exact());
+    }
+}
+
+// Japan's Replay Theater races (replay/Rdemo<n>) played by our own race end on their recorded times: two-car arcade races
+// whose drivers' lines, arc speeds and spread are Japan's (Rdemo7, Rdemo9, Rdemo11). Japan's files keep a laps word of 0:
+// the time is the laps crossed within the recording.
+TEST(japan_replay_theater_races_disc) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().serial.rfind("SCPS_170.01", 0) == 0) disc = d.get();
+    if (!disc) SKIP("needs the Japanese Gran Turismo 4 disc (SCPS-17001) in GT4R_DISC");
+    gt3r::Volume* vol = &disc->volume();
+    const sim::Program program = sim::Program::load(*disc);
+    db::SpecDb sdb(
+        [vol](const std::string& p) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(p);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        },
+        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    for (const char* name : {"Rdemo7", "Rdemo9", "Rdemo11"}) {
+        const gt3r::Volume::Entry* e = vol->find(std::string("replay/") + name + "/" + name);
+        CHECK(e != nullptr);
+        if (!e) continue;
+        std::string error;
+        std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(vol->read(*e), program, name, &error);
+        CHECK(run.has_value());
+        if (!run) continue;
+        race::RecordedRace race(*disc, sdb, std::move(*run));
+        for (size_t k = race.run().steps() + 60; k > 0; --k) race.step();
+        std::printf("  %s: %lld ms (recorded %d) %s\n", name, race.laps().empty() ? -1LL : (long long)race.laps().front(), race.run().recorded_ms(), race.exact() ? "exact" : "");
+        CHECK(race.exact());
     }
 }

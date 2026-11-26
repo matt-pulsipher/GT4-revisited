@@ -1031,9 +1031,17 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   replay modes (2 and 3; v1.01 in mode 2), and runs the end countdown (0x35F658) only when the conductor's mode is 0 (v1.01:
   when the race object's replay mode is 0).
 
-With these, our race ends on the program's time in **all 76** timed files (73 on the recorded time), and its cars' places equal
-the program's in every bit to the end in 64. The other 12 are tests behind a pace car, whose pace car parts from the program's in
-the last steps, after the player's run is judged ❓.
+With these, our race ends on the program's time in all 73 timed files the program ends, and on the recorded time in **73 of 76**
+(the three cone tests too; the misses are the program's own three). Its cars' places equal the program's in every bit to the end in
+64. The other 12 are tests behind a pace car, whose pace car parts from the program's 20 .. 70 steps before the end, at its own
+line crossing, where the program makes it a driver of kind 5 and ours does not 🔎.
+
+**The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo12`, 11 with a recorded time): Japan's files keep 0 or 4 in the
+race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last (the
+harness and `RecordedRace::exact` score that too). Japan's program in the interpreter ends **7 of 11** on their times (Rdemo2, 5,
+6 and 12 miss ❓). Our race of each file alone equals the program's in every bit to the end in 6 of 13 (Rdemo2, 4, 7, 8, 9, 11), and
+ends **4 of 11** on the recorded time (7, 8, 9, 11). The others part from the program's in the drivers' decision (0x45D668: a line
+change the program's driver makes, Rdemo0 at step 1770) 🔎.
 
 ## 6. The ground
 
