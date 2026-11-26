@@ -1204,7 +1204,7 @@ void Field::zones(Near& z, F dist, F u, F v, F ahead, F behind, F w) const {
 }
 
 // 0x3F42D0: car a closing on car b ahead along the course: the gap less the two cars' lengths and the closing speed;
-// false when b is not ahead (or, within 20 m, not overlapping a sideways).
+// false when b is not ahead (or, within 20 m, not overlapping a sideways; SCPS-17001 v1.05's 0x3ECFE0: at any gap).
 bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
     const ex::Car &ca = session_->record(a), &cb = session_->record(b);
     const F lap(lines_.lap()), sa = course_s(a), sb = course_s(b);
@@ -1214,7 +1214,7 @@ bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
     if (gp <= k::zero) return false;
     const F rb = rate_[b], ra = rate_[a];
     const F diff = rb - ra;
-    if (gp < F::raw(0x41A00000)) {
+    if (session_->japan() || gp < F::raw(0x41A00000)) {
         const F h = (ca.p.body_width + cb.p.body_width) * k::half;
         if (h < v || v < -h) return false;
     }
@@ -1276,7 +1276,8 @@ void Field::proximity() {
             zones(near_[i], dist, ua, va, ab, ba, w);
             zones(near_[j], dist, ub, vb, ba, ab, w);
             F gap, rate;
-            if (pace_.contact) {
+            // (SCPS-17001 v1.05's phase 0x3ED338: the contacts only of cars less than 50 m apart)
+            if (pace_.contact && !(session_->japan() && !(dist < F::raw(0x42480000)))) {
                 if (closing(i, j, va, gap, rate)) contact(i, j, gap, rate);
                 else if (near_[i].follow == int(j)) near_[i].follow = -1;
                 if (closing(j, i, vb, gap, rate)) contact(j, i, gap, rate);
