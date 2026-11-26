@@ -369,3 +369,14 @@ TEST(disc_earlier_prologue_licenses_then_gt3_credits) {
     CHECK(f.dialogs.size() == 2 && f.dialogs[0] == "You have already transferred licenses from a GT3 or GT4 Prologue game save.");
     fs::remove_all(dir), fs::remove_all(gt3r);
 }
+
+// The questions name the save instead of the slot, whatever line the slot's sentence ends on (the releases' texts differ).
+TEST(earlier_question_names_the_save) {
+    CHECK(menu::question_naming_the_save("Data in slot %d.\nTake it from GT3?\nOnce only.", "GT3 game save data: A", false) ==
+          "GT3 game save data: A\nTake it from GT3?\nOnce only.");
+    CHECK(menu::question_naming_the_save("Data on the card\nin slot %d. Take up to \n100 now?", "GT3 game save data: A", false) ==
+          "GT3 game save data: A\nTake up to \n100 now?");
+    CHECK(menu::question_naming_the_save("Data in slot %d.\nLicenses from GT3.", "GT4 Prologue game save: P", true) ==
+          "GT4 Prologue game save: P\nLicenses from GT4 Prologue.");
+    CHECK(menu::question_naming_the_save("No slot here.", "x", false).empty());
+}

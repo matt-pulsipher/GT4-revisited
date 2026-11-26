@@ -76,14 +76,10 @@ void name_the_save(GameNatives& n, Probe probe, const save::EarlierGame& g) {
             t.disc_text[key] = *disc;
         }
         const std::string& disc = t.disc_text[key];
-        const size_t line = disc.find('\n');
-        if (line == std::string::npos) continue;
-        std::string rest = disc.substr(line);
-        // (A Prologue game's licenses: the disc's text says they come from GT3.)
-        if (g.kind == Kind::Prologue)
-            for (size_t at = 0; (at = rest.find("from GT3", at)) != std::string::npos; at += 16) rest.replace(at, 8, "from GT4 Prologue");
-        const std::string what = g.kind == Kind::Prologue ? "GT4 Prologue game save: " : "GT3 game save data: ";
-        rt.project()->reword(page, key, what + name + rest);
+        const std::string question = question_naming_the_save(disc, (g.kind == Kind::Prologue ? "GT4 Prologue game save: " : "GT3 game save data: ") + name,
+                                                              g.kind == Kind::Prologue);
+        if (question.empty()) continue;
+        rt.project()->reword(page, key, question);
     }
 }
 
@@ -127,6 +123,20 @@ void unit_update(u32& w, u32 type, u32 result) {
 }
 
 } // namespace
+
+std::string question_naming_the_save(const std::string& disc, const std::string& first, bool prologue) {
+    // The sentence that holds the slot's number ("... in MEMORY CARD slot %d."), from the start: the save's line instead.
+    const size_t slot = disc.find("%d");
+    if (slot == std::string::npos) return {};
+    size_t end = disc.find('.', slot);
+    end = end == std::string::npos ? disc.size() : end + 1;
+    while (end < disc.size() && (disc[end] == ' ' || disc[end] == '\r' || disc[end] == '\n')) ++end;
+    std::string rest = disc.substr(end);
+    // (A Prologue game's licenses where the disc's text says they come from GT3: the US disc's.)
+    if (prologue)
+        for (size_t at = 0; (at = rest.find("from GT3", at)) != std::string::npos; at += 17) rest.replace(at, 8, "from GT4 Prologue");
+    return rest.empty() ? first : first + "\n" + rest;
+}
 
 void install_earlier_saves(GameNatives& n, Object& m, const std::string& mode, int slot, bool slot_given) {
     GameNatives* self = &n;

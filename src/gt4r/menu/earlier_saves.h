@@ -19,6 +19,10 @@ class Runtime;
 struct GameNatives;
 struct Object;
 
+// The game's question (`disc`: its text, a card's slot in a sentence with %d) with that sentence replaced by `first`, the
+// save's line; with `prologue`, "from GT3" said of GT4 Prologue. "": a text with no slot.
+std::string question_naming_the_save(const std::string& disc, const std::string& first, bool prologue);
+
 // The card manager's four natives on a manager made for `slot` (MMemoryCardManager(mode, slot)).
 void install_earlier_saves(GameNatives& n, Object& manager, const std::string& mode, int slot, bool slot_given);
 
