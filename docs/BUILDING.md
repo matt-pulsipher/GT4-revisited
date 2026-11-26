@@ -15,6 +15,14 @@ This page has the platform details.
 
 ## Linux
 
+### What runs where
+
+The window, input, sound, file dialog and the GPU device are SDL 3's (through the shared engine's
+platform layer: Vulkan, else OpenGL ES 3.0, else the 2D screens alone); the data folder is SDL's
+preference folder. Ours on Linux: the process's resident memory for the app's statistics
+(`/proc/self/statm`, `app.cpp`). Nothing else in `src/gt4r` differs by platform; the game's code is
+the same on every one.
+
 ### On a Linux machine
 
 Install a compiler, CMake and the libraries SDL's Linux backends build against (Debian and Ubuntu
