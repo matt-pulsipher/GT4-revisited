@@ -4357,6 +4357,8 @@ private:
             }
             // The options' speed unit (unit_velocity), when the race came with the game's options.
             if (!setup_.options.empty()) hud_->set_mph(std::string(settings_.velocity.name).find("mph") != std::string::npos);
+            if (const auto l = setup_.options.find("language"); l != setup_.options.end())
+                if (const std::string* code = std::get_if<std::string>(&l->second)) hud_->set_language(app, *code);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
             // The replay card's tires and race name.
             const std::string& seq = setup_.sequence;
