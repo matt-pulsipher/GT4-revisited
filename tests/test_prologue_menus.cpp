@@ -175,11 +175,11 @@ TEST(disc_prologue_switch_colors) {
     CHECK(near(c->text_active, 0, 0, 0, 1) && near(c->text_idle, 1, 1, 1, 1) && near(c->text_insensitive, 0.5f, 0.5f, 0.5f, 1));
     CHECK(near(c->ring_blink_off, 1, 1, 1, 1));
     // Another program (Gran Turismo 4's) has none.
-    for (const std::unique_ptr<Disc>& d : test::discs())
+    for (Disc* d : test::reference_discs())
         if (d->info().game == Game::GT4) {
             menu::RuntimeConfig other;
             other.console_card = true;
-            Disc* g = d.get();
+            Disc* g = d;
             other.program = [g] { return g->read_program(); };
             CHECK(!menu::prologue_switch_colors(other).has_value());
         }

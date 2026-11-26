@@ -3,6 +3,7 @@
 // specdb/<set>/RACES/<the race's code>).
 
 #include "gt4r/menu/game_bspec.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/sim/showroom.h"
@@ -62,7 +63,7 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
         // The license tests' and missions' rows carry the region ("usl0m0001" for "l0m0001"): the
         // labels tried as Database::race_unit does (0x430D20).
         std::string found = label;
-        for (const std::string& tried : {label, "us" + label, "jp" + label})
+        for (const std::string& tried : db::race_labels(label, np->rt.region()))
             if (!label.empty() && np->db().code(kRaceTable, tried) != kNoCode) {
                 found = tried;
                 break;
@@ -275,7 +276,7 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
     // The player's own start of an event (0x114334, a championship's 0x119A78: the event's license).
     if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && (q.sequence == "solo_event" || q.sequence == "championship")) {
         ByteSpan row;
-        for (const std::string& label : {q.race, "us" + q.race, "jp" + q.race})
+        for (const std::string& label : db::race_labels(q.race, rt.region()))
             if (row.empty() && !label.empty()) row = n->db().row("RACE", label);
         w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
     }
@@ -287,7 +288,7 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
         // 0x11D400, are not read).
         const std::shared_ptr<GameNatives> n = natives_of(rt);
         ByteSpan row;
-        for (const std::string& label : {q.race, "us" + q.race, "jp" + q.race})
+        for (const std::string& label : db::race_labels(q.race, rt.region()))
             if (row.empty() && n && !q.race.empty()) row = n->db().row("RACE", label);
         const int test = q.race.size() >= 7 ? std::atoi(q.race.c_str() + 3) : 0;
         const bool short_one = q.race.compare(0, 3, "l0s") != 0 && q.race.compare(0, 3, "l0c") != 0 && (test == 5 || test == 10 || test == 15);
@@ -304,8 +305,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
     GameState& s = game();
     if (!n) return 0;
     Database& d = n->db();
-    auto known = [&d](const std::string& label) {
-        for (const std::string& tried : {label, "us" + label, "jp" + label})
+    auto known = [&d, region = region()](const std::string& label) {
+        for (const std::string& tried : db::race_labels(label, region))
             if (!label.empty() && d.code(kRaceTable, tried) != kNoCode) return tried;
         return label;
     };

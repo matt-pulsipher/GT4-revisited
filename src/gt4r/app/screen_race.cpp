@@ -31,6 +31,7 @@
 #include "gt4r/audio/sound_library.h"
 
 #include "base/log.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/input/player_controls.h"
@@ -282,10 +283,14 @@ void apply_course_start(App& app, Setup& setup, bool start) {
     }
 }
 
-// An event by its label, or by the scripts' code of a test or mission under the region's prefix (0x430D20: "us", then "jp").
-std::optional<db::RaceEvent> find_event(const db::RaceEvents& events, const std::string& label) {
+// The disc's region ("us", "uk", "jp"): the prefix of its license tests' and missions' labels.
+std::string region_of(App& app) { return app.disc() ? app.disc()->info().region : std::string("us"); }
+
+// An event by its label, or by the scripts' code of a test or mission under the region's prefix (0x430D20: the program's
+// region, then "jp").
+std::optional<db::RaceEvent> find_event(const db::RaceEvents& events, const std::string& label, const std::string& region) {
     if (label.empty()) return std::nullopt;
-    for (const std::string& l : {label, "us" + label, "jp" + label})
+    for (const std::string& l : db::race_labels(label, region))
         if (std::optional<db::RaceEvent> e = events.event(l)) return e;
     return std::nullopt;
 }
@@ -303,7 +308,7 @@ void load_test(App& app, Setup& setup, const std::string& code) {
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-        if (const std::optional<db::RaceEvent> e = find_event(events, code)) {
+        if (const std::optional<db::RaceEvent> e = find_event(events, code, region_of(app))) {
             setup.event_row = e->bytes;
             if (!test) { // (an event by its label without the menus: its row and its drivers' pace)
                 setup.pace = sim::ai::pace_for(*e);
@@ -311,7 +316,7 @@ void load_test(App& app, Setup& setup, const std::string& code) {
             }
             for (size_t k = 0; k < 3; ++k) setup.targets[k] = e->target_ms[k] > 0 ? s64(e->target_ms[k]) : -1;
             setup.rules = race::LicenseRules::from_row(e->bytes);
-            if (app.disc() && app.disc()->info().serial.rfind("SCPS", 0) != 0) setup.conductor = race::conductor_for(setup.sequence, code);
+            if (app.disc() && app.disc()->info().game != Game::Prologue) setup.conductor = race::conductor_for(setup.sequence, code);
         }
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the test's event: %s", e.what());
@@ -349,7 +354,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             asked.overwrite_enemy_num = s32(paints.size());
         }
         sim::ai::RaceRandom& random = sim::ai::race_random(); // (the program's one generator, kept while the app runs)
-        const std::optional<db::RaceEvent> event = find_event(events, q.race);
+        const std::optional<db::RaceEvent> event = find_event(events, q.race, region_of(app));
         const std::string& sequence = q.sequence.empty() ? setup.sequence : q.sequence;
         const bool prologue_test = event && sdb->prologue() && event->label.rfind("l0p", 0) == 0;
         const bool training = event && !sdb->prologue() && (sequence == "mission" || is_license(sequence)); // (no draw: the pool in its order)
@@ -399,7 +404,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
         if (!setup.opponents.empty()) setup.cars = int(setup.opponents.size()) + 1;
         // (An arcade race of a car without an event's row: sample_entry_6, the original's, whatever its number of cars; it counts fuel.)
         const std::string race = q.race.empty() && (q.sequence == "single_race" || setup.sequence == "single_race") ? std::string("sample_entry_6") : q.race;
-        if (const std::optional<db::RaceEvent> e = find_event(events, race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+        if (const std::optional<db::RaceEvent> e = find_event(events, race, region_of(app))) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
         LOG_INFO("Drive: the event's row %s (%zu bytes)", race.c_str(), setup.event_row.size());
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the event's grid: %s", e.what());
@@ -415,7 +420,7 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-        const std::optional<db::RaceEvent> e = find_event(events, q.race);
+        const std::optional<db::RaceEvent> e = find_event(events, q.race, region_of(app));
         if (!e) return;
         const std::vector<db::Opponent> pool = events.pool(*e);
         if (pool.empty() || pool[0].car != (q.car.empty() ? setup.car : q.car)) return; // (Prologue's lessons name none: the event's)
@@ -706,6 +711,7 @@ public:
                     }
                 }
         for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
+        if (disc_ && disc_->info().game == Game::GT4) release_ = sim::Program::load(*disc_).release();
         {
             // (Gran Turismo 3's road, Prologue's: a goal distance inside the lap ends a license test there)
             const course::Runway& r = world_->course().road();
@@ -931,7 +937,7 @@ public:
         const db::Labels *races = db_->labels("RACE"), *courses = db_->labels("COURSE");
         const std::string name = setup_.race.empty() ? "sample_entry_6" : setup_.race;
         std::optional<u32> event;
-        for (const std::string& l : {name, "us" + name, "jp" + name}) // (a test's code by its region: find_event)
+        for (const std::string& l : db::race_labels(name, disc_ ? disc_->info().region : std::string())) // (a test's code by its region: find_event)
             if (!event && races) event = races->id(l);
         const std::optional<u32> course = courses ? courses->id(setup_.course) : std::nullopt;
         if (!event || !course) return {};
@@ -1477,7 +1483,7 @@ public:
         try {
             const sim::Program program = sim::Program::load(*disc);
             std::string error;
-            for (const std::string& l : {label, "us" + label, "jp" + label}) {
+            for (const std::string& l : db::race_labels(label, disc->info().region)) {
                 demo_run_ = sim::ai::DemoRun::load(*disc, program, l, &error);
                 if (demo_run_) break;
             }
@@ -1893,7 +1899,7 @@ public:
         const race::CarState& c = world_->cars()[0];
         const race::LicenseRules& r = judge_.rules();
         if (gt3_road_ && flow_.steps_since_start() < 0) return;
-        if (const std::optional<float> share = (r.kind == 1 || !r.any()) && stop_area_ ? race::stopped_in_box(c) : std::nullopt) {
+        if (const std::optional<float> share = (r.kind == 1 || !r.any()) && stop_area_ ? race::stopped_in_box(c, release_) : std::nullopt) {
             flow_.finish_now(0, *share);
             license_failed_ = false;
             return;
@@ -2280,6 +2286,7 @@ private:
     int gear_shown_ = 1;
     float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
+    sim::Release release_ = sim::Release::Us;          // the disc's release (its own license rules)
     bool wrong_way_ = false;
     float wrong_prev_ = -1;
     bool run_ended_ = false, run_driven_ = false;     // Prologue's test is over (the end given to the car's driver)
@@ -2428,7 +2435,7 @@ public:
                         gt3r::Vfs* vfs = app.vfs();
                         try {
                             const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-                            if (const std::optional<db::RaceEvent> e = find_event(events, q.race)) laps = e->laps;
+                            if (const std::optional<db::RaceEvent> e = find_event(events, q.race, region_of(app))) laps = e->laps;
                         } catch (const std::exception& e) {
                             LOG_WARN("Drive: the event's laps: %s", e.what());
                         }
@@ -2495,7 +2502,7 @@ public:
             gt3r::Vfs* vfs = app.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
-            if (Disc* disc = app.disc(); disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp", config.language = "JP"; // (Prologue: its text is Japan's)
+            if (Disc* disc = app.disc()) config.region = disc->info().region, config.language = disc->info().language, config.product = disc->info().product;
             config.data_dir = app.save_dir();
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             own_menus_->boot();

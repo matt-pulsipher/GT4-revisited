@@ -18,12 +18,13 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 - Replay effects and extra views as options
 - GT4 Revisited's own menu from the title: Select, or the GT4R menu button beside it
 
-Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055).
+Discs: Gran Turismo 4 US (SCUS-97328, v1.01), Europe (SCES-51719, v1.00) and Japan (SCPS-17001, v1.05), and Gran
+Turismo 4 Prologue (Japan, SCPS-15055).
 Download: macOS (Apple Silicon), Windows, Linux and Android.
 
 ## Known problems
 
-- Other releases of the disc open but are not tested
+- The Japanese release races on the US release's driving, computer-driver and race rules for now (its own are being added)
 - The name entry takes no typed letters: choose them with the arrows and Enter
 - Photo Lab: films cannot be developed; no printer or USB memory
 - Mods' cars, events and liveries are not read yet

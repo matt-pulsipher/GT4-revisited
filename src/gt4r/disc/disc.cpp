@@ -27,6 +27,8 @@ struct KnownDisc {
 constexpr KnownDisc kKnownDiscs[] = {
     {"SCUS_973.28", "1.01", Game::GT4, "Gran Turismo 4 (NTSC-U/C)", "878407142121eb90"},
     {"SCPS_150.55", "1.01", Game::Prologue, "Gran Turismo 4 Prologue (NTSC-J)", "5f9c96f1934fd29e"},
+    {"SCES_517.19", "1.00", Game::GT4, "Gran Turismo 4 (PAL)", "a8714c908d9e4490"},
+    {"SCPS_170.01", "1.05", Game::GT4, "Gran Turismo 4 (NTSC-J)", "27122d15e9ba6dd7"},
 };
 
 } // namespace
@@ -160,6 +162,13 @@ std::unique_ptr<Disc> Disc::open_image(const std::string& path, std::string& pro
     else if (!info.verified) LOG_WARN("Disc %s v%s has not been verified; continuing", info.serial.c_str(), info.version.c_str());
     info.key = gt3r::short_serial(info.serial);
     if (info.key.empty()) info.key = "disc-" + info.digest.substr(0, 8);
+    // The region by the serial's letters (each program names its own: "us" 0x68BB20 in SCUS-97328, "uk" in SCES-51719, "jp"
+    // in SCPS-17001), the card folder's letters likewise (0x1CC958: "BA", "BE", "BI").
+    const std::string letters = info.serial.substr(0, 4);
+    const bool europe = letters == "SCES" || letters == "SLES", japan = letters == "SCPS" || letters == "SLPS" || letters == "SCAJ";
+    info.region = europe ? "uk" : japan ? "jp" : "us";
+    info.language = europe ? "GB" : japan ? "JP" : "US";
+    info.product = std::string(europe ? "BE" : japan ? "BI" : "BA") + (gt3r::short_serial(info.serial).empty() ? "SCUS-97328" : gt3r::short_serial(info.serial));
 
     disc->image_ = std::make_unique<ArchiveImage>(image, std::move(files));
     for (size_t i = 0; i < disc->image_->files().size(); ++i) disc->by_path_[disc->image_->files()[i].path] = i;

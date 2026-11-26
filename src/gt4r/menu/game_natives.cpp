@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/earlier_saves.h"
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/game_bspec.h"
@@ -146,8 +147,24 @@ float ProgramRandom::next01() {
 
 // ---- Database
 
+// The car database's name tables for a menus' language (CAR_NAME_<language>; Europe's disc has british, french, german,
+// italian and spanish; Portuguese has none and takes the British English ones ❓).
+static std::string database_language(const std::string& code) {
+    if (code == "JP") return "japanese";
+    if (code == "GB" || code == "PT") return "british";
+    if (code == "FR") return "french";
+    if (code == "DE") return "german";
+    if (code == "IT") return "italian";
+    if (code == "ES") return "spanish";
+    if (code == "KR") return "korean";
+    if (code == "CN" || code == "TW") return "big5";
+    return "american";
+}
+
 db::SpecDb* Database::get(const RuntimeConfig& config) {
-    if (tried) return db.get();
+    const std::string want = database_language(rt ? rt->language() : config.language);
+    if (tried && (!db || want == language)) return db.get();
+    if (tried) by_label.clear(); // (the language changed: the names again)
     tried = true;
     if (config.program || config.program_image) {
         try {
@@ -164,7 +181,7 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         const FolderLister list = config.list;
         // The names in the menus' language: Prologue (Japan) shows its cars' Japanese names
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
-        language = config.language == "JP" ? "japanese" : "american";
+        language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
@@ -219,7 +236,7 @@ int Database::race_unit(const std::string& label) {
     const db::Table* t = db ? db->table("RACE") : nullptr;
     const db::Labels* l = labels_of(kRaceTable);
     if (!t || !l || label.empty()) return -1;
-    for (const std::string& tried : {label, "us" + label, "jp" + label}) {
+    for (const std::string& tried : db::race_labels(label, rt ? rt->region() : std::string())) {
         const std::optional<u32> id = l->id(tried);
         if (!id) continue;
         const std::vector<u32>& ids = t->ids();
@@ -985,6 +1002,7 @@ save::Codes GameNatives::codes() {
 save::SaveLibrary GameNatives::library() {
     Database& base = db();
     base.get(config);
+    if (!config.product.empty()) return save::SaveLibrary(config.data_dir, config.product);
     return save::SaveLibrary(config.data_dir, base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328");
 }
 
@@ -1286,7 +1304,7 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     // missions are "usl0b0001", the scripts say "l0b0001"; 0x430D20 tries "us" then "jp").
     if (r.sequence == "replay") r.replay_file = s.replay_file;
     std::string race = r.race;
-    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
+    for (const std::string& tried : db::race_labels(r.race, rt.region()))
         if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
             race = tried;
             break;
@@ -1422,8 +1440,24 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetRegionCode", [r](Vm&, const Value&, Args) { return text(r->region()); });
         static_fn(*cls, "GetLanguage", [r](Vm&, const Value&, Args) { return text(r->language()); });
         static_fn(*cls, "GetStaticLanguage", [r](Vm&, const Value&, Args) { return text(r->language()); });
+        // SetLanguage (0x436170): the language by its code (the program's table 0x6AE404: JP, US, GB, FR, DE, IT, ES, PT, KR,
+        // CN, TW, DB), kept in the game's options.
         static_fn(*cls, "SetLanguage", [r](Vm&, const Value&, Args a) {
-            r->note("language asked for: " + arg_text(a, 0));
+            const std::string l = arg_text(a, 0);
+            r->note("language: " + l);
+            r->set_language(l);
+            r->game().options["language"] = l;
+            return Value{};
+        });
+        // SyncUnitWithLanguage (0x4361D0 -> 0x472528): the units by the language's locale (0x472408): mph with HP and ft.lb in
+        // US English, mph with BHP and kgf.m in British English, km/h and kgf.m elsewhere with CH in French, CV in Italian,
+        // Spanish and Portuguese, PS in German, Japanese, Korean and Chinese.
+        static_fn(*cls, "SyncUnitWithLanguage", [r](Vm&, const Value&, Args) {
+            const std::string l = r->language();
+            auto& o = r->game().options;
+            o["unit_velocity"] = std::string(l == "US" || l == "GB" ? "MPH" : "KMPH");
+            o["unit_power"] = std::string(l == "US" ? "HP" : l == "GB" ? "BHP" : l == "FR" ? "CH" : l == "IT" || l == "ES" || l == "PT" ? "CV" : "PS");
+            o["unit_torque"] = std::string(l == "US" ? "FTLB" : "KGFM");
             return Value{};
         });
         static_fn(*cls, "GetVideoSystem", [r](Vm&, const Value&, Args) { return text(r->region() == "uk" ? "PAL" : "NTSC"); });
@@ -1439,7 +1473,7 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             r->game().loading_mode = arg_text(a, 0);
             return Value{};
         });
-        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
+        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "Reboot"})
             static_fn(*cls, nothing, [](Vm&, const Value&, Args) { return Value{}; });
         auto now = [] {
             const std::time_t t = std::time(nullptr);

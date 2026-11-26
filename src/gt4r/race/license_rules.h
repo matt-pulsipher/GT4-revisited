@@ -7,6 +7,7 @@
 
 #include "gt4r/base/types.h"
 #include "gt4r/race/simulation.h"
+#include "gt4r/sim/program_tables.h"
 
 #include <functional>
 #include <optional>
@@ -94,7 +95,8 @@ private:
 // 0x3F91F0: the car stopped in the stopping box: every wheel on a triangle flagged bit 2 and the speed no more than
 // 0.2778 m/s (1 km/h), in the program's arithmetic; the step's share at which it counts (the speed over 0.2778), none while
 // it is not.
-std::optional<float> stopped_in_box(const CarState& c);
+// Europe's program (0x3F9560 there) takes 0.4167 m/s (1.5 km/h) for the limit.
+std::optional<float> stopped_in_box(const CarState& c, sim::Release release = sim::Release::Us);
 
 // 0x35FC10: a hit of `value` against a limit byte: 0 any hit fails, 255 none, else value (truncated) at or over it.
 bool hit_over(int limit, float value);

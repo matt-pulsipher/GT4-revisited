@@ -133,6 +133,7 @@ struct SoundCall {
 struct RuntimeConfig {
     std::string region = "us";   // menu::MSystem::GetRegionCode()
     std::string language = "US"; // the projects' language folder
+    std::string product;          // the memory card folder's product (DiscInfo::product; empty: by the database, US or Prologue)
     FolderLister list;           // the disc's folders (the car database's)
     std::function<Bytes()> program; // the disc's program file (CORE.GT4): the name lists the scripts read through MCarData
     std::function<std::shared_ptr<const gt3r::CoreImage>()> program_image; // the same unpacked (Disc::program_image), read before `program`
@@ -275,6 +276,9 @@ public:
     const FolderLister& lister() const { return config_.list; }
     const std::string& data_dir() const { return config_.data_dir; }
     const std::string& language() const { return config_.language; }
+    // MSystem::SetLanguage (0x436170): the menus' language from now on (the next project loads in it; the common project's
+    // text now). A language the projects have no folder for is kept as asked (its text is the ids).
+    void set_language(const std::string& language);
     // The project's module as a script has it (nil when none runs).
     script::Value project_value() const { return widget_value(root_widget_); }
     // The player asked for the saved games' page (the title's Save Game, Prologue's save and load items): taken once.

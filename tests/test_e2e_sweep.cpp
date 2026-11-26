@@ -28,8 +28,8 @@ using namespace gt4r;
 namespace {
 
 Disc* sweep_disc() {
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4 && sim::Program::load(*disc).known()) return disc.get();
+    for (Disc* disc : test::reference_discs())
+        if (disc->info().game == Game::GT4 && sim::Program::load(*disc).known()) return disc;
     return nullptr;
 }
 

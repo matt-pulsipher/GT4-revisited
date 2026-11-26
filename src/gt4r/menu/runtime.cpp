@@ -459,6 +459,16 @@ std::string Runtime::first_project() {
     return v.kind == Kind::String && !v.as_string().empty() ? v.as_string() : std::string("boot");
 }
 
+void Runtime::set_language(const std::string& language) {
+    if (language.empty() || language == config_.language) return;
+    config_.language = language;
+    if (common_) try {
+        common_ = load_project_files(kCommonProject, language);
+    } catch (const std::exception& e) {
+        note(std::string("the common project in ") + language + ": " + e.what());
+    }
+}
+
 std::shared_ptr<Project> Runtime::load_project_files(const std::string& name, const std::string& language) {
     auto project = std::make_shared<Project>(read_, name, language);
     project->set_face_alpha(is_prologue());

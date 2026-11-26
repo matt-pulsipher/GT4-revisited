@@ -27,8 +27,8 @@ using namespace gt4r;
 namespace {
 
 Disc* full_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d;
     return nullptr;
 }
 

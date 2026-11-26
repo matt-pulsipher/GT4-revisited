@@ -93,8 +93,8 @@ TEST(script_reads) {
 }
 
 TEST(disc_scripts_read) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         size_t read = 0, other = 0, instructions = 0;
         for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
             if (e.path.size() < 4 || e.path.compare(e.path.size() - 4, 4, ".adc") != 0) continue;

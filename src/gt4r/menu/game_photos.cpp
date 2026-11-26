@@ -39,7 +39,11 @@ struct PlayListObject : Object {
 // The photos' folder: the game's save files, one place whatever slot a page names.
 std::string card_dir(Runtime& rt, int) { return rt.data_dir().empty() ? std::string() : rt.data_dir() + "/memorycard"; }
 
-save::PhotoCard photo_card(Runtime& rt, int slot) { return save::PhotoCard(card_dir(rt, slot), rt.reader()); }
+// (the disc's product: "BESCES-51719P..." on Europe's card, "BISCPS-17001P..." on Japan's)
+save::PhotoCard photo_card(Runtime& rt, int slot) {
+    const std::string& product = rt.config().product;
+    return product.empty() ? save::PhotoCard(card_dir(rt, slot), rt.reader()) : save::PhotoCard(card_dir(rt, slot), rt.reader(), product);
+}
 
 constexpr s32 kFreeKb = 7999; // (always room: the save files are not a card's; 8,000 is the scripts' unformatted card)
 

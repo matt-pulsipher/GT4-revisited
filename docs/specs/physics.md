@@ -941,6 +941,52 @@ by the routines that address them).
 - ❓ The tire effect block and the computer drivers' tables (GT3's 0x2D35B8, 0x2DA030 ..): their
   counterparts are not located.
 
+### The releases
+
+Three Gran Turismo 4 programs are told apart, each by the raw code of the three routines above as it has them
+(`sim::release_of`): **SCUS-97328 v1.01** (NTSC-U/C), **SCES-51719 v1.00** (PAL) and **SCPS-17001 v1.05** (NTSC-J). Each
+is served its own tables: v1.01's with that release's own values written over them, every table still named by its
+v1.01 address (`program_tables.cpp`, `own_values`, `kGaps`, `kRates`; each release's tables pinned by a hash). Another GT4
+build is served v1.01's and its differences are logged. `gt4tool tables <disc>` shows the check, and
+`gt4tool regions <disc> map` finds every v1.01 routine in a disc's program, for the code comparison below.
+
+- **Europe** has the same data layout as v1.01, with its code moved. Its program steps **50 times a second**: dt 1/50 in
+  the code (about 57 places where v1.01 has 1/60, about 60 where it has 60.0) and its step counts rounded to 50 a second.
+  The two routines that address the view follower (0x69F4C8, Europe 0x3457B0: 0.02 for 1/60) and the steering curve
+  (0x6A4028, Europe's spec builder 0x3F3E70) have their own sites in the locator. Its tables equal v1.01's except 13
+  step counts in the car globals: the pit messages' times (0x6207E4 + 8k: 100 for 120) and special car 1's mood times
+  (0x620880: 150 for 180), the same in seconds. **We race at 60 steps a second on every disc** (never a 50 Hz race), so
+  Europe is served v1.01's counts. The check finds the program's at x 50 / 60. A count rounded differently in the code
+  (for example 29 for v1.01's 34) is a conversion and is not carried.
+  - **Europe's own rule**: its spec builder raises the yaw, pitch and roll inertia bytes (spec +0x24 / +0x25 / +0x26) to
+    the static block's +0x153 / +0x154 / +0x155 where those are not 0. The values are 0, 0, 4, so the roll's is at least
+    4. v1.01 holds the same bytes, but no v1.01 code reads them. ✔ Ported (`sim/car_spec.cpp`).
+  - **Europe's converter** (0x361B10 there, with 0x360A60 and 0x360D28) scales the yaw, pitch and roll inertias (the
+    spec's bytes x 100) by static +0x14E / +0x14F / +0x150, each axle's spring (+0x14 of its block) by +0x151 and the
+    dampers' forces by +0x152, x 1/100, wherever the byte is neither 0 nor 100. Europe's bytes are all 100, so nothing
+    changes. ✔ Ported (`sim/convert.cpp` `europe_share`).
+  - **Europe's stopping box** (0x3F9560, a license test's end in the box): the car counts as stopped below 0.4167 m/s
+    (1.5 km/h; v1.01 0.2778, 1 km/h), timed by the same share. ✔ Ported (`race/license_rules.cpp`).
+  - **Europe's recordings** (its license tests' `uk*` files, the Replay Theater's `Rdemo<n>p`) are 50 records a second.
+    They play by time at our 60 steps (step k takes record k x 50 / 60, a shift and a mail on a record's first step:
+    `sim::ai::DemoRun::rate`), as a look at them and a check, never on their times. Of the 79 timed license files
+    (`gt4tool race <eu disc> demos uk`), 16 end within 100 ms of their recorded time (10 within 20 ms), most of the B license's straight
+    tests within 20 ms (B-1 +10, B-2 -11, B-3 +4, B-4 +18, B-6 -5, B-7 +4); the rest part from the recorded run, as a 50 Hz
+    run on a 60 Hz step must.
+  - The license tests' and missions' labels are the program's region's (0x430D20: "uk" + the code, then "jp";
+    `db::race_labels`): `ukl0b0001` on Europe's disc, `jpl0b0001` on Japan's, as their RACE rows and demonstration files are.
+  - Not rules: the camera's picture height (224 -> 256 lines) and its two aspect factors (1.905 -> 1.667, 1.429 ->
+    1.25) in 0x3E0FF8 are the PAL picture's. Our views keep their own (the window's shape).
+- **Japan** is an earlier build with its data moved (0x620AD8 there 0x618040). The address words in its tables are its
+  own (11 of them, not counted as differences).
+  - The engine condition's oil is old from **5,000 km** (static +0xD7 = 50; v1.01 60). ✔ Served.
+  - Its static block lacks v1.01's +0x14E .. +0x155 (100 x 5, 0, 0, 4), 8 bytes: what follows is 8 bytes earlier there,
+    and Japan's code reads it there (v1.01's 0x620E30 is Japan's 0x618390). Served as 0.
+- 🔎 **The code**: of the routines our simulation and race code port, Europe changes 81 and Japan 106 (`build_map`
+  classes). Europe's are read in full: the 50 Hz conversions (every changed constant or step count is v1.01's x 5/6 or
+  x 6/5, rounded), field offsets, and the rules above. Japan's are not read yet. Each one that changes a rule is listed here when it
+  is ported.
+
 ## 6. The ground
 
 - **The query points** (0x3697A8, phase 16): each wheel's hub point (position + the hub's offset) moved along the

@@ -44,12 +44,12 @@ LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft,
     return s;
 }
 
-std::optional<float> stopped_in_box(const CarState& c) {
+std::optional<float> stopped_in_box(const CarState& c, sim::Release release) {
     using gt3r::ee::F;
     for (const WheelState& w : c.wheels)
         if ((w.surface & 4) == 0) return std::nullopt;
     // (the record's x, y, z: the course's x, -z, y)
-    const F x(c.velocity.x), y(c.velocity.z), z(c.velocity.y), limit = F::raw(0x3E8E38E3);
+    const F x(c.velocity.x), y(c.velocity.z), z(c.velocity.y), limit = F::raw(release == sim::Release::Europe ? 0x3ED55554 : 0x3E8E38E3);
     const F v = gt3r::ee::sqrt((x * x + y * y) + z * z);
     if (limit < v) return std::nullopt;
     return (v / limit).host();

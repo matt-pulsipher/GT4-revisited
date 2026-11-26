@@ -484,6 +484,16 @@ void driveline(Spec& s, const Program& program, ParamBlock& p, ConvertGlobals* g
 
 // ---- the suspension (0x360B60 with 0x3608E8 / 0x360980; 0x360DC8) ----
 
+// Europe's converter scales a few of its values by the static block's bytes +0x14E .. +0x152 (yaw, pitch and roll inertias,
+// the springs, the dampers' forces) x 1/100 where the byte is neither 0 nor 100. Europe's are 100 (nothing changes); v1.01's
+// and Japan's converters have no such step (physics.md "The releases").
+static F europe_share(const Program& program, u32 o, F v) {
+    if (program.release() != Release::Europe) return v;
+    const u8 b = program.b(Program::kStatic + o);
+    if (b == 0 || b == 100) return v;
+    return v * (int_to_f(b) / kHundred);
+}
+
 // 0x360980: a damper's square-law fit through two points (speed, force): its three terms, or zeros.
 void damper_fit(F v1, F f1, F v2, F f2, F& t, F& o, F& g) {
     const F zero = kZero;
@@ -508,11 +518,13 @@ void damper_fit(F v1, F f1, F v2, F f2, F& t, F& o, F& g) {
 void suspension(const Spec& s, const Program& program, ParamBlock& p, u32 at, u32 blk, u8 ratio) {
     const F mr = int_to_f(ratio) * kCenti;
     p.set_f(at + 0x14, (int_to_f(s.b(blk)) * F::raw(0x4474FFFE)) * mr);
+    p.set_f(at + 0x14, europe_share(program, 0x151, p.f(at + 0x14)));
     const F scale = kHundred / int_to_f(ratio);
     const bool linear = program.b(Program::kStatic + 0x101) != 0;
     for (u32 k = 0; k < 2; ++k) {
         const u32 b = blk + 4 + 4 * k;
-        const F f1 = (int_to_f(s.b(b + 1)) * F::raw(0x40A00000)) * kG, f2 = (int_to_f(s.b(b + 3)) * F::raw(0x40A00000)) * kG;
+        const F f1 = europe_share(program, 0x152, (int_to_f(s.b(b + 1)) * F::raw(0x40A00000)) * kG);
+        const F f2 = europe_share(program, 0x152, (int_to_f(s.b(b + 3)) * F::raw(0x40A00000)) * kG);
         F v1 = int_to_f(s.b(b)) * kCenti, v2 = int_to_f(s.b(b + 2)) * kCenti;
         v1 = v1 * scale, v2 = v2 * scale;
         const u32 o = at + 0x18 + 0x0C * k;
@@ -1163,13 +1175,13 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
     }
     // The inertias: yaw (the byte x 100, 6,000 when 0, with the ballast's), its inverse (of the yaw without the ballast),
     // pitch and roll (x 100; 4,000 and 2,000 when 0) and the levers.
-    F yaw = s.b(0x24) ? int_to_f(s.b(0x24)) * kHundred : F::raw(0x45BB8000);
+    F yaw = s.b(0x24) ? europe_share(program, 0x14E, int_to_f(s.b(0x24)) * kHundred) : F::raw(0x45BB8000);
     p.set_f(0x114, yaw);
     if (s.b(0x05) != 0) p.set_f(0x114, yaw + yaw_extra);
     p.set_f(0x118, kOne / yaw);
-    const F pitch = s.b(0x25) ? int_to_f(s.b(0x25)) * kHundred : F::raw(0x457A0000);
+    const F pitch = s.b(0x25) ? europe_share(program, 0x14F, int_to_f(s.b(0x25)) * kHundred) : F::raw(0x457A0000);
     p.set_f(0x11C, p.f(0x10) / pitch), p.set_f(0x120, p.f(0x14) / pitch);
-    const F roll = s.b(0x26) ? int_to_f(s.b(0x26)) * kHundred : F::raw(0x44FA0000);
+    const F roll = s.b(0x26) ? europe_share(program, 0x150, int_to_f(s.b(0x26)) * kHundred) : F::raw(0x44FA0000);
     p.set_f(0x124, p.f(0x28) / roll), p.set_f(0x128, p.f(0x2C) / roll);
     // 0x360A78: the dampers' square-law table.
     if (g) {

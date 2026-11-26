@@ -21,8 +21,8 @@
 using namespace gt4r;
 
 TEST(disc_program_unpacked_once) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         disc->prepare_program();
         std::shared_ptr<const gt3r::CoreImage> a, b;
         std::thread other([&] { a = disc->program_image(); });
@@ -42,8 +42,8 @@ TEST(disc_program_unpacked_once) {
 
 // The cells give the height the whole list of triangles gives, on the road, beside it and far off it.
 TEST(disc_road_heights_by_cells) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         size_t roads = 0, points = 0, found = 0, different = 0;
         for (const ImageFile& f : disc->files()) {
             if (f.path.compare(0, 4, "crs/") != 0 || f.path.find('.') != std::string::npos || f.path.find('/', 4) != std::string::npos) continue;
@@ -86,7 +86,7 @@ TEST(disc_road_heights_by_cells) {
 
 // A race's cars share the banks they have in common, each read once; the files are the car database's either way.
 TEST(sound_race_banks_read_once_on_disc) {
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue;
         gt3r::Vfs vfs(&disc->volume());
         db::SpecDb sdb([&vfs](const std::string& path) { return vfs.read(path); }, [&vfs](const std::string& dir) { return vfs.list_dir(dir); });
