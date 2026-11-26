@@ -5,10 +5,11 @@
 // A movie's sound is PSS private stream 1 (0xBD) with a four-byte header `FF A1 00 <track>`
 // before each packet's data; each track is a whole ADS stream of its own (its own `SShd`).
 // The opening (`mpeg/main/opening_us.pss`) carries two, tracks 1 and 2, packet for packet;
-// the ending and `pv` one, track 0. The engine's demuxer takes every private stream 1 packet
-// as one stream, so two tracks come out interleaved: noise. Here the reads of the file are
-// filtered: the packets of every track but the file's first are turned into padding (0xBE),
-// which the demuxer passes over.
+// the ending and `pv` one, track 0. The game's player plays the first track it meets (it asks
+// for track 0 in every case; docs/formats/menu.md "Sound tracks"). The engine's demuxer takes
+// every private stream 1 packet as one stream, so two tracks come out interleaved: noise. Here
+// the reads of the file are filtered the same way: the packets of every track but the first
+// met are turned into padding (0xBE), which the demuxer passes over.
 
 #include "gt4r/base/types.h"
 #include "video/movie.h"
