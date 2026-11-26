@@ -2737,6 +2737,7 @@ public:
                 hud_->draw(ui, hud_state_);
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
+                hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
                 prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's own display)
             } else {
                 draw_overlay(ui);
@@ -3412,7 +3413,8 @@ private:
         controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
         if (sequence_ == "single_race" && app_.db() && app_.db()->prologue()) {
             // Prologue's arcade, its settings popup's (0x10A360 with 0x402348): the stability control by the driving assist, the
-            // traction control by the option (on; ❓ which of the option page's sets it).
+            // traction control by the option word Status + 0x2F560 (the options' +0x50): 1 from their constructor (0x3FFA50)
+            // and no other store to it found, so on.
             const menu::RaceRequest& q = menus_->game().race;
             c.automatic = q.manual == 0, c.asm_on = q.assist_type != 0, c.tcs_on = true;
         } else if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
@@ -4223,6 +4225,7 @@ private:
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
+        if (h.replay) e.car_label = race_->world().car_label(race_->focused());
         if (race_ && results_shown() && is_license(sequence_)) e.over_t = float(race_->flow().steps_since_player_finish()) / 60, e.passed = prize_level() < 3;
         const race::RaceFlow& flow = race_->flow();
         if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;

@@ -135,8 +135,26 @@ headlamps' light on the road (the shared engine's race takes the same three). Th
 the race view's shadow pass with the course's look; their y = 0 is the road (Gran Turismo 4's
 models' is the ride height), so the thrown shape is sheared from the road up. The lamps are the
 info block's three lists (`gt3r::race::CarLampSet`). Pictures: `~/gt4re-out/prologue/r4/v1.png`.
-❓ Not done: the brake parts (Gran Turismo 3's cars draw them inside the wheel models), the
-cars' camera mounts. The menus' 3D car (car faces) takes these files too.
+**Brake parts** ✔ (`race/brake.bin`, 45,488 bytes, loaded by 0x4126B8 into [0x50573C]): Gran Turismo 3's file and rule, drawn by
+Prologue's own copy of Gran Turismo 3's tire packet (RaceTirePacket, vtable 0x53ADA0): the rotor 0x4130C8 (the same constants as
+Gran Turismo 3's 0x2227E0), the caliper 0x413588 (Gran Turismo 3's 0x222CE0: 5 mm outward, the corners turned by the record's
+angle), the glow's square 0x414530 (1 mm outward; drawn when the rotor's flag bit 0 is set, RaceTirePacket::vf5 0x4141E0, with
+the file's glow picture, vf3 0x414008), each wheel's level by its size on screen 0x412918 (0 over 0.09, 1 over 0.03, 2 over
+0.001, else 3; the parts on levels 0 and 1). The info block's two records (+0x14 front, +0x28 rear) choose the pictures and
+place them (the shared engine's `brake_model.*`, its "Brake parts (races)"). Every one of the disc's 82 Gran Turismo 3 car files
+has both axles' parts; 149 axles a caliper, 150 a glowing rotor (test `disc_prologue_brake_parts`). Ours: the shared engine's
+parts in each wheel's frame (`CarVisual::build_gt3`), drawn while the eye is outboard of the wheel's face on levels 0 and 1, the
+glow at FIX = 128 x heat^2 x the course's gain (🔎 the gain the race gives Gran Turismo 4's cars, Env0 +0x4C / +0x38: Prologue's
+own source of it not followed). Picture: `~/gt4re-out/prologue8/shots/cmpwb.png` (the Impreza's front wheel without and with).
+**Camera mounts** ✔: the info block's +0x68 count and +0x6C offset, 0x40 bytes each (20 on every car looked at), their first 0x20
+bytes Gran Turismo 4's mount record (the place with y down and z forward, pitch, yaw, roll in degrees, the lens 1.4352, the
+flags: mount 0 the in-car view 0xD, 1 the chase view 0xA, 2 unused, 3 .. the replay's on-board places 0xF); the program's
+camera system reads them so (0x3D2BF8: a mount chosen by its flags, bit 1 the car drawn; CameraOnBoard 0x3D24D8: the place of
+mount n from mount 3 on, else its own table 0x572078). Ours: `CarVisual::mounts()` from them. The in-car view at Tsukuba's grid
+against the original's (`14-prologue/19_start_banner_nose_view.png`): the stand, the lights and the grid's lines in the same
+places (`~/gt4re-out/prologue8/shots/m_cmp.png`). The car's shadows go with its body, as Gran Turismo 3's program draws them: the
+in-car view's own car has none (the original's grid shows none; with mount 0's place ours showed its front edge).
+The menus' 3D car (car faces) takes these files too.
 
 ## The program ✅ recognized, 🔎 tables
 
@@ -429,6 +447,12 @@ same: its steering's prefilter runs, and a pad's car keeps its display's values,
   replay's cameras; ✔ the original's lesson 1 page, its car on our run's line to the cm. **The guide film** (`dispGuidePage`,
   COMMAND_DEMONSTRATION): the course's scenic shots once (slot 48), then the recorded run under the display's monitors with the
   narration (`startStream("narration", <label>)`), "AUTO DRIVE" lit; it ends with the recording (`onSceneViewFinish`).
+  Its page (GuidePage, `quick.adc` onInitialize) puts a fade actor on `ButtonInfo::ButtonTex` (`image/quick/marubatu.png`, the
+  circle and cross) and on its text (`PushButton_text`), each `MFadeActor(w, 1)`, `over` 17, warped in, then turned out: both
+  stay about 17 s and fade over one. The original shows the text and not the picture (✔ lesson 1's guide); ours hides the
+  picture (`hide_guide_buttons`). ❓ Why: its pack (`GuidePage.gpb`, one Tex1 of 944 bytes, 4-bit, a CLUT of 16) holds it, with
+  the CLUT's alphas 0 .. 0xFF (0x1B, 0x40, 0x65, 0x89, 0xAC, 0xDD, 0xFF: over the GS's 0x80), so the GS would draw it over-full,
+  not hide it; not followed further.
 
 ## The recorded runs ✔
 
@@ -475,12 +499,16 @@ page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_s
 | frames, 0x30 each | eye x y z, rotation x y z and field of view (degrees), each light's scale (its ambient, diffuse, specular and its shadow's alpha times it), 0 |
 
 ❓ What follows the frames in the files (0xB50 .. 0x21A0 bytes; the program's loader does not point at it).
-❓ The stream's clock without `sync_mpeg`. ❓ The original shows the page's dark picture (`Veil.bg`, `best_bg.png`) behind the words
-until the film's frame 90, though its layout hides it (`visible` 0) and no script shows it: what does is not found, and here the car
-stands on black for those three seconds (the film itself is black until then).
+❓ The stream's clock without `sync_mpeg`. The page's dark picture (`Veil.bg`, `best_bg.png`) covers the car until the film's frame
+90, as the original shows it (`37-prologue-medal`, 307.5 .. 311 s): nothing hides it, for Prologue's layout reader (mWidget::vf57)
+has no `visible` (the layout's 0 is not read; `menu/widgets.cpp`); the script's `setFadeActor(Veil::bg, 0)` puts a fade actor on it
+at full (its warp; the actor sets a picture's own alpha, mColorFace::vf55 0x299248, a text's +0x58, mTextFace::vf55), and `start()`
+from the frame hook turns it out with the title, the name and the first line. Ours the same (`~/gt4re-out/prologue8/shots/nc.png`,
+lesson 1's page through the menus).
 
-**Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348; the traction control by an
-option word), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
+**Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348: Status +0x110 not 0; the traction control by
+the option word Status + 0x2F560, the option object's (Status + 0x2F510) +0x50, the saved options' +0x48: 1 from the
+constructor 0x3FFA50, read back from a card, and no other store to it found (the one other instruction at that offset, 0x32AFC0, writes 0x70F560), so on; its own page has no such choice), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
 byte +0x13E: "low" 0, "high" 1, any other 3, its own. With 0 or 1 the spec takes the compounds of the tires of the ENEMY_CARS rows
 labeled at 0x505298 / 0x50529C on the car's own sizes (0x406258, 0x406400; `prologue::fit_grip_tires`, test
 `disc_prologue_arcade_tires`).
@@ -534,7 +562,14 @@ dials, gear, small panel, cups, logo and count in the same places and colors. Th
 the guide (RaceABMonitor 0x391110), the Prius's panel (0x3930D8) and energy monitor (0x393718, its arrows by palette), the cones'
 count (0x394028; ❓ its place is judged), the wrong-way sign (0x38A890: blinking at 0.2 s, lit 0.06), the seconds of a lead
 (KeepLeader), AUTO DRIVE's word. An event's times have no label. (The steering's monitor is in the program, but nothing puts it in
-the list of parts drawn.) ❓ Not drawn: the car's name and view mode of a replay; the
+the list of parts drawn.) A replay's display (with the display asked for: its replay mode's
+"Display") shows the followed car's name, part 23 (0x38D260: RaceDisplay + 0xF20, a message in `sw_20#1*75,75`, 0x80C0C0C0), its
+text the database's short name (0x38B620 / 0x4087A8: table 35's row by the car's id, +0x04; the database's language is the first
+of its list, `japanese`, index 0 at the database object + 4 in the saved states: CAR_NAME_japanese, whose short names are the
+names without the year, where every short name of CAR_NAME_american is " "), its kana from the disc's double-byte font
+(`unicode.kf`); 🔎 its line in the box (the message's own drawing not followed). The view mode, part 24, has no object in this
+program: RaceReplayModeDisplay (0x3920C0, its pictures `replay_mode_l2` / `_r2`) is never made, so nothing shows.
+Picture: `~/gt4re-out/prologue8/shots/rpdc.png`. ❓ Not drawn: the
 lamps of fuel and oil never light; the small tachometer's bar is cut by its width where the program tests its alpha ramp.
 
 The

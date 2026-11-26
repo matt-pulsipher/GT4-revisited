@@ -201,6 +201,9 @@ private:
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
     int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
+    // Prologue's replay runs the start again: the jingle over the hold, the racing piece from the step the run started
+    // (the live run's step of START, kept here), as its recording has it.
+    size_t start_step_ = SIZE_MAX, replay_piece_step_ = SIZE_MAX;
     bool replay_ = false;
     bool designer_shot_ = false, free_run_duck_ = false;
     void duck();
