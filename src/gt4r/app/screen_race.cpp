@@ -789,7 +789,7 @@ public:
         watched_ = watched;
         ran_ = true;
         // B-spec: the pace "Steady", the course's cameras (the camera manager's mode 1), the help strip shown.
-        bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0, name_steps_ = -1;
         mail_ = {}, records_.clear();
         recording_ = !demo && recordable();
         bspec_start_ = watched ? world_->bspec_record(0) : std::nullopt;
@@ -1168,7 +1168,8 @@ public:
                      (long long)flow_.run_ms(0), demo_run_->recorded_ms());
         }
         if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
-        if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done, split_steps_ = -1;
+        // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
+        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1;
         step_splits();
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
@@ -1183,6 +1184,7 @@ public:
         else if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
+        if (name_steps_ >= 0) ++name_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -1223,7 +1225,7 @@ public:
     }
 
     // The section times: each car through the course's split points (the road's first checkpoint list,
-    // race/sections.h) on its laps from the start; the player's time and his gap to the first car there
+    // race/sections.h) on its laps from the start; the display's car's time and its gap to the first car there
     // (❓ the program's event 15 and its gap's partner, the car ahead or the leader, not read).
     void step_splits() {
         if (splits_.empty() || flow_.steps_since_start() < 0) return;
@@ -1238,10 +1240,10 @@ public:
             for (size_t k = 0; k < splits_.size(); ++k) {
                 if (!(before < splits_[k] && splits_[k] <= v)) continue;
                 const s64 t = flow_.time_ms();
-                auto [it, first] = split_first_.try_emplace({counter, int(k)}, t);
-                if (i == 0) {
-                    split_index_ = int(k), split_ms_ = flow_.lap_ms(0), split_steps_ = 0;
-                    split_gap_ms_ = first ? 0 : t - it->second;
+                auto [it, first] = split_first_.try_emplace({counter, int(k)}, std::pair<s64, size_t>{t, i});
+                if (i == display_car()) {
+                    split_index_ = int(k), split_ms_ = flow_.lap_ms(i), split_steps_ = 0;
+                    split_gap_ms_ = first ? 0 : t - it->second.first, split_gap_car_ = first ? -1 : int(it->second.second);
                 }
             }
         }
@@ -1513,11 +1515,13 @@ public:
         h.stepless = world_->stepless(shown_car);
         h.signs = replaying_ ? std::array<int, 3>{} : world_->signs(shown_car);
         h.throttle = me.throttle, h.brake = me.brake;
-        h.fuel_on = world_->counts_fuel() && !world_->course().road().gtrw;
+        h.fuel_on = world_->counts_fuel() && !world_->course().road().gtrw && shown_car == 0;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
         // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
         // wear level; B-spec's pit command waiting.
-        h.tires_on = !replaying_ && !demo && world_->wears_tires();
+        // (Both only for a car a player drives, by the pad or in B-spec (0x3451D8: F +0x466 0, 1 or 4): not for another car followed.)
+        const bool own = shown_car == 0;
+        h.tires_on = !replaying_ && !demo && world_->wears_tires() && own;
         for (int w = 0; w < 4; ++w) h.tire_rgb[w] = h.tires_on ? race::tire_color(world_->tire_level(shown_car, w)) : 0;
         h.pit_command = watched_ && !replaying_ && world_->pit_requested(shown_car);
         h.suggested_gear = replaying_ || watched_ || demo ? -1 : world_->suggested_gear(0);
@@ -1539,21 +1543,36 @@ public:
         h.letters.clear();
         if (net_) // (each car's entry: its place on the grid)
             for (size_t i = 0; i < cars.size() && i < net_->seats().size(); ++i) h.letters.push_back(int(net_->seats()[i]));
-        h.place = flow_.place(0);
-        h.lap = flow_.lap_shown(0), h.laps = setup_.laps;
+        // The display's car (RaceDisplay +0x2E: each step the camera's target, RaceSinglePlayer::vf74 -> RaceDisplay::vf11): its
+        // place, laps, lap times and its dot as the map's own (✔ the original's B-spec Select Car); the race's time stays the race's.
+        const size_t target = display_car();
+        if (target != 0 && target < h.cars.size()) {
+            std::swap(h.cars[0], h.cars[target]);
+            if (target < h.letters.size()) std::swap(h.letters[0], h.letters[target]);
+        }
+        h.place = flow_.place(target);
+        h.lap = flow_.lap_shown(target), h.laps = setup_.laps;
         // (no lap count on a road section and on a course without a lap, 0x34C470 and COURSE +0x12, nor in a test that counts cones)
         {
             const float start = setup_.conductor != race::Conductor::Other && world_->simulated() ? world_->start_race().section_start : 0;
             h.no_lap = (start >= 1 && start <= world_->lap_length() - 1) || flow_.setup().no_lap || (setup_.conductor != race::Conductor::Other && setup_.rules.pylons > 0);
         }
-        h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : flow_.lap_ms(0);
-        h.best_ms = flow_.car(0).best_lap_ms, h.last_ms = flow_.car(0).last_lap_ms;
+        h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : flow_.lap_ms(target);
+        h.best_ms = flow_.car(target).best_lap_ms, h.last_ms = flow_.car(target).last_lap_ms;
         h.time = double(flow_.time_ms()) / 1000;
         // B-spec: the commands' bar and the race's time (display mode 1).
         h.bspec = watched_ && !replaying_ && !menu_scene_;
         h.pace = bspec_pace_, h.overtake = overtake_steps_ > 0;
         h.total_ms = flow_.time_ms();
         h.help = bspec_help_;
+        // Select Car's name on the strip (0x39CFD8: the car's name on the strip's timed line for 5 s, fades of 0.2 s, as the
+        // display is set up for another car), over the help line.
+        h.strip_name.clear(), h.strip_name_opacity = 0;
+        if (h.bspec && name_steps_ >= 0) {
+            const float t = float(name_steps_) / 60;
+            h.strip_name_opacity = std::clamp(std::min(t / 0.2f, (5.2f - t) / 0.2f), 0.0f, 1.0f);
+            if (h.strip_name_opacity > 0) h.strip_name = world_->car_name(target);
+        }
         // A window of a line or message: full for `hold` seconds, then fading out.
         auto window = [](int steps, float hold, float fade) {
             const float t = float(steps) / 60;
@@ -1651,19 +1670,20 @@ public:
                 h.status = hud.word(kPit[code - 7]);
                 h.status_opacity = 1;
             }
-        h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0;
+        h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0, h.event_gap_car = -1;
         if (!replaying_ && split_steps_ >= 0 && split_steps_ < 200 && (event_steps_ < 0 || event_steps_ >= 200)) {
             // "T1   0'27.247" for three seconds; the gap to the first car through that split this lap under it.
             h.event = (gt3_road_ ? std::string() : hud.word("WordOfSectionTime") + std::to_string(split_index_ + 1) + "   ") + race::format_lap_time(split_ms_); // (Prologue: the time alone, 0x38CB50)
             h.event_opacity = std::min(1.0f, float(split_steps_) / 9.0f) * window(split_steps_, 3.0f, 0.15f);
             if (split_gap_ms_ > 0) {
                 h.event_gap = "+" + race::format_lap_time(split_gap_ms_);
+                h.event_gap_car = split_gap_car_;
                 h.event_gap_opacity = h.event_opacity * window(split_steps_, 2.85f, 0.15f);
             }
         }
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
-            h.event = (gt3_road_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(0).last_lap_ms);
+            h.event = (gt3_road_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(target).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
         }
     }
@@ -2012,6 +2032,9 @@ public:
     int bspec_pace() const { return bspec_pace_; }
     int grid_place(size_t car) const { return car < world_->car_count() ? world_->setup().entries[car].grid_place : 0; }
     size_t focused() const { return focus(); }
+    // The car the race display shows: in B-spec the one the views follow (Select Car), else the player's. (A replay keeps
+    // the player's place and times: its display shows the replay's sign in their place.)
+    size_t display_car() const { return watched_ && !replaying_ && !menu_scene_ ? std::min(focus(), world_->car_count() - 1) : 0; }
 
     // B-spec's pit command (Circle: 0x3F19E0's command 6) for the player's car.
     void bspec_pit() {
@@ -2051,10 +2074,13 @@ public:
         at = (at + order.size() + size_t(dir > 0 ? 1 : order.size() - 1)) % order.size();
         follow(order[at]);
     }
-    // The views follow another car: they start on it, with nothing of the last car's motion.
+    // The views follow another car: they start on it, with nothing of the last car's motion. The display is set up for it
+    // (RaceDisplay::vf11 with a new car, then 0x39EC40): its lines cleared (vf54) and its name on the strip (0x39CFD8).
     void follow(size_t car) {
         if (car == focus_) return;
         focus_ = car;
+        event_steps_ = split_steps_ = -1;
+        name_steps_ = watched_ && !replaying_ && !menu_scene_ ? 0 : -1;
         camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
         prev_cars_.clear(); // (no frame between the two cars' views)
@@ -2212,10 +2238,12 @@ private:
     int preview_hold_ = 0;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
+    int name_steps_ = -1; // B-spec's Select Car: steps since the display was set up for another car (its name on the strip)
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
-    std::map<std::pair<int, int>, s64> split_first_;  // (crossings, split) -> the race clock when the first car passed
+    std::map<std::pair<int, int>, std::pair<s64, size_t>> split_first_; // (crossings, split) -> the race clock when the first car passed, and that car
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
+    int split_gap_car_ = -1; // the car the gap is to (its picture beside it)
     int mount_ = race::DriveCamera::kChase;
     bool all_views_ = false;
     std::optional<int> own_view_; // the player's view before a B-spec run
@@ -2769,6 +2797,13 @@ public:
                     caption_for_.clear();
                 }
                 hud_->draw(ui, hud_state_);
+                // The gap's car picture beside a section time (RaceCarIconDisplay 0x2D14, set by 0x3A1098): the other car's
+                // icon, its picture's left 89 units left of the event line and its middle 22 below it, for 2.85 s with fades of
+                // 0.15 s (here with the gap's own fades).
+                if (float ex = 0, ey = 0; hud_state_.event_gap_car >= 0 && hud_state_.event_gap_opacity > 0 && hud_->event_line_at(hud_state_, ex, ey)) {
+                    const RaceWorld::Icon icon{size_t(hud_state_.event_gap_car), ex - 89 + 32, ey + 22, hud_state_.event_gap_opacity * hud_state_.opacity};
+                    race_->draw_icons(ui, RaceHud::canvas(), std::span<const RaceWorld::Icon>(&icon, 1));
+                }
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
                 hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
@@ -2914,7 +2949,8 @@ private:
     // The panel over the live race: the monitor's movie at its second frame (0x3D92B0), down while the car is in the pits
     // (0x3D9998).
     void update_panel(App& app, double dt) {
-        const bool up = race_ && hud_ && race_->watched() && !race_->replaying() && !monitor_ && !quick_ && race_->world().pit_stage(0) == 0;
+        // (0x3D8C18: the commands' panel only while the player's car is followed and out of the pits)
+        const bool up = race_ && hud_ && race_->watched() && !race_->replaying() && !monitor_ && !quick_ && race_->world().pit_stage(0) == 0 && race_->display_car() == 0;
         if (!up) return panel_.reset();
         if (!panel_ && load_monitor_movie(app)) {
             panel_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {

@@ -643,6 +643,30 @@ the bottom, the line centered, its baseline 22 down, squeezed sideways into 15/1
 as measured), are not read. The commands: Left / Right the pace, Triangle overtake,
 Cross the view, R2 the display; the race opens in the low view from the car's nose.
 
+**The display's car (Select Car).** The display shows one car, its member +0x2E; +0x2F is its own (the
+player's). Each step the race gives it the camera's target (RaceSinglePlayer::vf74 0x3D5FF8 and the network
+races' vf74: the camera manager's current entry, +0x9BC x 0x19C, its car +0x1C, to RaceDisplay::vf11 0x39CDF0).
+When the car changes, vf11 marks the display to be set up again (+0x31, +0x32) and the next frame (0x39EC40) sets
+the panel up for it (0x39D218), clears the event lines and the gap's car picture (vf54) and shows the car's name
+(0x39CFD8: its entry's name on the strip's timed line 0x2F2C, 5 s with fades of 0.2 s, and on 0x23DC). Everything the
+frame reads per car is the target's (RaceDisplay::vf2 0x39DBB8): the place, the laps, the lap's clock (0x3445F0), the
+best and last laps, the lap and section lines with their gaps, the meters; the race's total time stays the race's
+(0x358440). The tire diagram, the fuel gauge and the panel flag +0x1C only for a car a player drives (0x3451D8: the
+control source F +0x466 is 0, 1 or 4 and F +0x441 clear); for any other car they are hidden (0x39E6A0). The commands'
+panel (`PACEPANEL`) shows only while the followed car is the player's and his car is out of the pits (0x3D8C18: the
+monitor's +0x64 = +0x60, +0x40 = 0). ✔ The original's B-spec race following other cars (reference
+`36-driver-sky/gtwc_race1_bspec_chaparral_pescarolo.mp4`): their place, lap clock, section time, the map's red dot on
+the followed car, no pace panel, no tire diagram, the name on the strip for about 5 s. Here: `screen_race.cpp`
+`display_car()` (B-spec live: the followed car; else the player's, a replay keeping its own), `fill`, `update_panel`;
+the name over the help line, the help line faded under it (❓ the two lines' blend judged).
+
+**The gap's car picture** (RaceCarIconDisplay 0x2D14, set by 0x3A1098 for a time gap, 0x3A0E40 for a lap gap): the other car's
+icon (RaceDisplay::vf51 0x3A1030: in the race kinds 1, 2, 17, 18 the car in place 1 when the gap is behind, in place 2 when it
+is a lead; shown when that car's state is 3), its 64 x 32 picture's left 89 units (a lap gap 82) left of the event line and its
+middle 22 below it, 2.85 s with fades of 0.15 s. ✔ The original's section time following the Peugeot (the same reference). Here
+(`screen_race.cpp`, after the display): beside a section time's gap, the car first through that split on that lap, with the
+gap's own fades; ❓ the car's state test is not made.
+
 ## The two-player halves
 
 `RaceSplitDisplayBase` (vf9 0x3A29A0), one for each half; kind 8 above / below, kind 9 side by side (with the wide-screen
