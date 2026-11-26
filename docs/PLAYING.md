@@ -25,10 +25,12 @@ Prologue disc starts the same way.
    **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: play one, start a
    new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
    memory card image*.
-4. Select and Start together (on a keyboard Tab and P) leave the game for the home screen; the title says so beside
-   the picture. The home screen: *Play* (the game from the start), *Saved games*, *Controls*, *Settings*, *Mods*, the *Save
-   editor*, *Another disc*, *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a race
-   set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
+4. GT4 Revisited's own menu, the home screen, is underneath the game: press **Select** on the title (on a keyboard Tab),
+   or click or tap the **GT4R menu** button beside it. (On Prologue's board, Select stays the board's while a sign has the
+   focus: Triangle first goes back to its menu.) The home screen: *Play* (the game from the start: the opening movie, then
+   the title), *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
+   another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
+   race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back); the game's pages a pad or the keyboard.
 5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
@@ -67,7 +69,7 @@ steering, the steering type (Amateur to Simulation), the power assist and the fo
 race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
 own pages.
 
-**The home screen's Controls** (Select and Start together, then Controls; player 2's in Settings > Controls) has
+**The home screen's Controls** (Select on the title, then Controls; player 2's in Settings > Controls) has
 what a computer's devices need: which device drives; the race controls, Modern (the table above), Gran Turismo 4
 original (always the console's pad) or your own bindings (Custom, once there are any); the steering's dead zone and
 response; the rumble, Modern (Automatic is Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran
@@ -331,7 +333,7 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
-  title's line about the home screen (`screen_menu_viewer.cpp` `title_hint`) are this app's, not pages of the game. The
+  title's GT4R menu button (`screen_menu_viewer.cpp` `draw_menu_button`) are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
 - The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,
   hot plug, bindings, the steering's dead zone and response); from its virtual pads on the race's frame is

@@ -59,8 +59,8 @@ std::unique_ptr<Screen> make_courses_screen(App& app) {
     });
 }
 
-// The home screen (developer_ false): the game, its saves, the controls, the settings, the mods, the
-// save editor, another disc, Quit; Developer tools (developer_ true): the disc's cars, courses and
+// The home screen, GT4 Revisited's own menu (developer_ false): the game, its saves, the settings, the controls, the mods, the
+// save editor, the disc library, Quit; Developer tools (developer_ true): the disc's cars, courses and
 // menu pages, the asset browser and a race set up by hand.
 class HubScreen : public Screen {
 public:
@@ -92,6 +92,7 @@ public:
                 case 20: app.push(make_settings_screen(app)); break;
                 case 21: app.push(make_settings_screen(app, kModsPage)); break;
                 case 23: app.push(make_hub_screen(true)); break;
+                case 25: app.push(make_settings_screen(app, kDiscPage)); break;
                 case 24: app.pop(); return;
                 default: app.quit(); break;
                 }
@@ -124,8 +125,8 @@ public:
             for (const std::string& line : Ui::wrap(items_[size_t(std::clamp(sel_, 0, int(items_.size()) - 1))].help, 280)) ui.text(340, y, line, colors::kText), y += 12;
         y += 10;
         if (!developer_)
-            for (const std::string& line : Ui::wrap(app.touch_ui() ? "In the game, the button beside the title, or Select and Start together, come back here."
-                                                                : "In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
+            for (const std::string& line : Ui::wrap(app.touch_ui() ? "In the game, tap GT4R menu beside the title to come back here."
+                                                                : "In the game, press {Select} on the title, or click GT4R menu beside it, to come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
         y += 8;
         if (!d.problem.empty())
             for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;
@@ -144,13 +145,14 @@ private:
         disc_ = app.disc();
         if (!developer_) {
             const bool prologue = app.disc()->info().game == Game::Prologue;
+            // GT3 Revisited's main menu's order and words for what this app has; Saved games and Controls are this app's own.
             items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
             items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
-            items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
+            items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
             items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), "Install mods and texture packs, and choose which are used.", 21});
             items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});
-            items_.push_back({"Another disc", "", "Choose another disc image.", 3});
+            items_.push_back({"Discs...", "", "Your disc library: switch to another disc, or add one.", 25});
             items_.push_back({"Developer tools", "", "Viewers for the disc's cars, courses, menu pages and files, and a race set up by hand.", 23});
             items_.push_back({"Quit", "", "Leave GT4 Revisited.", 4});
             return;
