@@ -11,6 +11,8 @@
 
 #include "formats/ps2/memcard.h"
 
+#include <ctime>
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -219,9 +221,16 @@ TEST(save_edit_card_image) {
             for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
             other = f.data;
         }
-    const Bytes fresh = gt3r::ps2::make_card(dirs);
+    // Both stamp the clock's second on entries without a time (the engine's make_card): built again if a second passed between them.
+    Bytes fresh;
     std::string why;
-    const std::optional<Bytes> patched = save::replace_in_card(image, kName, kName, other, &why);
+    std::optional<Bytes> patched;
+    for (int tries = 0; tries < 3; ++tries) {
+        const std::time_t before = std::time(nullptr);
+        fresh = gt3r::ps2::make_card(dirs);
+        patched = save::replace_in_card(image, kName, kName, other, &why);
+        if (std::time(nullptr) == before) break;
+    }
     CHECK(patched && patched->size() == fresh.size());
     size_t differ = 0;
     for (size_t i = 0; i < fresh.size(); ++i) differ += (*patched)[i] != fresh[i];
