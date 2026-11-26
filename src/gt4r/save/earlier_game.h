@@ -36,28 +36,33 @@ std::string gt3_folder(const std::string& region);
 std::string license_folder(const std::string& region);
 // Whether the license probe reads Gran Turismo 3 (the US program) rather than Prologue.
 inline bool licenses_from_gt3(const std::string& region) { return region == "us"; }
+// Where a Prologue data file keeps its license units' medals, by its card folder (0x1D4698: Europe's 0x54, the others' 0x34).
+size_t prologue_medals_at(const std::string& folder);
 
 // The program's rules (`region` the program's):
 // inheritGT3Data (0x1D49C8): the credits added; nullopt when there are none (NO_OPERATION). Japan's sums are yen: / 100;
 // at most 100,000.
 std::optional<s64> transferred_credits(const EarlierGame& g, const std::string& region);
 // inheritGT4pData (0x1D4698): the licenses opened, 0 none (NO_OPERATION), 1 B, 2 B and A. Gran Turismo 3 (the US
-// program): its B license's 8 tests all passed (any medal) opens B, its A license's A. Prologue: its first 6 units passed
-// open B, its first 25 both.
+// program's path): its B license's 8 tests all passed (any medal) opens B, its A license's A. Prologue (the other regions'
+// path, in the US program's code too; offered on every region here, the user's choice): its first 6 units passed open B,
+// its first 25 both.
 int transferred_licenses(const EarlierGame& g, const std::string& region);
 
 // Gran Turismo 3's data file (the card folder's file of its name: a 0x40-byte header, version 7.x, the payload inverted;
 // the minor is the release's: 0 Japan, 1 US, 2 Europe) as the program reads it. nullopt (and why) when it is none, or another
 // release's than the region's.
 std::optional<EarlierGame> read_gt3_data_file(ByteSpan file, const std::string& region, std::string* why = nullptr);
-// A Gran Turismo 4 Prologue game's data file (save/prologue_data.h) as the program reads it (the Japanese layout: unit k's
-// medal at 0x34 + 0x2E0 k).
-std::optional<EarlierGame> read_prologue_data_file(ByteSpan file, std::string* why = nullptr);
+// A Gran Turismo 4 Prologue game's data file (save/prologue_data.h) as the program reads it: unit k's medal at
+// `medals_at` + 0x2E0 k (prologue_medals_at; the Japanese release's, which our library keeps, 0x34).
+std::optional<EarlierGame> read_prologue_data_file(ByteSpan file, size_t medals_at = 0x34, std::string* why = nullptr);
 // GT3 Revisited's own save (a "GT3R-GTMODE" text file).
 std::optional<EarlierGame> read_gt3r_save(ByteSpan file, std::string* why = nullptr);
 // A file the player chose: a GT3 Revisited save, a memory card image or .psu holding the region's Gran Turismo 3 folder, or
-// that folder's data file. `name`: the file's name (a .psu by it; a picked file may have none).
-std::optional<EarlierGame> read_earlier_file(ByteSpan bytes, const std::string& name, const std::string& region, std::string* why = nullptr);
+// that folder's data file; with `prologue`, a Prologue game's too (its folder on a card or .psu, any release's, or the
+// Japanese data file alone). `name`: the file's name (a .psu by it; a picked file may have none).
+std::optional<EarlierGame> read_earlier_file(ByteSpan bytes, const std::string& name, const std::string& region, std::string* why = nullptr,
+                                             bool prologue = false);
 
 // GT3 Revisited's saves of the region's Gran Turismo 3: in `gt3r_dir` (its data folder) the save folder its Settings chose
 // ([saves] folder in its config.ini, else that folder), its library there (saves/ for the US release, saves/eu/, saves/jp/),
@@ -65,9 +70,9 @@ std::optional<EarlierGame> read_earlier_file(ByteSpan bytes, const std::string& 
 // `looked`: the folder looked in.
 std::vector<EarlierGame> find_gt3r_games(const std::string& gt3r_dir, const std::string& region, std::string* looked = nullptr);
 // The region's Gran Turismo 3 folder in a card folder (copied from a card as Gran Turismo 4's is), and in the card images
-// (*.ps2, *.mcd) there.
-std::vector<EarlierGame> find_card_games(const std::string& card, const std::string& region);
-// Our library's Prologue games (data folder; save_library.h), the region's (Japan's: BISCPS-15055) only.
-std::vector<EarlierGame> find_prologue_games(const std::string& data_dir, const std::string& region);
+// (*.ps2, *.mcd) there; with `prologue`, Prologue's folders too.
+std::vector<EarlierGame> find_card_games(const std::string& card, const std::string& region, bool prologue = false);
+// Our library's Prologue games (data folder; save_library.h: BISCPS-15055, the Japanese release's).
+std::vector<EarlierGame> find_prologue_games(const std::string& data_dir);
 
 } // namespace gt4r::save

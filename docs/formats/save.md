@@ -196,9 +196,21 @@ there is. At the first probe of a Start the scripts wait while the app's page (`
 - **Back to the game**: nothing chosen; the scripts go on as with no save.
 
 The game's questions then name the save on their first line instead of a slot ("GT3 game save data: <name>", the English
-texts). Prologue's own games in our library (`BISCPS-15055`) are offered where the program reads Prologue's (region "jp");
-the US disc's program never does. Nothing is written to the chosen save. In a run with a console's card
-(`RuntimeConfig::console_card`) the slots' card folders are read as a card's, with the game's own messages.
+texts). Nothing is written to the chosen save. In a run with a console's card (`RuntimeConfig::console_card`) the slots'
+card folders are read as a card's, with the game's own messages.
+
+**Prologue on the US disc too (the user's choice; ours).** The license check's list also offers GT4 Prologue games: our
+library's (`BISCPS-15055`, its first game's folder listed once), a Prologue folder copied into `memorycard/` or on a card
+image there, and *Choose a file* takes a Prologue card image, `.psu` (any release's folder: `BISCPS-15055`, `BESCES-52438`,
+`BKSCKA-20022`) or the data file alone. A Prologue game's licenses follow the other regions' path of 0x1D4698 (its first 6
+units passed: B; its first 25: B and A), which the US program's own code holds; ❓ the Japanese GT4 program is not here, so
+that its path is the same as this code's other-region branch is judged; the European Prologue's units at 0x54 are this
+code's "uk" offset, and a data file chosen alone is read as the Japanese release's (0x34). A Prologue game has no credits:
+after one, the credits check asks again among the Gran Turismo 3 games only (a Gran Turismo 3 game chosen for the licenses is
+taken for the credits too, the US program's one folder). Its question says "GT4 Prologue game save: <name>" and "can be
+transferred from GT4 Prologue" where the disc's text says GT3, and "already withdrawn gt4p" says "You have already transferred
+licenses from a GT3 or GT4 Prologue game save." (no_card.cpp); the flag is the same one, so it is once per game whichever
+game gave them.
 
 ## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are read, not written as a card's: the Replay Theater lists them beside the race's own replay files)
 

@@ -180,6 +180,7 @@ void reword_card_texts(Project& project, const std::string& language) {
         {"MemoryCard", "You can turn off the power", "The game has been saved."},
         {"GTmodeProject::HomeRoot", "You can turn off the power", "The game has been saved."},
         {"GTmodeProject::TopRoot", "now saving", "Saving data..."},
+        {"GTmodeProject::StatusRoot", "already withdrawn gt4p", "You have already transferred licenses from a GT3 or GT4 Prologue game save."}, // (Prologue's too here)
         {"ArcadeProject::MakerRoot", "TOOLTIP|Slot1", "Load the garage of the game being played."},
         {"ArcadeProject::MakerRoot", "TOOLTIP|Slot2", "Load the garage of another saved game."},
         {"OptionProject::ReplayRoot", "LabelMcSlot", "Save slot"},
