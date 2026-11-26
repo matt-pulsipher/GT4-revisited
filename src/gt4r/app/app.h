@@ -54,6 +54,10 @@ public:
     // The game's own pictures (its menus, its races): laid out over the picture of Settings > Display > Aspect ratio (Ui::width() is
     // 640 at 16:9, 480 at 4:3, the window's shape with fill; 360 tall). The app's own pages keep 640 x 360.
     virtual bool follows_aspect() const { return false; }
+    // A race's or replay's picture now (the 3D view with the race display, no page of the menus over it): with fill it may be
+    // narrower than 4:3, down to 1:1, the view keeping 4:3's width of the scene and the display's parts at the screen's corners.
+    // Else the game's picture is never narrower than 4:3 (the menus' pages: bars above and below).
+    virtual bool view_fills_narrow() const { return false; }
     // Read from every controller and the keyboard, whatever player 1's are: pages that choose the controllers.
     virtual bool menu_input_any_device() const { return false; }
     // A file dropped on the window that this screen takes itself (it gets the event); else a .zip is a mod to install and
@@ -208,7 +212,7 @@ private:
     gt3r::PadState scripted_keys(); // this frame's --keys press, none when the script is done
     void write_stats(double frame_ms);
     // (app_settings.cpp)
-    void layout_ui(bool game);
+    void layout_ui(bool game, bool view = false);
     void load_settings();
     void apply_frame_limit();
     void reset_dynamic_scale();

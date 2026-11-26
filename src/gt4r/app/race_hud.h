@@ -146,7 +146,9 @@ public:
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
-    static SDL_FRect canvas();
+    // (`edge` -1: the canvas of the parts at the top, 1 of those at the bottom, which a picture narrower than 4:3 moves out to its
+    // edges; 0 the middle's)
+    static SDL_FRect canvas(float edge = 0);
     // The event line's place on the canvas in the display `s` draws (false: none).
     bool event_line_at(const HudState& s, float& x, float& y) const;
 
