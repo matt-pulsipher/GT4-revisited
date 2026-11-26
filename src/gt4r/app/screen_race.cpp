@@ -3679,6 +3679,8 @@ private:
         r.place = std::max(0, flow.place(0) - 1);
         r.time_ms = r.finished ? u32(flow.run_ms(0)) : 0;
         r.distance_m = race_->player_distance();
+        // The garage car's condition block as the step left it (Gran Turismo 4's step only: it started from the car's).
+        if (const sim::Session* ss = race_->world().session(); ss && ss->gt4_rules() && setup_.player_condition && q.garage_slot >= 0) r.condition = ss->condition(0);
         r.bspec_distance_m = race_->bspec_distance();
         if (race_->aspec_race() && !r.watched) r.score = race_->aspec_taken();
         if (is_license(sequence_)) {

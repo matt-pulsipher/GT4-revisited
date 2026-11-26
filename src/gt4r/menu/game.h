@@ -94,6 +94,10 @@ struct RaceResult {
     float bspec_distance_m = 0; // and how much of it the B-spec driver drove
     int score = -1;        // the race's A-spec points (-1: none)
     int garage_slot = -1;  // the car driven's place in the garage (-1: not a garage car)
+    // The car's condition block as the race's step left it (the car's +0x6DC, 0x20 bytes: the odometer, the engine's and
+    // oil's distances, the dirt, the body's distance; the step adds each by its distance and the dirt by the wheels'
+    // sliding, 0x35DD00, 0x3438C8). None: the run did not keep one (the distance is then added from `distance_m`).
+    std::optional<std::array<u8, 0x20>> condition;
     // Every car in finishing order (the player's place in it is `place` when it finished).
     struct Finisher {
         int entry = 0;     // 0: the player's; else the entry's index on the grid (the same car through a championship)

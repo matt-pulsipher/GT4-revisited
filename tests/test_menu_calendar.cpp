@@ -4,7 +4,14 @@
 
 #include "menu_run_flow.h"
 
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/formats/db/specdb.h"
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/race/rail_simulation.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/session.h"
 
 #include <cstdio>
 
@@ -166,6 +173,72 @@ TEST(disc_gt_mode_course_visit_is_a_day) {
         g.end_race_sequence();
         const menu::DayEvent& e = g.diary.back();
         CHECK(g.diary.size() == before + 1 && e.type == 8 && e.b3 == kind && e.b1 == 15 && e.b2 == 14 && e.word == menu::kNoTime && e.code == d.code);
+    }
+    CHECK(f.clean());
+}
+
+// The car's dirt: the step adds the smoke and dust of the wheels on loose ground to the condition block (0x367148 ->
+// 0x3438C8, at most 0.8), the block goes back to the garage car after the run (0x10FA58), and Car Wash's gauge
+// (`dirtiness`) shows it.
+TEST(disc_car_gets_dirty) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    gt3r::Volume* vol = &disc->volume();
+    db::SpecDb sdb([vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    }, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const sim::Program program = sim::Program::load(*disc);
+    if (!program.known()) SKIP("the disc's program is not known");
+    std::array<u8, 0x20> block{};
+    float dirt_canyon = 0;
+    for (const char* course : {"grandcanyon", "tsukuba"}) {
+        const Bytes data = vol->read(*vol->find(std::string("crs/") + course));
+        const course::CourseFile parsed = course::CourseFile::parse(data);
+        std::optional<course::Runway> road = course::course_road(parsed, data);
+        CHECK(road.has_value());
+        if (!road) return;
+        sim::Entry e;
+        CHECK(sim::stock_car(sdb, program, "impreza_wrc_03", e.equipment));
+        e.condition = std::array<u8, 0x20>{}; // a garage car's: no distance, no dirt, wears
+        auto shared = std::make_shared<const course::Runway>(std::move(*road));
+        sim::Session s(sdb, program, shared, std::span<const sim::Entry>(&e, 1), sim::course_row(sdb, course));
+        const race::RailLine line(s.ground().road());
+        for (int i = 0; i < 60 * 20; ++i) {
+            race::CarInput in = race::follow_line(line, s.cars()[0], 0, 0.8f);
+            s.step_once(std::span<const race::CarInput>(&in, 1));
+        }
+        const std::array<u8, 0x20> c = s.condition(0);
+        float dirt;
+        u32 odometer;
+        std::memcpy(&dirt, c.data() + 0xC, 4), std::memcpy(&odometer, c.data(), 4);
+        std::printf("  %s: 20 s, odometer %u m, dirt %.4f\n", course, odometer, double(dirt));
+        CHECK(odometer > 100 && dirt >= 0 && dirt <= 0.8f);
+        if (course[0] == 'g') {
+            CHECK(dirt > 0);
+            dirt_canyon = dirt, block = c;
+        } else {
+            CHECK(dirt < dirt_canyon);
+        }
+    }
+    // Back into the garage car, the whole block: Car Wash's dirt and the odometer the step's.
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    menu::GameState& g = f.rt->game();
+    if (g.riding_car < 0 || !g.garage[size_t(g.riding_car)].record) return;
+    menu::RaceResult r;
+    r.kind = menu::RaceResult::Kind::Course, r.course_kind = 1, r.course = "grandcanyon", r.finished = true;
+    r.garage_slot = g.riding_car, r.distance_m = 4200, r.condition = block;
+    f.rt->race_finished(r);
+    const menu::CarRecord& rec = *g.garage[size_t(g.riding_car)].record;
+    CHECK(std::equal(block.begin(), block.end(), rec.bytes.begin() + 0x498));
+    CHECK(rec.condition(3) == dirt_canyon && rec.odometer() == u32(block[0] | block[1] << 8 | block[2] << 16 | block[3] << 24));
+    script::Vm& vm = f.rt->vm();
+    const Value garage = vm.attribute(vm.lookup("game"), "garage");
+    const Value car = garage.p ? vm.attribute(garage, "riding_car") : Value{};
+    if (car.p) {
+        std::printf("  the riding car's dirtiness: %g\n", double(vm.attribute(car, "dirtiness").as_float()));
+        CHECK(vm.attribute(car, "dirtiness").as_float() == dirt_canyon);
     }
     CHECK(f.clean());
 }

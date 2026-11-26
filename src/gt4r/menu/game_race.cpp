@@ -385,9 +385,14 @@ s64 Runtime::race_finished(const RaceResult& r) {
         }
         work.set("numberOfEntries", s32(r.order.size()));
     };
-    // The car's distance: what the race's step adds to the car's condition (0x35DE20).
-    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0)
-        add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
+    // The car's condition: the race's block copied back into the garage car (0x10FA58: the car's +0x6DC into the riding
+    // car's record, Status + 0x13DD8, by the Gran Turismo mode sequences that call it), so its distances and its dirt are
+    // the step's. A run without the block: its distance added (0x35DE20's distances, once for the run).
+    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record) {
+        CarRecord& rec = *s.garage[size_t(r.garage_slot)].record;
+        if (r.condition) std::copy(r.condition->begin(), r.condition->end(), rec.bytes.begin() + 0x498);
+        else if (r.distance_m > 0) add_distance(d, rec, r.distance_m);
+    }
     // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the machine test's 0x115A90, the free run's
     // 0x116E20, practice's 0x1181C8, the championship's 0x118EF0 and photo drive's 0x11ABE0; not by the license tests',
     // the missions' or Arcade's; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's

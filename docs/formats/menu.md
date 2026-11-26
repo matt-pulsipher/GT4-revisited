@@ -667,12 +667,21 @@ race_flow.md.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
-the way back, from the records' `present_result`. The car's distance goes on its condition as
-the race's step adds it (0x35DE20): the odometer (whole meters, capped at 100,000,000), and
-unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (from below 0 up
-to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
-read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
-once for the race's whole distance.
+the way back, from the records' `present_result`. **The car's condition** after a run: the race
+starts from the garage car's block (CarGarage +0x498, 0x20 bytes, into the car's +0x6DC), its step
+adds each step's distance (0x35DD00 in 0x35DE20): the odometer (whole meters, capped at
+100,000,000), and unless the car has no wear (+0x14) the engine's distance up to 9,700,000 m, the
+oil's (from below 0 up to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to
+3,000,000 m (the limits from 0x620CD8 +0xD0 on, 0x620AF6); and the dirt (+0x0C) from the smoke and
+dust of the wheels on loose ground (0x367148 -> 0x3438C8: x 4 on a paved course, at most 0.8). The
+Gran Turismo mode sequences copy the block back into the riding car's record after each run
+(0x10FA58: the event's, championship's, free run's, practice's, machine test's and photo drive's;
+not the license tests', missions' or Arcade's, whose cars are not the garage's), so Car Wash's
+gauge (`dirtiness`) shows the dirt (`RaceResult::condition`, ✔ test `disc_car_gets_dirty`: 20 s
+of Grand Canyon 0.016, Tsukuba's road 0). A run without Gran Turismo 4's step (no block kept) has
+its distance added once instead (`add_distance`). ❓ The car's drawing does not read the dirt
+through its scripts (no body script on the US disc reads `dirtiness`, one of the model scripts'
+values, 0x6AAB70); whether the race draws dirt on the car otherwise is not read.
 
 **The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
