@@ -1320,7 +1320,13 @@ GT4's own routines, checked against the user's program where the note says so:
   a sibling's free name (0x206888, 0x25ADF8), a replay's particulars on the card (0x1CF628, 0x1CF400);
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
-  0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
+  0x119CB8, 0x11C328, 0x1105A8);
+- the car's condition block back into the garage car after each Gran Turismo mode run (0x10FA58: the step's
+  distances and dirt; a run without Gran Turismo 4's step adds its distance once, `add_distance`), each run of a
+  sequence starting from it (0x10F948); a course visit's one diary day at its sequence's end (0x1179F8, 0x1184DC,
+  0x11B0D8, 0x115E90); the options' copies (getOption 0x161B88, setOption 0x161C38); setReturnToLastMenuProject
+  (0x166398); the title's demonstrations' counts (MDemonstration, 0x10BE20, 0x434770; the kinds no disc script sets
+  play nothing).
 
 - **A stream's level**: `startStreamEx`'s code is turned into a kind (0x4607A0: "pcm" -2, "narration" -3, else a
   sequence, -1), and 0x4608C8 branches on it. A stream (-2 -> 0x460220 -> 0x45FFF8 -> 0x45FFC0) plays at the script's
