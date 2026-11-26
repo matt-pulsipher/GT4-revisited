@@ -24,6 +24,12 @@ namespace gt4r::race {
 
 namespace render = gt3r::render;
 
+// A lamp's directional power: the record's (+0x60) x the course's factor (Env0 +0x17A0; 0 reads as 1), rounded as the EE does
+// (+ 0.5, toward zero), at most 32; a negative one is none (0x3B8460).
+int lamp_power(float power, float factor);
+// A wheel's level of detail in Prologue (0x412918): by its size on screen, 0 .. 3.
+int prologue_wheel_detail(float proj_x, float bound_radius, float depth);
+
 class CarVisual {
 public:
     struct Options {
@@ -106,6 +112,8 @@ public:
     // strengths for each list.
     const gt3r::race::CarLampSet& lamps() const { return lamps_; }
     void set_lamp_strengths(float head, float brake, float tail);
+    // The course's factor on the lamps' directional power (Env0 +0x17A0).
+    void set_lamp_type_factor(float factor);
     // The brake discs' glow on this course: heat^2 x this (Env0 +0x4C over the picture's scale +0x38).
     void set_brake_glow_gain(float gain) { glow_gain_ = gain; }
     // A wheel's glow strength for its brake heat, as the race's sponsor gives it (0x3D75F0).
@@ -140,6 +148,9 @@ private:
     std::array<gt3r::scene::Model, 3> shadow_src_;
     std::array<std::unique_ptr<render::GpuModel>, 3> shadow_;
     gt3r::race::CarLampSet lamps_;
+    // The lamps' own colors and powers as the file has them, per list (head, tail, brake).
+    std::vector<std::array<float, 3>> lamp_colors_[3];
+    std::vector<float> lamp_powers_[3];
     render::GpuContext* ctx_ = nullptr;
     // How a Gran Turismo 4 car's reflection passes are weighted (Options' fields).
     bool reflection_by_draw_ = false;

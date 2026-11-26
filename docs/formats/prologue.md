@@ -140,7 +140,7 @@ Prologue's own copy of Gran Turismo 3's tire packet (RaceTirePacket, vtable 0x53
 Gran Turismo 3's 0x2227E0), the caliper 0x413588 (Gran Turismo 3's 0x222CE0: 5 mm outward, the corners turned by the record's
 angle), the glow's square 0x414530 (1 mm outward; drawn when the rotor's flag bit 0 is set, RaceTirePacket::vf5 0x4141E0, with
 the file's glow picture, vf3 0x414008), each wheel's level by its size on screen 0x412918 (0 over 0.09, 1 over 0.03, 2 over
-0.001, else 3; the parts on levels 0 and 1). The info block's two records (+0x14 front, +0x28 rear) choose the pictures and
+0.001, else 3; the parts on levels 0 and 1; `race::prologue_wheel_detail`). The info block's two records (+0x14 front, +0x28 rear) choose the pictures and
 place them (the shared engine's `brake_model.*`, its "Brake parts (races)"). Every one of the disc's 82 Gran Turismo 3 car files
 has both axles' parts; 149 axles a caliper, 150 a glowing rotor (test `disc_prologue_brake_parts`). Ours: the shared engine's
 parts in each wheel's frame (`CarVisual::build_gt3`), drawn while the eye is outboard of the wheel's face on levels 0 and 1, the

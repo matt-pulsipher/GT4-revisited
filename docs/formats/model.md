@@ -263,8 +263,11 @@ Offsets inside the block are from the block's start; the offsets it holds are fr
   position; the z row is (about 0, 0, 1) on headlamps and (0, 0, -1) on rear lamps: it points
   into the car, against the way the lamp shines), `+0x40 f32 x2` half sizes a, b (1, 1 on
   most), `+0x48 f32 x3` the point tested for being in view (on or a little outside the lens),
-  `+0x54 f32` 1, `+0x58 f32 x2` ❓ (headlamps: 0.83, 0.5 or 0.67, 1; rear lamps 0, 0),
-  `+0x60 u32` kind ❓ (0x10 on most headlamps, 4 on rear lamps), `+0x64 u16` flags: bit 0 a
+  `+0x54 f32 x3` the lamp's color (headlamps 1, 0.98, 0.81 or 1, 0.83, 0.5; rear lamps 1, 0, 0;
+  amber markers 1, 0.39, 0.04), which the course's lamp color, the list's strength and the
+  distance multiply for its glow (0x3B8A7C), `+0x60 u32` the power of its directional factor
+  (16 on most headlamps, 4 on rear lamps), times the course's `Env0` +0x17A0 (0x3B8530,
+  0x3B8460: rounded, at most 32), `+0x64 u16` flags: bit 0 a
   brake lamp fades with the brake's four-frame ramp (else it is lit only while the brake is
   down), bit 1 the lamp is on the stock spoiler (not lit with a wing fitted or the spoiler
   taken off), `+0x66 u16` 0, or the number (1, 2) of a flashing pattern (ten lamps on the

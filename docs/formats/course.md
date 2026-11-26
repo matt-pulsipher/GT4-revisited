@@ -125,8 +125,8 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0xF30 / +0xF34 / +0xF38 | u32 draw flags of the one-player view, the two-player halves and the mirror: bit 0 draws the billboards. 0xFFFFFFFE in the halves and the mirror on 38 courses | read |
 | +0xF50 + 0x40 i | ❓ 32 records {RGB, f32, f32, f32, u32 1} with the shape of the color grade's values. No reader found | |
 | +0x1750..+0x1764 | **new**: a glow filter on the finished picture, on when u32 +0x1750 bit 0 is set (`ss_gion`, `ss_sagano`, `ss_sanmarco`, `ss_shibuya`): three factors (+0x1754..+0x175C), a radius (+0x1760, scaled by the picture's diagonal) and a u32 count (+0x1764). It works on a copy of the picture of half its width and a quarter of its height ❓ the roles of the factors | read |
-| +0x1794..+0x179C | **new**: an RGB the race car model reads (non-zero on 25 courses, most of them the night ones: 1.0 0.6 0.6 on route5, 1 1 1 on `ss_shibuya`, 0.75 0.5 0.5 on the Nürburgring) ❓ | read |
-| +0x17A0 | **new**: one more factor of the cars' lamp glow (1.0 on 91 courses, 4.0 on 10). 0 reads as 1.0 | read |
+| +0x1794..+0x179C | **new**: the strengths of the cars' three lamp lists' glows (`RaceCarModel::vf36` 0x3911D0): the lamps lit with the lights, the brake lamps (times the brake's ramp), the tail lamps (non-zero on 25 courses, most of them the night ones: 1.0 0.6 0.6 on route5, 1 1 1 on `ss_shibuya`, 0.75 0.5 0.5 on the Nürburgring) | read |
+| +0x17A0 | **new**: the factor on the power of a car lamp's directional factor (the lamp's +0x60, [model.md](model.md); 0x3B8530): 1.0 on 91 courses, 4.0 on 10, so their glows narrow. 0 reads as 1.0 (0x397C38) | read |
 | +0x17B4..+0x17C8 | **new**: an RGBA color and two size factors of the cars' exhaust flame (`race/after_fire.mdl`) 🔎. When the RGBA is all 0 the six read as 1.0 | read |
 
 ### Flags (+0x10)
@@ -187,13 +187,14 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   one-view draw, so their `Env0` numbers mean what they mean in the shared engine. (The
   several-view draw puts them in before its multiply and gives the smoke 1 / +0x38 as its color
   factor; 🔎 nothing of the kind was found for its glows.)
-- 🔎 The sun's disc is drawn right after the sky, before the multiply, and no division was found
-  in its routine: the same numbers give twice the strength they give in the shared engine. Not
-  compared with the original running.
+- The sun's disc is drawn right after the sky, before the multiply, by the shared engine's routine (0x398650 -> 0x4986D8:
+  the sun's RGB x gain / 2, added at As / 128, no division): the same numbers give twice the strength they give in the shared
+  engine. Here its passes go in once per unit of +0x38 (`RaceWorld::collect`). 🔎 Not compared with the original running (no
+  capture with the disc in sight).
 
 An adapter that presents this block to the shared engine therefore keeps the fog colors, the
 lights, the glare and the lamp types as stored, scales the stored colors of the model sets by
-+0x38, and (🔎) the sun disc's gain by +0x38.
++0x38, and the sun disc's strength by +0x38.
 
 ### Gran Turismo 3 offset → Gran Turismo 4 offset
 
@@ -291,7 +292,11 @@ is copied to its place on the screen.
 
 The reflection picture of the cars is drawn before all this as in the shared engine: its sky
 (slot 23) turned by +0x28 about the vertical and then +0x48, depth cleared, slot 5 by slot 6's
-list of the car's place.
+list of the car's place. ✔ Its camera (`DynamicEnvmapCamera`, 0x44EEA8; the panels 0x44E660) has the shared engine's numbers: 0.8 m
+above the car, tilted 15 degrees, three panels (79.975 degrees, 120 degrees apart) to 200 m from 0.005 m, warped at 0.9 into the
+sphere map. The race's map is 128 x 256 pixels (race + 0xE330 = 256, halved across; 512 in the photo drive, 0x3338A8) of 32-bit color
+(its frame's format 0): GT4 keeps no 5-bit steps in it. Here the engine's cube (128 pixels a face, `env_gt3_lookup`, 200 m), without
+`quantize_rgb5`.
 
 ### Road reflection (slots 9, 13, 50)
 
