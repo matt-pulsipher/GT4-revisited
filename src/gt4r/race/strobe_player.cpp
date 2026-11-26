@@ -84,6 +84,8 @@ struct StrobePlayer::Clip {
     size_t track = 0; // its track in the parent's sprite
     int frame = 0;
     bool playing = true, visible = true;
+    bool inactive = false; // a button a script switched off (inactivateButton): out of the focus list, its look held
+    int held_state = 0;    // an inactive button's state (up, over, down) as it was switched off
     std::optional<float> set_x, set_y;  // its place in its parent as a script set it (_x, _y), past its track's
     std::map<std::string, Value> vars; // by lower-case name
     std::map<size_t, std::unique_ptr<Clip>> children; // by track
@@ -349,6 +351,10 @@ struct StrobePlayer::Impl {
                 go(c, frame_of(c, args.empty() ? Value{} : args[0]), n == "gotoandplay");
                 return {};
             }
+            if (n == "inactivatebutton") { // (the player's own, 0x47B5E0: every button under the clip)
+                inactivate(c);
+                return {};
+            }
             if (n == "play") return c.playing = true, Value{};
             if (n == "stop") return c.playing = false, Value{};
             if (const auto it = c.vars.find(n); it != c.vars.end() && it->second.kind == Value::FunctionRef) return call(it->second, &c, args);
@@ -545,9 +551,19 @@ struct StrobePlayer::Impl {
     void buttons(Clip& c, std::vector<Clip*>& out) {
         for (auto& [i, ch] : c.children) {
             if (!ch->visible) continue;
-            if (ch->kind == Clip::ButtonClip) out.push_back(ch.get());
+            if (ch->kind == Clip::ButtonClip) {
+                if (!ch->inactive) out.push_back(ch.get());
+            }
             else if (ch->kind == Clip::SpriteClip) buttons(*ch, out);
         }
+    }
+    // inactivateButton (a sprite's vf10 0x480D28 down its children; a button's 0x485358 sets its
+    // +0x98): the buttons under the clip leave the focus list (0x4852F8 lists only active ones) and
+    // keep the look they had (their state update 0x484D48 is skipped).
+    int state_of(const Clip& c) const { return c.inactive ? c.held_state : &c == focus ? (pressed > 0 ? 2 : 1) : 0; }
+    void inactivate(Clip& c) {
+        if (c.kind == Clip::ButtonClip && !c.inactive) c.held_state = state_of(c), c.inactive = true;
+        for (auto& [i, ch] : c.children) inactivate(*ch);
     }
     // A clip's place on the canvas.
     void place(const Clip& c, float& x, float& y) {
@@ -662,7 +678,7 @@ struct StrobePlayer::Impl {
     void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out, const ClipBox& outer) const {
         if (!c.visible) return;
         if (c.kind == Clip::ButtonClip) {
-            const int state = &c == focus ? (pressed > 0 ? 2 : 1) : 0;
+            const int state = state_of(c);
             const Clip* s = c.states[size_t(state)] ? c.states[size_t(state)].get() : c.states[0].get();
             if (s) draw(*s, m, mul, add, out, outer);
             return;

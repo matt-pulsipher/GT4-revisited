@@ -403,6 +403,15 @@ Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made nar
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
 `max_input_length`), `ColorChipFace.setData`, `CarFace` (`car_data`, `car_model`,
 `setColorIndex`; not drawn), `ToolTipFace`. ❓ From the scripts' use.
+
+**`adjustSize`.** A picture face's (`ImageFace`, registered at 0x2A19C8) takes its picture's size.
+A composite's (every box too: mComposite's, 0x207DB0, registered at 0x205C80) goes through its
+children that are faces (bit 13 of +0x98): each goes to the box's top left (0, 0) and gives its
+size: a face of the picture classes its picture's width and height when it has one (mImageFace's
+slot 55, 0x2A2360), any other its own (mWidget's slot 55); the box takes the largest width and
+the largest height (0 x 0 with no face). Other children neither move nor count. Arcade's makers'
+page (`MakerRoot`) sizes each copied maker item so, then halves it about its centre: each logo at
+half its picture's size, in its own shape (a face without a rectangle of its own fills the item).
 An **InputTextFace** keeps the place the next letter goes (the keys of the script's keyboard: `putString` puts there, `left` / `right`
 move it, `backspace` takes the letter before it, `delete` the one after) and draws a caret there (0x2A8170): 4 wide, a line high,
 half the text's color, in the focus state, 15 pictures of 30 (0x2A8480).

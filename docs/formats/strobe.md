@@ -293,13 +293,19 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   CallFunction, CallMethod, DefineFunction, Return, If, Jump, Not, Equals2, StrictEquals,
   Less2, Greater, Add2, Increment, Decrement, StoreRegister, PushDuplicate, GotoFrame, Play,
   Stop. A clip answers `gotoAndPlay`, `gotoAndStop` (a frame from 1 or a label), `play`, `stop`,
-  `_name`, `_parent`, `_root`, `_visible`; `Key.getCode()` gives the key; a text field's `text`
+  `_name`, `_parent`, `_root`, `_visible`, `inactivateButton` (the player's own method, 0x47B5E0: every
+  button under the clip is switched off, below); `Key.getCode()` gives the key; a text field's `text`
   is its words. A function the movie does not define is the host's (the program's handler).
 - Buttons: the focused button shows its *over* state (*down* for a moment after a press). When
   buttons are on the stage and none has the focus, the one inside an instance named `DEFAULT`
   takes it (else the highest), and its focus conditions (mask 0x01) run. Up / down (and left /
   right when the movie asked `NavigateAll`) move to the nearest button that way, round the
   list at the end; accept runs the press conditions (mask 0x04) on the button's parent.
+  A switched-off button (`inactivateButton`: a sprite's vf10 0x480D28 passes it to its children, a
+  button's 0x485358 sets its +0x98) is left out of the focus list (0x4852F8 lists only active ones, and
+  only they can be the DEFAULT) and keeps the look it had (its state update 0x484D48 is skipped). The
+  pause's rows switch their menu off as they are pressed (`pitmenu.strb` names the method too), so while the chosen row
+  plays its animation no row has the focus: none other lights, and further presses do nothing.
 - Drawing: each shape group is its polygon filled (solid, a picture through its fill matrix, or a
   gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
