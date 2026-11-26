@@ -4253,8 +4253,8 @@ private:
                     }
                 }
                 // (A test not driven to its end, or failed by its rules, keeps the page's first words: no time, no gap;
-                // ResultLicense::vf2 0x3E08D0. The test's end 0x3F8AB0 posts a time (conductor +0x8C) only for a run that ended
-                // with one; 0x3E1EA0 / 0x3E1C80 write it and its gap from there.)
+                // ResultLicense::vf2 0x3E08D0. A rule failure's end 0x3F8980 posts no time, conductor +0x8C = 0x157529FF; 0x3E1EA0 /
+                // 0x3E1C80 write the page's time and gap from there.)
                 const bool timed = f.player_finished() && !race_->license_failed();
                 if (n == "GETTIME") return V::string(timed ? seconds(t, false) : race::format_lap_time(-1));
                 if (n == "GETTIMEDIF" && !timed) return V::string("");

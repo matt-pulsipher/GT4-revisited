@@ -135,8 +135,9 @@ shadow.
 - **When** (RaceLicense virtual 75 → 0x3BC6E0 → 0x409168, each step): the result is taken once (0x409138): passed when the
   test's result word (conductor +0x6C → +0x88) is set, failed when the step's events hold event 10 with it 0. The test's end
   (0x3F8AB0) sets the word to the grade (1 .. 3) for a time within the targets; a time slower than all three pushes event 10;
-  a run failed by the rules (car +0x441 set: off the course, a wall, a cone, past the stopping box) does neither: **no one comes
-  out** and the car stays where it is (the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`).
+  a run failed by the rules (off the course, a wall, a cone, past the stopping box) ends in 0x3F8980, which pushes event 10 too
+  but sets the word to -1 and the time to none (+0x8C = 0x157529FF): the word not 0, **no one comes out** and the car stays
+  where it is (the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`).
   Then +0x24: 0 for 2 s; 1 for 2 s (0x409878), the race's picture fading out from the step it begins (race +0xCF54 = -1 / 2);
   2: the men moved to place 0 (the stopping box) in their `success` or `failed` motions, the camera on the next of
   `license_cam01_seq`, `02`, `03` in turn (+0x74, kept from one run to the next), the picture fading in over 1 s (+0xCF54 = 1),

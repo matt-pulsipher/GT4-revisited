@@ -350,9 +350,11 @@ page. Its first track is a picture the program supplies (kind 7, no name): **the
 picture**, 300 x 225 at its scale, which starts at 2.13 (the whole frame) and shrinks to (214, 239)
 over the page's first frames; over it the run's time and its gap in red (`GetTime()`,
 `GetTimeDif()`: seconds with three decimals, "133.366" and "+122.066" in the original's B-1 run,
-the gap to the bronze time; a run failed by the test's rules has no time: "-'--.---" and no gap, as the page's first words
-from ResultLicense::vf2 0x3E08D0, since the test's end 0x3F8AB0 posts a time (conductor +0x8C) only for a run that ended
-with one and 0x3E1EA0 writes the gap only beside a time; ✔ 27-license-fails `b1_fail_page_after_wall.png`), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
+the gap to the bronze time; a run failed by the test's rules has no time: "-'--.---" and no gap (its end 0x3F8980 sets the
+conductor's result word +0x88 to -1 and its time +0x8C to none, 0x157529FF, and pushes event 10; on that event 0x3E1EA0
+writes the page's time from +0x8C and a gap only beside a time). The test page's Best is the visit's best graded time
+whatever came after it (race_flow.md "BestTime"; ✔ ours by picture, a pass then a rule fail: the FAIL page's dashes, then
+"Best: 0'10.664"); ✔ 27-license-fails `b1_fail_page_after_wall.png`), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
 then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row named `DEFAULT`).
 The movie's pictures the program draws are listed in the header (+0xB8: 0x18 bytes each, f32 x0, y0,
 x1, y1 the box about the track's origin, u32 name, u32 length), an external track's index naming one:
