@@ -292,9 +292,15 @@ speed, tire wear, signs, unit, G meter, bars.
 
 The race display draws the signs, the shift lamp, the G meter and the trip meter at these places
 (`RaceHud::Impl::draw_small_parts`); ❓ judged: the signs stay unlit (a third of their color: the
-simulation does not say when an aid works), the lamp lights past 97 % of the red line, the G
-meter's point runs over two g each way, the trip meter counts whole miles or kilometres of the
-race. Not drawn: the boost gauge, the nitrous gauge.
+simulation does not say when an aid works), the lamp lights past 97 % of the red line, the trip meter counts whole
+miles or kilometres of the race. Not drawn: the boost gauge, the nitrous gauge.
+
+**The G meter** (`RaceSideGravityMeter`, vf5 0x3AB240): `RaceDisplay::vf2` gives the panel (vf27 0x3A84A4, the meter's
++0x1C) the car's follower of its lateral acceleration (F +0x560, 0x35DE20: a spring after F +0x554) x -1/9.81 (0x39E1E0),
+so the point shows the push the driver feels: to the left in a right-hand corner. The value within ±2 (+0x20) as a share
+of 2 moves the point's middle that share of 0.9439 (+0x24) of the base's half width from its middle, 8 below the
+base's top. ✔ Tsukuba's first corner (a right-hander): the original's point left of G (reference `20-race-chase`
+`chase_t30s.png`), ours the same.
 
 **The suggested gear** (`RaceSuggestedGearDisplay`, the panels' member 0xA78 / 0x17C; shown with the display's
 flag bit 8, panel vf23): its value (the display's +0x54, set by the panel's vf24 from `RaceDisplay::vf2`
