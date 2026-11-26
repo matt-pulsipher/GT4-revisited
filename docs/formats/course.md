@@ -546,7 +546,13 @@ start (0x400 on Tsukuba, 0xC0 on the test courses' single kind), +0x1C u32 the k
 meets a car once, then no more: 0x3E3C48 sets its +0x45), u8 the hull's points (8 for the boards, 5 for the cone), f32 x3 inertia, the hull's points
 from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x10's offset an `MDLS` of
 2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
-sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
+sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. **A race on one of the road's sections** (a license
+test's, a mission's: the course object's +0xB0) places the section's own records after the road's (0x395B60, from
+RacePS2Base virtual 38: the section record's +0x0C u16 count, +0x1C -> the same 0x20-byte records): the gates and cones there
+only for that test. Deep Forest's road has none of its own; B-3's section (2) has 25: a start gate (two posts of kind 2 and the
+"Start" banner, kind 5, 4 m up), a finish gate at the goal (posts of kind 3, the "Finish" banner of kind 1) and a row of cones;
+Tsukuba's sections add 13 or 14 to the road's 18. ✔ Ours places them (`Gadgets::parse` with the section; B-3's start and finish
+gates by picture; the original's B-3 demonstration shows the same start gate, 34-b3-demo). The race view draws each
 kind's shape where the road puts it (within 400 m). The cars knock them about (`race/gadget_bodies.*`, below). A record's
 height is not where the body stands: the set-up drops it onto the road file's surface (below). Many records are placed
 level above the road (Infineon's 26 at 25.83 or 20.42, over a road 1.2 to 29 m lower, Tsukuba's pit cones at 11.20 over 9.6 to

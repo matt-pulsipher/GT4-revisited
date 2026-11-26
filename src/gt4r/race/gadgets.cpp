@@ -13,7 +13,7 @@ float f32_at(ByteSpan d, size_t o) {
 }
 } // namespace
 
-Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan road) {
+Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan road, int section) {
     Gadgets g;
     if (is_gadgets(gdgt)) {
         const u32 n = rd32(gdgt, 0x1C);
@@ -42,9 +42,21 @@ Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan road) {
             g.placements.push_back(p);
         }
     };
-    if (road.size() >= 0x74 && gt3r::has_magic(road, "RNW4")) records(rd16(road, 0x44), rd32(road, 0x70));
+    if (road.size() >= 0x74 && gt3r::has_magic(road, "RNW4")) {
+        records(rd16(road, 0x44), rd32(road, 0x70));
+        g.section_from = g.placements.size();
+        // A race on one of the road's sections (a license test's, a mission's) adds the section's own after them (0x395B60:
+        // the section record's +0x0C u16 count, +0x1C -> the records): the goal's gate and such, there only for that test.
+        if (section >= 0 && road.size() >= 0xA0) {
+            const u32 sections = rd16(road, 0x54), at = rd32(road, 0x9C);
+            if (u32(section) < sections && at + 0x20 * u64(section + 1) <= road.size()) {
+                const size_t rec = at + 0x20 * size_t(section);
+                records(rd16(road, rec + 0x0C), rd32(road, rec + 0x1C));
+            }
+        }
+    }
     // Prologue's road (Gran Turismo 3's GTRW): the same records, +0x50 u32 count and +0x54.
-    if (road.size() >= 0x60 && gt3r::has_magic(road, "GTRW")) records(rd32(road, 0x50), rd32(road, 0x54));
+    if (road.size() >= 0x60 && gt3r::has_magic(road, "GTRW")) records(rd32(road, 0x50), rd32(road, 0x54)), g.section_from = g.placements.size();
     return g;
 }
 
