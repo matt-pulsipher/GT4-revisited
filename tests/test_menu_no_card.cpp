@@ -197,6 +197,10 @@ TEST(disc_menu_no_card_failures) {
         f.rt->settle();
         const fs::path folder = dir / "memorycard" / "BASCUS-97328GAMEDATA";
         fs::permissions(folder, fs::perms::owner_read | fs::perms::owner_exec);
+#if defined(_WIN32)
+        // (Windows writes into a read-only folder: its files read-only too, which a save cannot replace.)
+        for (const auto& e : fs::directory_iterator(folder)) fs::permissions(e.path(), fs::perms::owner_read);
+#endif
         f.dialogs.clear();
         f.rt->game().money = 5;
         f.press({menu::Key::Accept});
@@ -209,6 +213,9 @@ TEST(disc_menu_no_card_failures) {
         f.rt->settle();
         CHECK(f.page() != "ConfirmDialog");
         fs::permissions(folder, fs::perms::owner_all);
+#if defined(_WIN32)
+        for (const auto& e : fs::directory_iterator(folder)) fs::permissions(e.path(), fs::perms::owner_all);
+#endif
     }
     // The file cut short.
     const fs::path file = dir / "memorycard" / "BASCUS-97328GAMEDATA" / "BASCUS-97328GAMEDATA";
