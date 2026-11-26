@@ -172,6 +172,8 @@ private:
         const std::string card = library_->new_card();
         const save::CardImageResult r = save::import_card(image, card, library_->product());
         if (r.ok) say("Imported: it is in the list.");
+        else if (std::find(r.folders.begin(), r.folders.end(), "BASCUS-97102GAMEDATA") != r.folders.end() && !prologue_)
+            say("Not imported: it holds a Gran Turismo 3 game. Its licenses and credits are transferred on Gran Turismo mode's Game Status page (Start).", true);
         else say("Not imported: " + (r.message.empty() ? std::string("the file is no memory card image.") : r.message), true);
         list(app);
     }
