@@ -1150,11 +1150,14 @@ public:
         }
         if (const float run = std::fabs(world_->cars()[0].speed) * kStep; !hold) distance_ += run, bspec_distance_ += watched_ ? run : 0;
         {
-            // The player's sideways acceleration (the G meter), smoothed over a few steps.
+            // The G meter's value: the program's (the car's lateral acceleration followed, over -9.81: + the push felt to
+            // the right, the point to the right); off its rules the sideways acceleration measured here, smoothed over a
+            // few steps, the same way round.
             const race::CarState& c = world_->cars()[0];
             const float ax = (c.velocity.x - last_v_.x) / kStep, ay = (c.velocity.y - last_v_.y) / kStep, az = (c.velocity.z - last_v_.z) / kStep;
-            const float g = (ax * c.right.x + ay * c.right.y + az * c.right.z) / 9.81f;
+            const float g = -(ax * c.right.x + ay * c.right.y + az * c.right.z) / 9.81f;
             lateral_g_ += (std::clamp(g, -4.0f, 4.0f) - lateral_g_) * 0.2f;
+            if (float program = 0; world_->meter_g(0, program)) lateral_g_ = program;
             last_v_ = c.velocity;
         }
         if (audio::RaceSound* sound = world_->sound()) {
