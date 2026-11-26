@@ -19,14 +19,14 @@ namespace gt4r::diff {
 
 namespace {
 
-constexpr u32 kLicenseCtor = 0x3F5F68;     // DynamicsConductorLicense
-constexpr u32 kFreeRunCtor = 0x3F54E0;     // DynamicsConductorFreeRun
-constexpr u32 kTrainingVtable = 0x685F50;  // DynamicsConductorTraining: the license's constructor, then its table
-constexpr u32 kConfigure = 0x34D418;       // (conductor, race information): the event's row (info +0x70) into CFG
-constexpr u32 kRunTimed = 0x3F8AB0;        // (conductor, car, time ms): the run ends timed
-constexpr u32 kRunFailed = 0x3F8980;       // (conductor, car, kind): the run ends failed
+constexpr Pa kLicenseCtor{0x3F5F68};     // DynamicsConductorLicense
+constexpr Pa kFreeRunCtor{0x3F54E0};     // DynamicsConductorFreeRun
+constexpr Pa kTrainingVtable{0x685F50};  // DynamicsConductorTraining: the license's constructor, then its table
+constexpr Pa kConfigure{0x34D418};       // (conductor, race information): the event's row (info +0x70) into CFG
+constexpr Pa kRunTimed{0x3F8AB0};        // (conductor, car, time ms): the run ends timed
+constexpr Pa kRunFailed{0x3F8980};       // (conductor, car, kind): the run ends failed
 constexpr u32 kCfg = 0xF818;               // the conductor's configuration (CFG)
-constexpr u32 kStartCode = 0x447F08;       // (course): its start code's text (the UnistrDB string its row names)
+constexpr Pa kStartCode{0x447F08};       // (course): its start code's text (the UnistrDB string its row names)
 
 } // namespace
 
@@ -129,11 +129,11 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         if (!license) {
             o.mode = d->race_mode == 1 || d->race_mode == 3 ? 3 : 2;
             ee.w32(ee.r32(o.info + 0x84) + 0xCC8, o.mode);
-            if (d->race_class == "RaceArcadeSingle") ee.hle(0x3BFD00, [](Ee& x) { x.set_v0(1); }, "is the race an arcade single race");
+            if (d->race_class == "RaceArcadeSingle") ee.hle(pa(0x3BFD00), [](Ee& x) { x.set_v0(1); }, "is the race an arcade single race");
         }
         if (print && opt.verbose) {
-            ee.probe(0x3640DC, [&o](Ee& x) { std::printf("  set-up: 0x46B108 gives line %u, cond +0xCBDE %u\n", x.g32(2), x.r8(o.cond + 0xCBDE)); });
-            ee.probe(0x34C5E0, [](Ee& x) { std::printf("  set-up: 0x34C5E0 a0 %08X a1 %08X a2 %d a3 %08X f12 %.3f f13 %.3f (from %08X)\n", x.g32(4), x.g32(5), s32(x.g32(6)), x.g32(7),
+            ee.probe(pa(0x3640DC), [&o](Ee& x) { std::printf("  set-up: 0x46B108 gives line %u, cond +0xCBDE %u\n", x.g32(2), x.r8(o.cond + 0xCBDE)); });
+            ee.probe(pa(0x34C5E0), [](Ee& x) { std::printf("  set-up: 0x34C5E0 a0 %08X a1 %08X a2 %d a3 %08X f12 %.3f f13 %.3f (from %08X)\n", x.g32(4), x.g32(5), s32(x.g32(6)), x.g32(7),
                                                     double(x.r8(0) * 0 + gt3r::ee::F::raw(x.fpr[12]).host()), double(gt3r::ee::F::raw(x.fpr[13]).host()), x.g32(31)); });
         }
         // The event's row where the race information keeps it (+0x70), copied into CFG as RaceBase::vf38 does.
@@ -209,8 +209,8 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         });
     }
     if (print && opt.verbose) { // (the line's crossings: the conductor's virtuals 20 and 21)
-        ee.probe(0x3F64D0, [](Ee& x) { std::printf("  vf20 car %u a2 %u\n", x.g32(5), x.g32(6)); });
-        ee.probe(0x3F6588, [](Ee& x) { std::printf("  vf21 car %u a2 %u a3 %u t0 %u t1 %u\n", x.g32(5), x.g32(6), x.g32(7), x.g32(8), x.g32(9)); });
+        ee.probe(pa(0x3F64D0), [](Ee& x) { std::printf("  vf20 car %u a2 %u\n", x.g32(5), x.g32(6)); });
+        ee.probe(pa(0x3F6588), [](Ee& x) { std::printf("  vf21 car %u a2 %u a3 %u t0 %u t1 %u\n", x.g32(5), x.g32(6), x.g32(7), x.g32(8), x.g32(9)); });
     }
     if (const char* w = std::getenv("GT4R_FLOATS_WATCH")) ee.watch = (o.car(0) + u32(std::strtoul(w, nullptr, 16))) & ~3u; // (debugging)
     bool opt_hold_none = false;
@@ -235,8 +235,8 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         ee.w32(controller + 0x14C, keep);
         ee.w32(o.car(0) + 0xC, controller);
         if (print && opt.verbose) std::printf("  the recorder's state: %02x %02x laps %u frame %u share %.6f\n", d->streams[0].state[0], d->streams[0].state[2], d->streams[0].state[3], rd32(d->streams[0].state, 4), double(gt3r::ee::F::raw(rd32(d->streams[0].state, 0xC)).host()));
-        ee.hle(0x346B70, [](Ee&) {}, "recorder rewind");
-        ee.call(0x359D40, {Arg::ptr(o.cond), Arg::integer(0)}, 50'000'000);
+        ee.hle(pa(0x346B70), [](Ee&) {}, "recorder rewind");
+        ee.call(pa(0x359D40), {Arg::ptr(o.cond), Arg::integer(0)}, 50'000'000);
         ee.w32(controller + 0xD4 + 4, 0);
         opt_hold_none = true;
     }
@@ -244,7 +244,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
 
     // The start's hold (0x3C0208): none when the conductor's virtual 10 answers a moving start (RaceBase::vf38), else by the event row's
     // type (+0x40): 0 its own seconds (+0x41), 1 8 s, 2 10 s, 3 none; x 60, counted down a frame at a time before the step.
-    if (const char* e = std::getenv("GT4R_FLOATS_RANDOM")) ee.w32(0x874D50, u32(std::strtoul(e, nullptr, 16))); // (experiment: the shared random stream's state)
+    if (const char* e = std::getenv("GT4R_FLOATS_RANDOM")) ee.w32(pa(0x874D50), u32(std::strtoul(e, nullptr, 16))); // (experiment: the shared random stream's state)
     {
         const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 10;
         const u32 start = u32(ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 5'000'000).v0.lo);
@@ -266,7 +266,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         std::printf("\n");
     }
     const u32 F = o.car(0) + kF;
-    if (print && opt.verbose) std::printf("  shared random state %08X\n", ee.r32(0x874D50));
+    if (print && opt.verbose) std::printf("  shared random state %08X\n", ee.r32(pa(0x874D50)));
     std::vector<replay::PadRecord> rec(1);
     std::unique_ptr<OursBeside> ours;
     if (opt.ours) {

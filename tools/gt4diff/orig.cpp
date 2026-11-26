@@ -23,14 +23,14 @@ namespace gt4r::diff {
 
 namespace {
 
-constexpr u32 kTableCtor = 0x448F18;                        // a table object (0x6C bytes)
-constexpr u32 kTableOpen = 0x4490F8;                        // (table, file image): the object's pointers into the image
-constexpr u32 kCacheFind = 0x44AB20, kCacheKeep = 0x44A908; // the row cache (left out: every row is unpacked)
-constexpr u32 kMemset = 0x5A48D8;                           // (to, byte, count)
-constexpr u32 kRunwayRelocate = 0x3E5818;                   // (road): the file's offsets into addresses
-constexpr u32 kConductorCtor = 0x3474C0;                    // DynamicsConductorSinglePlayer
+constexpr Pa kTableCtor{0x448F18};                        // a table object (0x6C bytes)
+constexpr Pa kTableOpen{0x4490F8};                        // (table, file image): the object's pointers into the image
+constexpr Pa kCacheFind{0x44AB20}, kCacheKeep{0x44A908}; // the row cache (left out: every row is unpacked)
+constexpr Pa kMemset{0x5A48D8};                           // (to, byte, count)
+constexpr Pa kRunwayRelocate{0x3E5818};                   // (road): the file's offsets into addresses
+constexpr Pa kConductorCtor{0x3474C0};                    // DynamicsConductorSinglePlayer
 constexpr u32 kCourseTable = 0x22;
-constexpr u32 kStep = 0x34DB30;      // (conductor, first car)
+constexpr Pa kStep{0x34DB30};      // (conductor, first car)
 // Two places in the program's code that nothing of a race runs, taken for the stand-ins' entry points.
 constexpr u32 kStubZero = 0x100000, kStubPad = 0x100004;
 
@@ -66,7 +66,9 @@ db::SpecDb open_db(Disc& disc) {
 
 void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
     const gt3r::CoreImage core = gt3r::CoreImage::decode(disc.read_program());
-    ee.load_program(core.program, core.load_address, kTextEnd, kBssStart, kBssEnd, kGp);
+    set_release(sim::release_of(core.program, core.load_address).value_or(sim::Release::Us));
+    const Segments seg = segments();
+    ee.load_program(core.program, core.load_address, seg.text_end, seg.bss_start, seg.bss_end, seg.gp);
     ee.hle(kCacheFind, [](Ee& e) { e.set_v0(0); }, "row cache find");
     ee.hle(kCacheKeep, [](Ee&) {}, "row cache keep");
     ee.hle(
@@ -165,7 +167,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         for (u32 k = 0; k < 0x800; k += 8) ee.w32(race_vt + k + 4, kStubZero);
         ee.w32(race + 0x64, race_vt);
         ee.w32(o.info + 0x84, race);
-        ee.hle(0x3BFD00, [](Ee& e) { e.set_v0(0); }, "is the race an arcade single race"); // (a type test of the race object)
+        ee.hle(pa(0x3BFD00), [](Ee& e) { e.set_v0(0); }, "is the race an arcade single race"); // (a type test of the race object)
         // An entry's controller (+0x343C): its frame read (virtual +0x28 of the table at +0xD0) gives the harness's pad.
         const u32 pad_vt = ee.alloc(0x400, 16);
         for (u32 k = 0; k < 0x400; k += 8) ee.w32(pad_vt + k + 4, kStubZero);
@@ -209,15 +211,15 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         }
         if (!drivers) {
             // The computer drivers' lines are not loaded: their object's start is left out.
-            for (u32 a : {0x4639E0u, 0x469E58u, 0x465078u}) ee.hle(a, [](Ee&) {}, "driver lines");
+            for (u32 a : {0x4639E0u, 0x469E58u, 0x465078u}) ee.hle(pa(a), [](Ee&) {}, "driver lines");
             // (the driving line's heading at a car, which the pad's steering reads: 0 without the lines)
-            ee.hle(0x4649F0, [](Ee& e) { e.fpr[0] = 0; }, "line heading");
+            ee.hle(pa(0x4649F0), [](Ee& e) { e.fpr[0] = 0; }, "line heading");
         }
         // The race's end (the finish's countdown and what it starts) is left out of the step.
-        ee.hle(0x35F658, [](Ee&) {}, "race end");
+        ee.hle(pa(0x35F658), [](Ee&) {}, "race end");
         // The parts list of the pit stops' tire choices is a file of its own: its reads are left out (no choices).
-        ee.hle(0x449E10, [](Ee&) {}, "parts information open");
-        ee.hle(0x44A048, [](Ee& e) { e.set_v0(0); }, "parts information row");
+        ee.hle(pa(0x449E10), [](Ee&) {}, "parts information open");
+        ee.hle(pa(0x44A048), [](Ee& e) { e.set_v0(0); }, "parts information row");
         o.cond = ee.alloc(kCondSize, 64);
         ee.call(conductor ? conductor : kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
         if (vtable) ee.w32(o.cond + kCondVtable, vtable);
@@ -232,7 +234,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
         if (std::getenv("GT4R_AI_PLACES")) // (each car's set-up, 0x363B10: its start kind and place, record frame)
-            ee.probe(0x363B10, [](Ee& e) {
+            ee.probe(pa(0x363B10), [](Ee& e) {
                 float f[4];
                 for (int k = 0; k < 4; ++k) std::memcpy(&f[k], &e.fpr[12 + k], 4);
                 std::printf("set-up car %u: start kind %u, place %.2f %.2f %.2f heading %.3f\n", e.g32(10), e.g32(11), double(f[0]), double(f[1]), double(f[2]), double(f[3]));
