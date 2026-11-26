@@ -3716,7 +3716,10 @@ private:
         if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)
             const s64 best = is_license(sequence_) ? (r.finished && r.result != "failed" ? s64(r.time_ms) : -1) : flow.car(0).best_lap_ms;
-            const s32 have = w.get("BestTime");
+            s32 have = w.get("BestTime");
+            // (A license page's Best: 0'00.000 before any run, then the visit's best passed time, its dashes until there is one:
+            // the sequence 0x11CB38 keeps it from 0x157529FF and posts it after each run, 0x1105A8 taking a graded run's time.)
+            if (is_license(sequence_) && have == 0) w.set("BestTime", have = menu::QuickWork::kNoTime);
             if (best > 0 && (have <= 0 || have == menu::QuickWork::kNoTime || best < have)) w.set("BestTime", s32(best));
         }
         // A mission's sequence (0x11BB60) counts its session over only when the player's car finished (its +0x5B6): then
@@ -4238,9 +4241,12 @@ private:
                         return V::number(1);
                     }
                 }
-                // (A test not driven to its end keeps the page's first words: no time, no gap; ResultLicense::vf2 0x3E08D0.)
-                if (n == "GETTIME") return V::string(f.player_finished() ? seconds(t, false) : race::format_lap_time(-1));
-                if (n == "GETTIMEDIF" && !f.player_finished()) return V::string("");
+                // (A test not driven to its end, or failed by its rules, keeps the page's first words: no time, no gap;
+                // ResultLicense::vf2 0x3E08D0. The test's end 0x3F8AB0 posts a time (conductor +0x8C) only for a run that ended
+                // with one; 0x3E1EA0 / 0x3E1C80 write it and its gap from there.)
+                const bool timed = f.player_finished() && !race_->license_failed();
+                if (n == "GETTIME") return V::string(timed ? seconds(t, false) : race::format_lap_time(-1));
+                if (n == "GETTIMEDIF" && !timed) return V::string("");
                 if (n == "GETTIMEDIF") {
                     // The gap to the next grade up (a failed run: to bronze).
                     const int level = prize_level();

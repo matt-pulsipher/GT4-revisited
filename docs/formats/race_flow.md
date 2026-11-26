@@ -395,9 +395,11 @@ A license test's **BestTime** (+0x498, the page's "Best") is the session's own: 
 short tests' 0x114E38) keeps a best of its own from no time (0x157529FF) and writes it to +0x498 after each run
 (0x11CDA0 / 0x114FFC) through the run's routine 0x1105A8; nothing reads it from the save. So the page shows the new
 object's 0 ("0'00.000") on every entry to a test, after a load and on any revisit too, "-'--.---" after a run without a
-time, and the run's time after a timed one, while the test's Rankings keep the saved times. ✔ The original with its
+graded time (0x1105A8 takes the time only for a result word of 1 .. 3: not after a failed run, nor a slow one, nor one left by
+the pause's Exit), and the best graded time after one, while the test's Rankings keep the saved times. ✔ The original with its
 own card after a fresh boot (reference 17-export-card `10_roundthree_card_b1_page.png`: "Best: 0'00.000" while
-`10_roundthree_card_b1_rankings.png` holds 0'10.832); ours the same.
+`10_roundthree_card_b1_rankings.png` holds 0'10.832; 18-round4-gt `b1_page_after_bronze_run.png`); ours the same (the dashes
+after an untimed run by picture: licend's run/shots/o2).
 
 The single race fills it (`fn_00111A40`, `fn_00111B50`): each car's name and paint by its grid
 place, `numberOfEntries`, `playerGridNumber` (the player's place), `courseLabel`, `IsBSpec`,
