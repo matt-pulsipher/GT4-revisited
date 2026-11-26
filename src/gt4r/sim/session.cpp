@@ -662,6 +662,9 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     if (gt4_rules_) { // (0x344040)
         const rules::SpeedTables& k = speed_tables_[i];
         rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share);
+    } else if (prologue_) { // (Prologue's 0x3B25F0: Gran Turismo 4's 0x344040 on its special row, no lean's view)
+        const rules::SpeedTables& k = speed_tables_[i];
+        rules::wheel_spin(c, gx_[i].feel.anim, prologue_cars_[i].layout, k.special_x10, c.p.special, F(), k.throttle_share, k.brake_share);
     } else
         ex::wheel_spin(c);
     if (gt4_rules_) rules::sway(c, gx_[i].feel.view, tables_.feel, gx_[i].feel.blend); // (0x34A668, 0x34A788)
@@ -805,6 +808,9 @@ void Session::chassis(size_t i) {
         const int n = rules::tire_emits(c, layouts_[i], gx_[i].wear.category, e); // (0x3668F0)
         emits_.insert(emits_.end(), e.begin(), e.begin() + n);
         rules::sway(c, gx_[i].feel.view, tables_.feel, gx_[i].feel.blend); // (0x34A668, 0x34A788)
+    } else if (prologue_) { // (0x3B25F0 = 0x344040)
+        const rules::SpeedTables& k = speed_tables_[i];
+        rules::wheel_spin(c, gx_[i].feel.anim, prologue_cars_[i].layout, k.special_x10, c.p.special, F(), k.throttle_share, k.brake_share);
     } else
         ex::wheel_spin(c);
 }

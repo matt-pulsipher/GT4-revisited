@@ -346,12 +346,15 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   0x3BAAD8 (0x351DC8, the automatic shift with Prologue's settings). Tapped also on the Impreza WRC, Skyline GT-R, S2000, MR2,
   Prius, SL55 AMG, Odyssey, Viper and GT-One: every call equal but the Prius's axles (its own path) and the special kind 8's
   (`mtr_gmv_04`) clutch at the first call and engine speed while stopped, which the engine's missed the same way (not ported).
-- *Prologue's own*: the class grip 0x3BC03C and the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
-  the layout's wheels), and the routines the table above names `prologue::`.
+  The wheels' spin and the drawn car's points 0x3B25F0 (0x344040, on the special row's height; no lean's view).
+- *Prologue's own*: the class grip 0x3BC03C, the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
+  the layout's wheels), the brake heat 0x3B3810 (Gran Turismo 4's over the layout but heating with the pedal up too), and the
+  routines the table above names `prologue::`.
 - *The engine's (Gran Turismo 3's) still, each equal to Prologue's at every call*: phase 4's preparation 0x3BF608 with its peak
   force 0x3BF338 and aerodynamics 0x3DBB70; the steering angles in 0x3B5A20; the aids' indicators 0x3E02A0; the hybrid's axle
-  step inside its box; the brake heat; phase 14's pairs;
-  in phase 19 the suspension, wheel spin; phases 20 .. 22 (tire wear, wear flags, flaps); at the start the standing start,
+  step inside its box; phase 14's pairs;
+  in phase 19 the suspension; phases 20 .. 22 (tire wear and wear flags: no RACE row of the disc turns wear on, and the
+  conductor's pit rule is not ported; the flaps); at the start the standing start,
   new tires, the step's length, the moving start's engine part.
 
 Still not run, or not Prologue's own:

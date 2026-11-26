@@ -20,6 +20,7 @@
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/rules_wheels.h"
+#include "gt4r/sim/rules_speeds.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/tick.h"
 
@@ -393,6 +394,12 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
     taps.add({0x3BA6C0, "GT4's engine speed", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::engine_speed(c.car, x, layout(c), &t.drive); }); }});
     taps.add({0x3BAAD8, "GT4's gear step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::gear_step(c.car, x, layout(c), extra(c), t.drive); }); }});
     taps.add({0x3B3810, "Prologue's brake heat", [=](PTapCall& c) { sim::prologue::brake_heat(c.car, layout(c), t.brake_heat); }});
+    taps.add({0x3B25F0, "GT4's wheel spin", [=](PTapCall& c) {
+                  static const sim::Program program = sim::Program::load(*g_disc);
+                  const sim::rules::SpeedTables k = sim::prologue::speed_tables(program, c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x33));
+                  std::array<gt3r::ee::F, 4> anim{};
+                  sim::rules::wheel_spin(c.car, anim, layout(c), k.special_x10, c.car.p.special, gt3r::ee::F(), k.throttle_share, k.brake_share);
+              }});
     static sim::prologue::AidTables aid_tables;
     aid_tables = sim::prologue::aid_tables(sim::Program::load(const_cast<Disc&>(disc)));
     taps.add({0x3E0838, "Prologue's aids", [=](PTapCall& c) {
