@@ -620,7 +620,10 @@ private:
         const bool beside = margin >= w + 8;
         if (!beside && !title) return; // (over the board only beside it)
         const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
-        const float top = touch ? 40.0f : beside ? Ui::kHeight - 62.0f : 6.0f;
+        float top = touch ? 40.0f : beside ? Ui::kHeight - 62.0f : 6.0f;
+        if (touch) // (under the on-screen controls at the top that would cover it: R1, Start)
+            for (const SDL_FRect& c : app_->touch_control_bounds())
+                if (c.y < Ui::kHeight / 2 && c.x < left + w + 9 && left - 9 < c.x + c.w) top = std::max(top, c.y + c.h + 10);
         if (touch) {
             hint_rect_ = {left - 5, top - 4, w + 10, 12 * float(kCount) + 6};
             ui.fill_round(hint_rect_.x, hint_rect_.y, hint_rect_.w, hint_rect_.h, 4, Color{60, 66, 84, 200});

@@ -239,6 +239,17 @@ bool App::init(int argc, char** argv) {
     if (const char* t = SDL_getenv("GT4R_TOUCH"); mobile || (t && *t == '1')) {
         touch_ui_ = true;
         touch_.load(config_);
+        // Over the game's menus Select and Start go under L1 and R1, at the screen's sides, not over the middle of the page's
+        // top (the shared engine's place for them); a place the player gave them in [touch] stays theirs.
+        gt3r::TouchConfig tc = touch_.controls().config();
+        for (const auto& [key, side] : {std::pair{"menu.select", gt3r::TouchPlacement::AnchorX::Left}, std::pair{"menu.start", gt3r::TouchPlacement::AnchorX::Right}})
+            if (!config_.get("touch", key)) {
+                gt3r::TouchPlacement p = tc.placement(key);
+                p.ax = side, p.ay = gt3r::TouchPlacement::AnchorY::Top;
+                p.x = 20 * tc.size, p.y = 36 * tc.size; // (L1 and R1 are 40 x 20 at the corners)
+                tc.set_placement(key, p);
+            }
+        touch_.controls().configure(tc);
         if (!mobile) touch_.controls().note_touch();
     }
     audio_ = std::make_unique<gt3r::AudioEngine>(sound_settings_.device);
