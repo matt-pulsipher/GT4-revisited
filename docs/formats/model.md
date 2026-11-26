@@ -519,9 +519,12 @@ operand 0x8000 + i.
   600 rpm), wrapped to -360 .. 0: the horizontal flywheel about y at (0, 0.459, 1.076), and about x the crank at
   (0.098, 0.691, 1.077) and the pulleys and belts at (0, 0.246, 0.129). `dmlr0001`: two turns the same way about x (at
   (0, 0.257, 0.98) and (-0.004, 0.246, 0.27)) and two morphs, `blend_tw2` from `pedalLeft` and `blend_tw3` from
-  `pedalRight`; its cockpit is style 3, so they follow the gear change's levers. `nike0001`: two morphs, `blend_tw0` from
-  `pedalLeft` and `blend_tw1` from `pedalRight`; its cockpit is style 0 (lever kind 2), so its pedals stay 0 and the
-  morphs at their first key. In a showroom the engine speed is 0: nothing turns.
+  `pedalRight`. `nike0001`: two morphs, `blend_tw0` from `pedalLeft` and `blend_tw1` from `pedalRight`. Neither car has a
+  driver: the pedals come only through RaceCarModel +0x1670, which 0x3B5700 sets for cockpit kinds 1, 2, 5, 6, 7, 0x0A,
+  0x0E and 0x0F or a car with its own driver set (0x38FE30), and both are kind 0 without one. So their pedals stay 0 and the
+  morphs at their first key (the Daimler's lever kind 3 would take the gear change 0x412C78's levers; of the 807 race cars
+  only `benz0001`, `dmlr0001` and `ford0013` have lever kinds 3 to 5, all cockpit kind 0). In a showroom the engine
+  speed is 0: nothing turns.
 - **How they are drawn here** (`CarVisual`, `mdls::register_reads`, `Scene::turned`): each register turn's shapes (those
   drawn from the command until the stack level it turned is popped) are a model of their own, drawn in the body's frame
   times P⁻¹ R P, R the command's matrix from the registers and P the program's matrix just before it (the shapes are
@@ -530,8 +533,7 @@ operand 0x8000 + i.
   script's cells, the model's time, the turns, its band), stepped with the car's brake, engine speed and pedals each frame
   shown, in races and replays (whose records keep the engine speed); the menus draw the parts at rest. ✔ By picture: the
   Benz's flywheel, crank and pulleys turn step by step at the start's 100 rpm, in place (benz/fly.png, diff.png in the
-  round's notes); the Daimler's front pulley turns. 🔎 The Daimler's lever morphs wait for the gear change (0x412C78),
-  which is not ported: its pedals are 0 here.
+  round's notes); the Daimler's front pulley turns.
 
 The script's two "ask the game" opcodes (0xC0, 0xC1) go to the callback's third and fourth
 entry points, which a car leaves at their defaults (0).
