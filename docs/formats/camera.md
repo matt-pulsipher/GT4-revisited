@@ -210,9 +210,12 @@ The original's default (nose) view shows it at the top of the picture, (190, 18)
 higher view have none. The course has visibility lists, a sky and fog for it ([course.md](course.md),
 slots 3 and 24, Env0 +0xA90; drawing step 9). Here (`RaceWorld::render_mirror`) it is the in-car
 view seen backward and mirrored, the course by its mirror lists, sky and fog, the other cars, 120 m
-deep, the in-car view's angle zoomed 1.3 times. ❓ The program's own mirror camera (its lens, depth
-and place) was not read: the on-board camera publishes the view's turn (the sideways angle, + 180
-while looking back).
+deep. **Its lens** ✔ by picture: the tangent of half its height is 0.325 (2.67 across its 259 x 63, 106 degrees): in the original's
+saved state at Tsukuba's start (`03-race/state_at_start`, the nose view) the start gantry behind is 103.5 of 640 pixels between its posts,
+and from the same eye and turn (`eye=` of `GT4R_RACE`) the in-car lens zoomed 1.3 (0.341, the shared engine's) drew it 98.5; with 0.325 it
+draws 103.5. ❓ The program's own mirror camera (its lens, depth and place) was not read (no stored view matrix looking back was found in
+that state; the size factor K there is 121.38, set by the mirror's pass): the on-board camera publishes the view's turn (the sideways
+angle, + 180 while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
 

@@ -30,6 +30,12 @@ std::vector<CameraMount> read_camera_mounts(ByteSpan car_file);
 // scenic ones, the start clips, the roof view), and a picture's half width is 426.667 / K (docs/formats/camera.md).
 inline float shown_angle(float lens) { return 2 * std::atan(std::tan(lens * 0.5f) * (426.6667f / 293.1175f)); }
 
+// The in-car view's rear-view mirror: the tangent of half its picture's height, 0.325 (its 259 x 63 of a 640 x 480 picture shows
+// 2 x 0.325 x 259 / 63 = 2.67 across, 106 degrees). Measured on the original's picture: in the saved state at Tsukuba's start
+// (03-race/state_at_start) the start gantry behind is 103.5 of 640 pixels between its posts, and here 98.5 with 0.341 (the
+// in-car lens zoomed 1.3) from the same eye (🔎 the program's mirror camera was not read).
+inline constexpr float kMirrorHalfTan = 0.325f;
+
 // A camera for one drawn frame.
 struct ViewPose {
     gt3r::render::Vec3 eye;
