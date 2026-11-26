@@ -57,6 +57,7 @@ namespace tool { int cmd_photo(Disc& disc, const std::vector<std::string>& args)
 namespace tool { int cmd_state_hash(Disc& disc, const std::vector<std::string>& args); } // cmd_platform.cpp
 namespace tool { int cmd_car_digests(Disc& disc, const std::vector<std::string>& args); } // cmd_platform.cpp
 namespace tool { int cmd_tables(Disc& disc, const std::vector<std::string>& args); } // cmd_tables.cpp
+namespace tool { int cmd_regions(Disc& disc, const std::vector<std::string>& args); } // cmd_regions.cpp
 }
 using namespace gt4r;
 
@@ -624,6 +625,7 @@ const Command kCommands[] = {
     {"state-hash", "<disc> <course> [cars] [seconds=60] [every=10] (cmd_platform.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_state_hash(d, a); }},
     {"car-digests", "<disc> [all] (cmd_platform.cpp)", 0, [](Disc& d, const Args& a) { return gt4r::tool::cmd_car_digests(d, a); }},
     {"tables", "<disc> [survey <sites.tsv>] (cmd_tables.cpp)", 0, [](Disc& d, const Args& a) { return gt4r::tool::cmd_tables(d, a); }},
+    {"regions", "<disc> map <reference image> <functions.tsv> <out prefix> (cmd_regions.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_regions(d, a); }},
 };
 
 } // namespace

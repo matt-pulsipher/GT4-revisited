@@ -34,6 +34,13 @@ struct DiscInfo {
     // The files' fingerprint: 16 hex digits of SHA-256 over CORE.GT4 and the volumes' indexes.
     std::string digest;
     std::string key; // where the disc keeps its saves and mod choices: the serial as "SCUS-97328"
+    // The release's region as its program names it (menu::MSystem::GetRegionCode: "us", "uk" for Europe, "jp"), from the
+    // serial's letters.
+    std::string region = "us";
+    // Its memory card folder's product ("BASCUS-97328", "BESCES-51719", "BISCPS-17001"; the folder adds "GAMEDATA").
+    std::string product;
+    // The menus' language it starts in ("US", "GB", "JP"; Europe's player chooses one at every start).
+    std::string language = "US";
 };
 
 // One of the disc's volumes (GT4.VOL, GT4L1.VOL).

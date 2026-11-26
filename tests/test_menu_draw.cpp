@@ -95,8 +95,8 @@ TEST(menu_movie_face_events) {
 // Every movie a face names in a layout is on the disc under the configuration's MpegRoot, the
 // movies play from their first picture, and the stills the scripts load name the movies.
 TEST(disc_menu_movies) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         std::unique_ptr<menu::Runtime> rt = booted(*disc);
         const script::Value root_value = rt->vm().lookup("MpegRoot");
         CHECK(root_value.kind == script::Kind::String);

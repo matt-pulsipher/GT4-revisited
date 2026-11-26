@@ -29,6 +29,7 @@ std::optional<DemoRun> DemoRun::load_replay(ByteSpan file, const Program& progra
     DemoRun r;
     r.label = name;
     r.demo = std::move(*d);
+    if (program.release() == Release::Europe && !name.empty() && name.back() == 'p') r.rate = 50; // (Rdemo<n>p)
     if (!r.demo.streams.empty())
         for (const replay::PadRecord& f : r.demo.streams[0].frames) r.pads.push_back({f.bytes});
     return r;
@@ -36,6 +37,7 @@ std::optional<DemoRun> DemoRun::load_replay(ByteSpan file, const Program& progra
 
 std::array<u8, 6> DemoRun::mail(size_t step) const {
     std::array<u8, 6> m{};
+    if (!first_of(step)) return m;
     const replay::PadRecord& f = record(step);
     for (size_t k = 0; k < m.size(); ++k) m[k] = f.bytes[0x10 + k];
     return m;
@@ -58,6 +60,7 @@ std::vector<Entry> DemoRun::entries() const {
 
 const replay::PadRecord& DemoRun::record(size_t step) const {
     static const replay::PadRecord kEmpty{};
+    step = index(step);
     if (demo.streams.empty() || step >= demo.streams[0].frames.size()) return kEmpty;
     return demo.streams[0].frames[step];
 }
@@ -66,7 +69,8 @@ race::CarInput DemoRun::input(size_t step) const {
     race::CarInput in = pad_input(record(step));
     // (the record itself: the session's input phase reads it as the program's does, 0x349FD0)
     static const race::PadRecord kEmpty{};
-    in.pad = step < pads.size() ? &pads[step] : &kEmpty;
+    if (!first_of(step)) in.shift_up = in.shift_down = false;
+    in.pad = index(step) < pads.size() ? &pads[index(step)] : &kEmpty;
     return in;
 }
 
@@ -81,6 +85,7 @@ std::optional<DemoRun> DemoRun::load(Disc& disc, const Program& program, const s
     DemoRun r;
     r.label = label;
     r.demo = std::move(*d);
+    if (program.release() == Release::Europe && label.rfind("uk", 0) == 0) r.rate = 50;
     if (!r.demo.streams.empty())
         for (const replay::PadRecord& f : r.demo.streams[0].frames) r.pads.push_back({f.bytes});
     return r;

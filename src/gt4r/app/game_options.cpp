@@ -118,7 +118,7 @@ std::unique_ptr<GameOptions> saved_game_options(App& app) {
     if (!db) return std::make_unique<SavedOptions>(std::nullopt, "This disc has no game to hold them.", "");
     std::string dir = app.save_dir();
     while (dir.size() > 1 && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
-    const std::string product = "BASCUS-97328";
+    const std::string product = app.disc() ? app.disc()->info().product : std::string("BASCUS-97328");
     const save::SaveLibrary library(dir, product);
     const std::string card = library.current();
     if (card.empty() || !library.holds_game(card))

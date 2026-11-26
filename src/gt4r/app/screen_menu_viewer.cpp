@@ -79,7 +79,11 @@ public:
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
-            projects_.push_back({name, languages.empty() ? std::string("US") : languages[0]});
+            // (the disc's own language where the project has it: Europe's projects also hold DB, the text's ids)
+            std::string language = languages.empty() ? std::string("US") : languages[0];
+            if (Disc* disc = app.disc(); disc && std::find(languages.begin(), languages.end(), disc->info().language) != languages.end())
+                language = disc->info().language;
+            projects_.push_back({name, language});
         }
         // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1,run=1": what a scripted run opens.
         // "boot=1": the menus run from the game's first project, as from power on; "card=none"
@@ -267,7 +271,7 @@ private:
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             Disc* disc = app.disc();
             if (disc) config.program_image = [disc] { return disc->program_image(); };
-            if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
+            if (disc) config.region = disc->info().region, config.product = disc->info().product; // (Prologue: "jp", its units, PS and kgfm)
             config.data_dir = app.save_dir();
             config.console_card = !card_.empty(); // (GT4R_MENU card=: the original's card pages)
             config.new_card = new_card_;
@@ -289,7 +293,7 @@ private:
             // The options' menu volumes (game_settings.h).
             // Prologue's options have the music on or off only (its option object's menu_bgm, race_bgm, replay_bgm: no volume
             // property), and its music plays at full level (its saved states' music master 16383).
-            const bool prologue_disc = disc && disc->info().serial.rfind("SCPS", 0) == 0;
+            const bool prologue_disc = disc && disc->info().game == Game::Prologue;
             if (prologue_disc)
                 if (audio::AppSound* sound = app.sound()) sound->menu().set_music_option(1.0f);
             runtime_->on_options = [&app, prologue_disc](const menu::GameSettings& s) {

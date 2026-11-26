@@ -35,8 +35,8 @@ using namespace gt4r;
 namespace {
 
 Disc* prologue_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::Prologue) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::Prologue) return d;
     return nullptr;
 }
 
@@ -275,7 +275,7 @@ TEST(disc_prologue_race) {
     gt3r::sim::exact::ProgramData pd = gt3r::sim::exact::ProgramData::synthetic();
     CHECK(pp.apply(program, pd));
     CHECK(pd.b(gt3r::sim::exact::ProgramData::Table::Static, 0) == 0x0C); // (the air density byte, x 10)
-    for (const std::unique_ptr<Disc>& other : test::discs())
+    for (Disc* other : test::reference_discs())
         if (other->info().game == Game::GT4) CHECK(!sim::PrologueProgram::locate(sim::Program::load(*other)).recognized());
     // Two cars, a lap each.
     const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", std::vector<std::string>{"impreza_wrc_03", "civic_r_98"}, 1);
@@ -621,8 +621,8 @@ TEST(disc_prologue_race_start_tables) {
 // demonstrations' files keep of their car 0).
 TEST(disc_license_car_is_the_pools) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("no Gran Turismo 4 disc");
     const sim::Program program = sim::Program::load(*disc);
     gt3r::Volume* vol = &disc->volume();

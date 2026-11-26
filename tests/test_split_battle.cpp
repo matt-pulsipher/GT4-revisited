@@ -26,8 +26,8 @@ using namespace gt4r;
 namespace {
 
 Disc* split_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d;
     return nullptr;
 }
 
@@ -170,7 +170,7 @@ TEST(disc_split_layouts) {
     size_t ran = 0;
     const std::vector<u8> zeros(0x700000);
     CHECK(!race::read_split_layout(zeros, 0x100000, false).valid() && !race::read_split_layout(zeros, 0x100000, true).valid());
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::CoreImage core = gt3r::CoreImage::decode(disc->read_program());
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) {
             CHECK(!race::read_split_layout(core.program, core.load_address, false).valid());

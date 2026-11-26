@@ -40,6 +40,13 @@ struct DemoRun {
     std::string label;          // the event: a license test's label ("usl0b0001")
     replay::Demonstration demo; // the file
     std::vector<race::PadRecord> pads; // car 0's records as the session's input phase reads them (race::CarInput::pad)
+    // The recording's records a second: 60, or 50 for Europe's own (its program steps 50 times a second: the license tests'
+    // "uk" files and the Replay Theater's "p" races). Played at our 60 steps a second, each of those records covers 1.2
+    // steps (step k takes record k x 50 / 60), its shift and its mail on the first; such a run is a look at the recording,
+    // never on its recorded time (physics.md "The releases").
+    int rate = 60;
+    size_t index(size_t step) const { return rate == 60 ? step : step * size_t(rate) / 60; }
+    bool first_of(size_t step) const { return rate == 60 || step == 0 || index(step) != index(step - 1); }
 
     // The race's entries as the file has them: each car's equipment, its grid place, its gearbox (pedal style 0: AT)
     // and its aids (+0x3450 ASM, +0x3454 TCS).
@@ -48,7 +55,7 @@ struct DemoRun {
     race::CarInput input(size_t step) const;
     const replay::PadRecord& record(size_t step) const;
     // The recording's steps (its stream's T - 1 frames).
-    size_t steps() const { return demo.streams.empty() ? 0 : demo.streams[0].frames.size(); }
+    size_t steps() const { return demo.streams.empty() ? 0 : (demo.streams[0].frames.size() * 60 + size_t(rate) - 1) / size_t(rate); }
     // The recording has run out at this step: the program's playback is done (0x345D70 sets its flag) and the
     // demonstration's race ends.
     bool over(size_t step) const { return step >= steps(); }

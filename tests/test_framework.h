@@ -28,6 +28,10 @@ std::vector<TestCase>& registry();
 int& failures();
 // The discs of GT4R_DISC that open (opened once); empty without the variable.
 const std::vector<std::unique_ptr<Disc>>& discs();
+// The same less the other releases of Gran Turismo 4 than SCUS-97328 (Europe's SCES-51719, Japan's SCPS-17001): the discs whose
+// data and program addresses the tests that pin them were written for (the US disc and Prologue). Tests of every release
+// use discs().
+const std::vector<Disc*>& reference_discs();
 
 struct Registrar {
     Registrar(const char* name, std::function<void()> fn) { registry().push_back({name, std::move(fn)}); }

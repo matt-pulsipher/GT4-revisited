@@ -3,6 +3,7 @@
 // scripts' functions.
 
 #include "gt4r/menu/save_editor.h"
+#include "gt4r/formats/db/race_labels.h"
 
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_internal.h"
@@ -251,7 +252,7 @@ void SaveEditor::read_licenses() {
             LicenseTest t;
             t.label = label, t.name = text("PresentRoot", "LicenseName", label), t.unit = u, t.ranking = ranking_of(label);
             ByteSpan row;
-            for (const std::string& tried : {std::string(label), "us" + std::string(label), "jp" + std::string(label)})
+            for (const std::string& tried : db::race_labels(label, rt_ ? rt_->region() : std::string()))
                 if (row.empty()) row = d.row("RACE", tried);
             for (size_t m = 0; m < 3; ++m) {
                 const size_t at = 0x76 + 2 * m, ms = 0x1A + 2 * m;

@@ -138,8 +138,8 @@ private:
 
 class SaveEditorScreen : public Screen {
 public:
-    SaveEditorScreen(App& app, std::string card) : app_(app), prologue_(app.disc() && app.disc()->info().serial.rfind("SCPS", 0) == 0) {
-        product_ = prologue_ ? "BISCPS-15055" : "BASCUS-97328";
+    SaveEditorScreen(App& app, std::string card) : app_(app), prologue_(app.disc() && app.disc()->info().game == Game::Prologue) {
+        product_ = app.disc() ? app.disc()->info().product : "BASCUS-97328";
         std::string data = app.save_dir();
         while (data.size() > 1 && (data.back() == '/' || data.back() == '\\')) data.pop_back();
         data_dir_ = data;
@@ -415,8 +415,12 @@ private:
             gt3r::Vfs* vfs = app_.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             if (Disc* disc = app_.disc()) config.program_image = [disc] { return disc->program_image(); };
-            if (prologue_) config.region = "jp";
-            if (const std::vector<std::string> languages = menu::project_languages(config.list, prologue_ ? "prologue" : "boot"); !languages.empty()) config.language = languages[0];
+            if (Disc* disc = app_.disc()) config.region = disc->info().region, config.product = disc->info().product;
+            if (const std::vector<std::string> languages = menu::project_languages(config.list, prologue_ ? "prologue" : "boot"); !languages.empty()) {
+                config.language = languages[0];
+                if (Disc* disc = app_.disc(); disc && std::find(languages.begin(), languages.end(), disc->info().language) != languages.end())
+                    config.language = disc->info().language;
+            }
             auto read = [vfs](const std::string& path) { return vfs->read(path); };
             if (prologue_) {
                 prologue_editor_ = std::make_unique<menu::PrologueSaveEditor>(read, config);
