@@ -127,6 +127,9 @@ struct RaceWorld::Impl {
         race::posture::F follow, follow_rate; // the steering command's follower (0x40CC58), here of the front wheels' angle
     };
     std::vector<MovingDriver> drivers;
+    // Each car's body's moving parts (a few cars' scripts: null for the others).
+    std::vector<std::unique_ptr<race::CarVisual::Motion>> motions;
+    const race::CarVisual::Motion* motion(size_t i) const { return i < motions.size() ? motions[i].get() : nullptr; }
     void add_drivers(std::vector<render::DrawItem>& items, size_t car, const race::CarState& s, const RVec& eye, const race::CarVisual::LodView* view);
     // The pit crew, and what each car's is told; the sounds its steps asked for (the car last watched's).
     std::unique_ptr<race::PitScene> pit_scene;
@@ -269,6 +272,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             }
         }
         car_visuals_.push_back(visual.get());
+        impl_->motions.push_back(visual->make_motion());
         if (const race::DriverModels* models = visual->moving_driver()) {
             for (size_t seat = 0; seat < visual->cockpits().size(); ++seat) {
                 Impl::MovingDriver d;
@@ -589,6 +593,8 @@ void RaceWorld::restart() {
     course_->restart_animations();
     for (auto& [key, visual] : impl_->visuals_by_model)
         if (visual) visual->restart_animation();
+    for (size_t i = 0; i < impl_->motions.size() && i < car_visuals_.size(); ++i)
+        if (impl_->motions[i]) car_visuals_[i]->restart_motion(*impl_->motions[i]);
     clear_effects();
     for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
 }
@@ -1056,6 +1062,16 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
     // draws (0x451110), the start's hold and the replays too.
     for (auto& [key, visual] : m.visuals_by_model)
         if (visual) visual->animate(kStep);
+    // Each car's moving parts by its values (RaceCarModel vf22 / vf31): the brake, the engine's speed as the race display
+    // shows it (int(F +0x738)), the pedals (0: the cockpits that give them, styles 1 and 3, run the driver's gear change and
+    // feet, not here).
+    for (size_t i = 0; i < m.motions.size() && i < cars.size() && i < car_visuals_.size(); ++i)
+        if (m.motions[i]) {
+            race::CarVisual::MotionInput in;
+            in.brake = cars[i].brake, in.brake_lamps = cars[i].brake_lamps;
+            in.engine_rpm = std::trunc(cars[i].engine_rpm);
+            car_visuals_[i]->step_motion(*m.motions[i], kStep, in);
+        }
     // The moving drivers' step: their cars' steering (the program's follower of 11.25 x the command).
     if (hand_speeds_)
         for (Impl::MovingDriver& d : m.drivers) {
@@ -1322,7 +1338,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (int(i) == hidden) continue;
         const size_t first = m.items.size();
         m.add_drivers(m.items, i, cars[i], pose.eye, lens_ && lens_->full_detail ? nullptr : &lod_view);
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, dt, lens_ && lens_->full_detail ? nullptr : &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)));
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, dt, lens_ && lens_->full_detail ? nullptr : &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)), m.motion(i));
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
@@ -1383,7 +1399,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
         // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
         if (m.wet.params().cars && !cars_hidden_)
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
-                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
+                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye, m.motion(i));
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
         for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
         const render::DrawOptions wo = draw_options(*course_, far);
@@ -1611,7 +1627,7 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i], light);
         const size_t first = m.mirror_items.size();
         m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
-        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f);
+        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f, nullptr, true, m.motion(i));
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
