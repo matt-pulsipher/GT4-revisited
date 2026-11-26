@@ -8,18 +8,12 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/race_world.h"
 #include "gt4r/race/drive_camera.h"
+#include "gt4r/race/vr_seat.h"
 
 #include <array>
 #include <optional>
 
 namespace gt4r::vr {
-
-// Where the race's camera sits.
-enum class Seat {
-    InCar, // the in-car view: the player's head in the car's driver's place, turning with the car
-    OnCar, // a view on the car's body (the roof, the bumper): turning with the car
-    Chase, // the chase views: behind the car, level, turning with the camera's lagged heading
-};
 
 struct RaceEyes {
     race::ViewPose head;                // the head: its eye between the eyes, its view, a lens as tall as the eyes'
@@ -33,13 +27,13 @@ struct RaceEyes {
 // view `flat` (its eye) in `seat`, `car` the car it is about (its attitude), looking back or not; `driver_x` where the car's
 // driver sits across it (metres right of its centre line, its figure's seat: [vr] seat_side = car), none when it has no figure.
 // False: the race goes on the virtual screen as on a screen.
-bool race_eyes(App& app, const race::ViewPose& flat, Seat seat, const race::CarState& car, bool look_back, std::optional<float> driver_x, RaceEyes& out);
+bool race_eyes(App& app, const race::ViewPose& flat, race::VrSeat seat, const race::CarState& car, bool look_back, std::optional<float> driver_x, RaceEyes& out);
 // After the eyes: the frame's canvas again, cleared transparent for the race's display on the panel; the frame goes out in stereo.
 void race_panel(App& app, Ui& ui);
 // The head looks round: the race's stick look is off ([vr] stereo).
 bool head_looks(App& app);
 #else
-inline bool race_eyes(App&, const race::ViewPose&, Seat, const race::CarState&, bool, std::optional<float>, RaceEyes&) { return false; }
+inline bool race_eyes(App&, const race::ViewPose&, race::VrSeat, const race::CarState&, bool, std::optional<float>, RaceEyes&) { return false; }
 inline void race_panel(App&, Ui&) {}
 inline bool head_looks(App&) { return false; }
 #endif

@@ -1819,11 +1819,11 @@ public:
 
     // How a VR headset's eyes sit in the race's view (race_vr.h): only the car's own views while the player drives; none for the
     // opening shots, the trackside and pit cameras, replays, demonstrations, the menus' scene, B-spec and a test's end.
-    std::optional<vr::Seat> stereo_seat() {
+    std::optional<race::VrSeat> stereo_seat() {
         race::ViewPose pit;
         if (replaying_ || demo_run_ || menu_scene_ || watched_ || start_camera_.active() || opening_tv() || finish_view() || mount_ == kTvView || world_->pit_camera(focus(), pit))
             return std::nullopt;
-        return race::DriveCamera::in_car(mount_) ? vr::Seat::InCar : race::DriveCamera::chase(mount_) ? vr::Seat::Chase : vr::Seat::OnCar;
+        return race::DriveCamera::in_car(mount_) ? race::VrSeat::InCar : race::DriveCamera::chase(mount_) ? race::VrSeat::Chase : race::VrSeat::OnCar;
     }
 
     // Where each car is in the picture (an online race's names): a point over its roof.
