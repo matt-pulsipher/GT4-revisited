@@ -1,5 +1,7 @@
 #include "gt4r/net/net_field.h"
 
+#include "gt4r/sim/ai/pit_tire_change.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -97,6 +99,25 @@ void NetField::receive(size_t car, CarSnapshot s, s64 clock) {
     };
     report(c.check.on_state(s, contact));
     report(c.check.on_prediction_error(c.remote.last_error(), c.remote.last_horizon(), contact));
+}
+
+void NetField::add_service(size_t car, const std::vector<ServiceEvent>& events, s64 clock) {
+    if (car >= cars_.size() || car == ours_ || cars_[car].gone) return;
+    cars_[car].remote.add_service(events, clock);
+}
+
+void NetField::set_tire_change(const std::function<void(sim::Session& solo, RemoteCar& car)>& make) {
+    for (size_t i = 0; i < cars_.size(); ++i)
+        if (i != ours_ && make && cars_[i].remote.car()) make(*cars_[i].remote.car(), cars_[i].remote);
+}
+
+std::function<void(sim::Session& solo, RemoteCar& car)> tire_change_on(db::SpecDb& db, const sim::Program& program, sim::FileReader read) {
+    return [&db, &program, read = std::move(read)](sim::Session& solo, RemoteCar& car) {
+        sim::ai::PitHooks h;
+        sim::ai::add_tire_change(h, solo, db, program, read);
+        car.set_tire_change([f = h.change_tires](u8 front, u8 rear, u8 axles) { f(0, front, rear, axles); },
+                            [f = h.retune_tires](u8 axles) { f(0, axles); });
+    };
 }
 
 void NetField::take_hit(size_t car, const Hit& hit, s64 clock) {

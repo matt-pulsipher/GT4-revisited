@@ -10,12 +10,20 @@
 //
 // When a state arrives, the jump between what was shown and the new prediction is blended out over about 0.1 s. Collisions
 // use the prediction itself.
+//
+// What changes the car outside its state (a pit stop's hold, box, tires and fuel: net/car_service.h) comes from its owner as
+// events by the race's clock; each is applied where the owner's car met it, in the owner's own run and in the run on from
+// it. One that comes after the state of its moment: the car is run again from an earlier state (the last 3 s are kept).
 
+#include "gt4r/net/car_service.h"
 #include "gt4r/net/car_state.h"
 
 #include <array>
 #include <deque>
+#include <functional>
+#include <limits>
 #include <memory>
+#include <vector>
 
 namespace gt4r::net {
 
@@ -50,9 +58,28 @@ public:
     float last_error() const { return last_error_; }
     double last_horizon() const { return last_horizon_; }
 
+    // The car's service events as its owner sent them (any order, ones already here left out); `clock` our race's clock.
+    void add_service(const std::vector<ServiceEvent>& events, s64 clock);
+    // A pit stop's tire change on the prediction (Tires, Grips: sim/ai/pit_tire_change.h's hooks on its one-car session, car
+    // 0). Without them those two events are not applied.
+    void set_tire_change(std::function<void(u8 front, u8 rear, u8 axles)> tires, std::function<void(u8 axles)> grips) {
+        change_tires_ = std::move(tires), retune_tires_ = std::move(grips);
+    }
+    sim::Session* car() { return car_.get(); }
+    // The car as its owner last sent it (its newest state's), and that state's clock.
+    const sim::Session::Memory* base() const { return have_ ? base_.get() : nullptr; }
+    s64 base_clock() const { return base_clock_; }
+    const std::vector<ServiceEvent>& service() const { return service_; }
+    u32 reruns() const { return reruns_; } // the times a late event ran the car again from an earlier state
+
 private:
     static constexpr size_t kPending = 16;
+    static constexpr size_t kHistory = 180;      // states kept to run again from (3 s)
     void apply(const CarSnapshot& s, s64 clock);
+    void advance(const CarSnapshot& s);          // the base from its state to `s`'s
+    void apply_events(s64 upto);                 // the service events up to a moment of the car's run
+    void apply_one(const ServiceEvent& e);
+    void rerun();                                // the prediction again from the base to where it was, its jump blended
     void run_to(s64 clock);
     void step(const PadInput& p, const CarEntry& e, const CarMotion& m, bool owners, s64 from);
     struct Place {
@@ -81,6 +108,16 @@ private:
     size_t ntrail_ = 0;
     float last_error_ = 0;
     double last_horizon_ = 0;
+    std::vector<ServiceEvent> service_; // in the order of the car's run
+    s64 cursor_ = std::numeric_limits<s64>::min(); // the moment up to which the car on its session has them
+    std::function<void(u8, u8, u8)> change_tires_;
+    std::function<void(u8)> retune_tires_;
+    struct Past {
+        CarSnapshot state;
+        std::shared_ptr<const sim::Session::Memory> car; // the base it made
+    };
+    std::deque<Past> history_;
+    u32 reruns_ = 0;
 };
 
 } // namespace gt4r::net
