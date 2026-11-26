@@ -1554,12 +1554,14 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 
-void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection) {
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection,
+                           const render::ItemLights* lights) {
     Impl& m = *impl_;
     if (!app_.gpu() || alpha <= 0) return;
     if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
     std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
     items[0].sphere_map = own_reflection; // (the reflection picture is in the model)
+    items[0].lights = lights;
     render::DrawOptions o = draw_options(*course_, 100);
     o.fog = false;
     o.frustum_cull = false;

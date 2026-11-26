@@ -2204,8 +2204,9 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
-    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false) {
-        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false,
+                    const render::ItemLights* lights = nullptr) {
+        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection, lights);
     }
     audio::RaceSound* sound() { return world_->sound(); }
 
@@ -4589,7 +4590,16 @@ private:
         if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
-        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true); // (its reflection picture its own)
+        // Its own light (0x3E1780, light set 0x66 alone: ambient 0.3, diffuse and specular 0.5, from above in the trophy's view).
+        static const render::ItemLights kTrophyLight = [] {
+            render::ItemLights l;
+            l.count = 1;
+            for (int c = 0; c < 3; ++c) l.ambient[c] = 0.3f, l.diffuse[0][c] = 0.5f, l.specular[0][c] = 0.5f;
+            l.dir[0][1] = 1;
+            return l;
+        }();
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true, // (its reflection picture its own)
+                          prologue_license_ ? nullptr : &kTrophyLight);
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
         const Uint64 now = App::frame_time_ns();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);

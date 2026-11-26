@@ -366,7 +366,10 @@ trophy (0x3E0FF8): `race/trophy.mdl` in its colour by the result's kind (table 0
 The colour is the paint (Tex1 +0x20, three variants): the model's one picture, a 64 x 64 sphere map, read through the gold, the
 grey or the copper palette; its material variations are all white. The reflection is that picture of its own, sphere
 mapped by the view's normals (light faces and dark sides as it turns), not the course's. Its lights are its own too (0x3E1780,
-light set 0x66: ambient 0.3, diffuse 0.5, specular 0.5, and its parameter 13 (0, 1, 0) ❓; ours are the course's lights; ✔ by picture against the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`:
+light set 0x66 alone, 0x65, 0x67 and 0x68 off: ambient 0.3, diffuse 0.5, specular 0.5 (parameters 0, 1, 4: the light record's
++0x10, +0x20, +0x40, 0x4ABEC0) and its parameter 13 (0, 1, 0): the direction towards the light, normalized and turned by the
+view matrix of the moment into the record's +0x60, the parameter the course's scene lights take from Env0 +0xAD0 (0x397F18):
+a light from above the trophy, whose camera sits at the origin); ✔ by picture against the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`:
 copper, light and dark faces), through a lens 50 degrees high (0x49AC00:
 0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
 passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
