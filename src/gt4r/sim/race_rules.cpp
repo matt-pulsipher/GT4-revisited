@@ -15,7 +15,10 @@ int constant(const Program& p, u32 address, u32 reg) {
     return (w >> 16) == (0x2400u | reg) ? int(w & 0xFFFF) : 0;
 }
 
-constexpr u32 kV1 = 3, kA0 = 4;
+constexpr u32 kV1 = 3;
+// Gran Turismo 4's penalty's speed cap (km/h): the constant 0x35E108 loads at 0x35E2B4 (SCUS-97328 v1.01; the disc test
+// race_rules_penalty_cap_is_the_program's reads it from the program's code).
+constexpr u8 kPenaltyCap = 50;
 
 // 0x3E1C20's case at `at`: the bytes and halfwords it stores on the rule block ($t0) from constants, up to its return (a few
 // instructions: constants into registers, stores, a jump over the next case).
@@ -53,7 +56,7 @@ RaceRules race_rules(ByteSpan row, const Program& program) {
     if (row.size() < 0x8C) return r;
     r.hits.pylons = row[0x75], r.hits.car_limit = row[0x8B], r.hits.wall_limit = row[0x8A], r.hits.penalty = row[0x88];
     if (program.known()) {
-        r.penalty_cap = u8(constant(program, 0x35E2B4, kA0));
+        r.penalty_cap = kPenaltyCap;
     } else if (PrologueProgram::locate(program).recognized()) {
         r.penalty_cap = u8(constant(program, 0x3C5B48, kV1));
         // The test's case of the switch (0x572CC0, tests 1 .. 36).

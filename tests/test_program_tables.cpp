@@ -6,6 +6,7 @@
 #include "disc/core_image.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_tables.h"
+#include "gt4r/sim/race_rules.h"
 
 #include <cstdio>
 
@@ -73,6 +74,17 @@ TEST(disc_program_tables_equal_the_disc) {
     CHECK(own.known() && !own.ours() && own.b(sim::Program::kStatic + 0x34) == u8(p.b(sim::Program::kStatic + 0x34) ^ 0xFF));
 }
 
+// The penalty's speed cap (km/h) is the constant the program's 0x35E108 loads.
+TEST(disc_race_rules_penalty_cap_is_the_programs) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::shared_ptr<const gt3r::CoreImage> core = disc->program_image();
+    const u32 w = gt3r::rd32(core->program, 0x35E2B4 - core->load_address);
+    CHECK((w >> 16) == 0x2404); // (an addiu into $a0 from $zero)
+    const std::vector<u8> row(0x8C, 0);
+    CHECK(sim::race_rules(row, sim::Program::load(*disc)).penalty_cap == u8(w & 0xFFFF));
+}
+
 // Another build's program: the tables found by the routines that address them. On v1.01 every one at its place; in a copy
 // with the code moved and the data moved and every address to the data rebuilt (as a build with more code before them
 // would be), every one at its new place, equal.
@@ -113,4 +125,3 @@ TEST(disc_program_tables_found_by_their_routines) {
     const sim::Program p = sim::Program::from_core(image), q = sim::Program::from_core(image);
     CHECK(p.known() && p.ours() && &p.check() == &q.check() && p.check().not_found() == 0 && p.b(sim::Program::kStatic + 0x0B) == 8);
 }
-

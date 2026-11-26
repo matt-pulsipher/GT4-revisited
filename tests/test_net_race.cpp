@@ -3,6 +3,8 @@
 #include "net_machines.h"
 
 #include "gt4r/net/lan_rules.h"
+#include "base/bytes.h"
+#include "disc/core_image.h"
 
 #include <bit>
 #include <chrono>
@@ -246,6 +248,16 @@ TEST(net_lan_rules) {
     net::lan_boost(program, 0, p0), net::lan_boost(program, 1, p1), net::lan_boost(program, 2, p2);
     std::printf("; boost 1: %d %% from %d m to %d m, 2: %d %% from %d m to %d m\n", p1.fast_pct, p1.fast_start_m, p1.fast_full_10m * 10, p2.fast_pct, p2.fast_start_m, p2.fast_full_10m * 10);
     CHECK(p0.fast_pct == 0 && p1.fast_pct > 0 && p2.fast_pct > p1.fast_pct && p2.fast_start_m < p1.fast_start_m && p1.fast_full_10m == p2.fast_full_10m && p1.slow_pct == 0);
+    // Our values are the constants the routines load in the disc's program (each an addiu / ori from $zero).
+    const std::shared_ptr<const gt3r::CoreImage> core = disc->program_image();
+    auto c = [&](u32 at) {
+        const u32 w = gt3r::rd32(core->program, at - core->load_address), op = w >> 26;
+        return (op == 9 || op == 13) && ((w >> 21) & 31) == 0 ? int(w & 0xFF) : -1;
+    };
+    CHECK(one == (std::array<u8, 9>{u8(c(0x354F60)), u8(c(0x354F64)), u8(c(0x354F68)), 1, u8(c(0x354F58)), u8(c(0x354F5C)), 0, u8(c(0x354F58)), u8(c(0x354F58))}));
+    CHECK(two == (std::array<u8, 9>{u8(c(0x354FA0)), u8(c(0x354FA4)), u8(c(0x354FA8)), u8(c(0x354F34)), u8(c(0x354F4C)), u8(c(0x354F98)), 0, u8(c(0x354F9C)), u8(c(0x354F4C))}));
+    CHECK(p1.fast_pct == c(0x354EDC) && p1.fast_start_m == c(0x354ED8) && p1.fast_full_10m == c(0x354ED8));
+    CHECK(p2.fast_pct == c(0x354EF8) && p2.fast_start_m == c(0x354EF8) && p2.fast_full_10m == c(0x354ECC));
 }
 
 // A car put somewhere else by its own race (a pit stop's box): the others take it there at once, and no check takes it for a
