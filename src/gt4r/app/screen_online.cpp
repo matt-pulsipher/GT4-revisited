@@ -9,6 +9,8 @@
 // relay server; `paint`, `tire`, `mt=1`, `races=2` more; `port`). The race itself reads GT4R_RACE as Drive does.
 
 #include "gt4r/app/online.h"
+#include "gt4r/net/presence_text.h"
+#include "gt4r/net/version_check.h"
 #include "gt4r/app/page.h"
 
 #include "app/text_keyboard.h"
@@ -135,6 +137,7 @@ bool online_setup(App& app) {
     if (!d.builder) return false;
     if (loopback_only()) Session::set_advertise_lan(false);
     l.session().set_disc(*disc);
+    net::name_the_game(l.session()); // (the game tag for the relay server, where the shared engine has it: net/version_check.h)
     net::CarBuilder* b = d.builder.get();
     l.digest_car = [b](const net::CarChoice& c) { return b->digest(c); };
     l.check_car = [b](const net::CarChoice& c, const net::LobbyLimits& limits) { return net::limits_problem(*b, c, limits, power_unit().factor, power_unit().name); };
@@ -152,6 +155,11 @@ namespace {
 
 class ConnectScreen : public Screen {
 public:
+    // The Discord status (app/presence.h): finding a lobby.
+    bool presence(App&, net::PresenceText& t) override {
+        t.details = "Multi-LAN Race", t.state = "Finding a lobby";
+        return true;
+    }
     ConnectScreen(App& app, menu::Runtime& rt) : rt_(rt) {
         online_setup(app);
         take_power_unit(rt.game());

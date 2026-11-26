@@ -18,6 +18,8 @@
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/photo_faces.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/net/lobby.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -68,6 +70,8 @@ class MenuViewer : public Screen {
 public:
     // `player`: the game itself (make_game_screen): from power on, no lists, no log beside the
     // pages; leaving the menus leaves the screen.
+    int title_frames_ = 0; // frames the game's title has been up (the update dialog waits for it: update_prompts)
+
     explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
         advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
@@ -108,8 +112,27 @@ public:
 
     bool follows_aspect() const override { return runtime_ || player_; }
 
+    // The game's title (Arcade's top page): the update dialog may open over it; the Discord status says which menus run.
+    std::pair<std::string, std::string> where() const {
+        if (!runtime_ || !runtime_->project() || runtime_->open_pages().empty()) return {};
+        return {runtime_->project()->name(), runtime_->open_pages().front()->data.name()};
+    }
+    bool update_prompts() const override { return player_ && title_frames_ >= 180; } // (the title shown a moment: faded in)
+    bool presence(App&, net::PresenceText& t) override {
+        if (!player_) return false;
+        const auto [project, page] = where();
+        t = net::menu_presence(project, page);
+        if (const net::Lobby& l = net::lobby(); l.active()) { // the Multi-LAN Race's lobby, whatever page is up
+            t.details = "Multi-LAN Race";
+            t.state = l.host() ? "Hosting a lobby" : "In a lobby";
+            t.party_size = l.count(), t.party_max = 6; // (six players at most: the pregrid's slots)
+        }
+        return !t.details.empty();
+    }
+
     void update(App& app, double dt) override {
         step_time_ += dt;
+        title_frames_ = where() == std::pair<std::string, std::string>{"arcade", "TopRoot"} ? title_frames_ + 1 : 0;
         const MenuInput& m = app.menu();
         if (start_boot_) {
             start_boot_ = false, start_project_.clear();
@@ -548,6 +571,7 @@ private:
                 if (log[i].find("stopped:") != std::string::npos || log[i].find("script error") != std::string::npos)
                     for (const std::string& line : Ui::wrap(log[i], x - 4)) ui.text(2, y, line, colors::kBad), y += 12;
         }
+        if (player_) title_hint(ui, x, scale);
         const size_t lines = player_ ? 0 : std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
         if (!player_) {
@@ -565,6 +589,26 @@ private:
             ui.text(px + 8, py + 50, std::string(race_->manual ? "Manual" : "Automatic") + " gears   difficulty " + race_->difficulty, colors::kText);
             ui.text(px + 8, py + 66, "Cross: drive it", colors::kDim);
         }
+    }
+
+    // On the title (and Prologue's board): the way to the home screen (Settings, Controls, Saved games), in the space beside
+    // the page, or over its top right corner when the picture has none.
+    void title_hint(Ui& ui, float x, float scale) {
+        const LiveWidget* page = runtime_->current_page();
+        if (!page || !runtime_->project()) return;
+        const bool title = page->name == "TopRoot" && runtime_->project()->name() == "arcade";
+        const bool school = page->name == "SchoolRoot" && runtime_->project()->name() == "prologue"; // (Prologue's title and its board)
+        if (!title && !school) return;
+        const float margin = ui.width() - (x + 640 * scale);
+        static const char* const kLines[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
+        float w = 0;
+        for (const char* l : kLines) w = std::max(w, Ui::text_width(l));
+        const bool beside = margin >= w + 8;
+        if (!beside && !title) return; // (over the board only beside it)
+        const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
+        const float top = beside ? Ui::kHeight - 62.0f : 6.0f;
+        if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(std::size(kLines)) + 6, 4, Color{0, 0, 0, 150});
+        for (size_t i = 0; i < std::size(kLines); ++i) ui.text(left, top + 12 * float(i), kLines[i], i == 0 ? colors::kText : colors::kDim);
     }
 
     // A block transition: the screen held when it started, in blocks that fade by their timers

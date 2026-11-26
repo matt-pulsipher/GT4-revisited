@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GT4 Revisited
+Comment=Gran Turismo 4 reimplemented for modern computers (needs your own disc image)
+Exec=gt4r %f
+Icon=gt4r
+Terminal=false
+Categories=Game;Simulation;
+MimeType=application/x-iso9660-image;

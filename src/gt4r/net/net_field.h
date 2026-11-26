@@ -5,9 +5,11 @@
 // net::CarSnapshot, hits as its net::Event::Hit; net_race.h ties it to a session.
 
 #include "gt4r/net/remote_car.h"
+#include "gt4r/sim/pit_tires.h"
 #include "net/session.h"
 #include "race/net_race.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -35,6 +37,12 @@ public:
     // Our car's state after a step: `input` the driver's of this step, `laps` done. Its frames go with the next two states too.
     CarSnapshot state(const race::CarInput& input, s64 clock, int laps);
     void receive(size_t car, CarSnapshot s, s64 clock);
+
+    // A car's service events from its owner (net/car_service.h): applied to its prediction where they came.
+    void add_service(size_t car, const std::vector<ServiceEvent>& events, s64 clock);
+    // The pit stop's tire change on the other cars' predictions: `make` gives each its hooks (RemoteCar::set_tire_change) on
+    // its one-car session (tire_change_on: the program's, sim/ai/pit_tire_change.h).
+    void set_tire_change(const std::function<void(sim::Session& solo, RemoteCar& car)>& make);
 
     // The hits of the last step between our car and another's: for that car's owner (the impulse his car took).
     struct Sent {
@@ -113,5 +121,9 @@ private:
     u32 tick_ = 0;
     u32 hits_applied_ = 0, hits_sent_ = 0;
 };
+
+// The program's pit tire change (sim/ai/pit_tire_change.h) for NetField::set_tire_change, on the race's database and program,
+// which must outlive the race; `read` reads the database's files.
+std::function<void(sim::Session& solo, RemoteCar& car)> tire_change_on(db::SpecDb& db, const sim::Program& program, sim::FileReader read);
 
 } // namespace gt4r::net

@@ -3,9 +3,12 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/app/updates.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
 #include "gt4r/settings/mod_files.h"
@@ -373,7 +376,7 @@ private:
         const std::string current = app.disc() ? app.config().get("game", "disc").value_or("") : "";
         if (app.disc()) {
             const DiscInfo& d = app.disc()->info();
-            rows_.info("Disc", d.description + ", " + d.serial + " version " + d.version);
+            rows_.info("Disc", d.description + (d.serial.empty() ? std::string() : ", " + d.key + " v" + d.version));
             rows_.info("Its files", d.verified ? "a tested release's own" : d.modified ? "a modified copy of a tested release" : "not a tested release");
             if (d.problem.empty()) rows_.info("The image", "complete");
             else {
@@ -384,8 +387,7 @@ private:
         }
         rows_.action("Open a disc image", ".iso or .chd", "choose the file", [a] { a->show_open_dialog(); });
         if (!app.last_error().empty()) {
-            PageRow& r = rows_.info("The last one could not be opened", "");
-            (void)r;
+            rows_.info("The last one could not be opened", "").bad = true;
             for (const std::string& line : Ui::wrap(app.last_error(), 560)) rows_.info(line, "");
         }
         if (!discs_.empty()) rows_.heading("Discs opened before");
@@ -414,6 +416,7 @@ private:
                 a->save_config();
             });
         }
+        updates_rows(app);
         rows_.heading("This app");
         rows_.choice("Starts in", {"The game", "The home screen"}, app.config().get("game", "start").value_or("game") == "hub", [a](size_t i) {
             a->config().set("game", "start", i ? "hub" : "game");
@@ -427,12 +430,34 @@ private:
         const std::string log = gt3r::log_file::path();
         if (!log.empty()) {
             rows_.action("Log of this session", "", "open it", [this, a, log] { show(*a, log); });
-            const std::string before = app.data_dir() + "gt3r.prev.log";
+            const std::string before = app.data_dir() + log_file_name(true);
             if (gt3r::host_path_exists(before)) rows_.action("Log of the session before", "", "open it", [this, a, before] { show(*a, before); });
             rows_.action("Copy both logs", "to the clipboard", "copy", [this, log, before] { copy_logs(log, before); });
         }
         rows_.info("Version", "GT4 Revisited " GT4R_VERSION ", engine " GT3R_VERSION);
         rows_.info("Settings file", app.config_path());
+    }
+
+    // The update check (app/updates.h) and the Discord status (app/presence.h).
+    void updates_rows(App& app) {
+        App* a = &app;
+        Updates& up = updates();
+        rows_.heading("Updates");
+        rows_.choice("Check for updates", {"Only when asked", "At startup"}, Updates::enabled(app), [a](size_t i) { Updates::set_enabled(*a, i == 1); });
+        rows_.action("Check now", up.status_text(), "ask " + Updates::server(app), [a] { updates().check_now(*a); });
+        rows_.info("This version", net::this_version().to_string());
+        rows_.info("Latest release", (up.latest().known() ? up.latest().number() : std::string("unknown")) + (up.checked().empty() ? "" : "  (as of " + up.checked() + ")"));
+        // (races through the relay server need it; the local network and addresses never do)
+        rows_.info("Online play needs", up.min_online().known() ? "version " + up.min_online().number() + " or later" : "any version");
+        const gt3r::net::UpdateLinks links = up.links();
+        const bool due = up.prompt() != gt3r::net::UpdatePrompt::None;
+        rows_.action("Download update", due ? "version " + up.latest().number() : up.known() ? std::string("up to date") : std::string("no release known"), "open the update", [] { updates().open_dialog(); }).enabled = due;
+        rows_.action("Release notes", links.notes.empty() ? std::string("not known yet") : links.notes, "open the page", [] { updates().open_notes(); }).enabled = !links.notes.empty();
+        if (Presence::supported() && !Presence::app_id(app).empty()) {
+            rows_.heading("Discord");
+            rows_.choice("Show what you're playing", {"No", "Yes"}, Presence::enabled(app), [a](size_t i) { discord_status().set_enabled(*a, i == 1); });
+            rows_.info("Discord", discord_status().status_text(app));
+        }
     }
 
     void use_save_folder(App& app, const std::string& path) {
