@@ -55,7 +55,11 @@ void App::set_video(const settings::Video& v) {
     if (v.fullscreen != was.fullscreen && !scripted_ && !gt3r::platform::is_mobile() && fullscreen() != v.fullscreen) SDL_SetWindowFullscreen(window_, v.fullscreen);
     if (v.vsync != was.vsync && !run_.windowless) SDL_SetRenderVSync(renderer_, v.vsync ? 1 : 0);
     if (v.limit_60fps != was.limit_60fps) apply_frame_limit();
-    if (gpu_ && v.msaa != was.msaa) gpu_->set_msaa(v.msaa);
+    if (gpu_ && v.msaa != was.msaa) {
+        gt4_pipelines_.stop(); // (the sample count is part of every pipeline)
+        gpu_->set_msaa(v.msaa);
+        gt4_pipelines_.start(*gpu_);
+    }
     if (gpu_ && v.anisotropy != was.anisotropy) gpu_->set_anisotropy(v.anisotropy);
     if (v.render_scale != was.render_scale || v.dynamic_resolution != was.dynamic_resolution) reset_dynamic_scale();
     if (v.texture_packs != was.texture_packs) use_texture_packs();
