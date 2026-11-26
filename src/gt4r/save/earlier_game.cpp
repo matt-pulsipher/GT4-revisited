@@ -171,7 +171,7 @@ std::optional<EarlierGame> read_gt3r_save(ByteSpan file, std::string* why) {
         EarlierGame g;
         g.kind = EarlierGame::Kind::Gt3;
         g.from = "GT3 Revisited";
-        g.name = !s.file_comment.empty() ? s.file_comment : s.player_name;
+        g.name = s.file_comment; // (as GT3 Revisited names it: else its file's name)
         g.credits = s.credits;
         for (size_t k = 0; k < kGt3Tests; ++k) g.medals.push_back(u8(s8(int(s.license_tests[k].medal))));
         return g;

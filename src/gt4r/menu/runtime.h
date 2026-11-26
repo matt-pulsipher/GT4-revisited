@@ -145,6 +145,7 @@ struct RuntimeConfig {
     bool console_card = false;   // a console's memory card and its dialogs (the original's pages), instead of saves of their own (no_card.h)
     std::string new_card;        // the folder of a new game to make instead of the current one's (save/save_library.h)
     std::string gt3r_dir;        // GT3 Revisited's data folder, where the Status page's transfer looks for its saves ("": none; earlier_saves.h)
+    bool choose_earlier_save = false; // the app offers the transfer's choice of a save (earlier_saves.h); else the first found is taken
 };
 
 class Runtime {

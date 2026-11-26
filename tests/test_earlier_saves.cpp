@@ -141,7 +141,7 @@ TEST(earlier_gt3r_saves_where_it_keeps_them) {
     const fs::path old = fresh("gt4r-test-gt3r-old");
     put(old / "gtmode.sav", gt3r_save(50, all(0), ""));
     found = save::find_gt3r_games(old.string(), "us");
-    CHECK(found.size() == 1 && found[0].name == "Driver" && found[0].credits == 50);
+    CHECK(found.size() == 1 && found[0].name == "gtmode" && found[0].credits == 50);
     // A card folder: the game's folder copied from a card, and a card image put there.
     const fs::path card = fresh("gt4r-test-gt3-card");
     put(card / "BASCUS-97102GAMEDATA" / "BASCUS-97102GAMEDATA", gt3_file(60, all(0)));

@@ -29,7 +29,7 @@ struct TransferState {
 namespace {
 
 TransferState& transfer(GameNatives& n) {
-    if (!n.transfer) n.transfer = std::make_shared<TransferState>();
+    if (!n.transfer) n.transfer = std::make_shared<TransferState>(), n.transfer->chooser = n.rt.config().choose_earlier_save;
     return *n.transfer;
 }
 

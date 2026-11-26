@@ -17,7 +17,7 @@ namespace gt4r::save {
 struct EarlierGame {
     enum class Kind { Gt3, Prologue };
     Kind kind = Kind::Gt3;
-    std::string name;   // the save's own name (GT3 Revisited's), else the player's, else the file's
+    std::string name;   // the save's own name (GT3 Revisited's, else its file's), a card's game the player's
     std::string from;   // what it is: "GT3 Revisited", "PS2 memory card image", ...
     std::string where;  // its file (or folder)
     std::time_t when = 0;

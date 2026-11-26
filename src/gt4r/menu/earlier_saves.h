@@ -28,8 +28,8 @@ struct TransferChoice {
     std::vector<save::EarlierGame> found;
     std::string looked; // where GT3 Revisited's saves were looked for ("": nowhere, its folder is another app's here)
 };
-// The app's side: whether it answers the choice (else the first save found is taken: scripted runs, tests); the choice the
-// transfer waits for (once); the answer (none: nothing chosen, the game goes on as with no save).
+// The app's side: whether it answers the choice (RuntimeConfig::choose_earlier_save; else the first save found is taken:
+// tests); the choice the transfer waits for (once); the answer (none: nothing chosen, the game goes on as with no save).
 void set_transfer_chooser(Runtime& rt, bool on);
 std::optional<TransferChoice> take_transfer_choice(Runtime& rt);
 void answer_transfer_choice(Runtime& rt, std::optional<save::EarlierGame> game);
