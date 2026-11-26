@@ -205,7 +205,8 @@ private:
             change(n);
             a->set_video(n);
         };
-        rows_.choice("Screen", {"Window", "Full screen"}, v.fullscreen, [set](size_t i) { set([&](auto& n) { n.fullscreen = i == 1; }); });
+        if (!gt3r::platform::is_mobile()) // (phones and tablets: always the whole screen)
+            rows_.choice("Screen", {"Window", "Full screen"}, v.fullscreen, [set](size_t i) { set([&](auto& n) { n.fullscreen = i == 1; }); });
         rows_.choice("Aspect ratio", {"16:9", "4:3", "Fill the screen"}, size_t(v.aspect), [set](size_t i) { set([&](auto& n) { n.aspect = gt3r::platform::Aspect(i); }); });
         rows_.choice("VSync", {"Lowest input delay", "No tearing"}, v.vsync, [set](size_t i) { set([&](auto& n) { n.vsync = i == 1; }); });
         {
@@ -319,13 +320,16 @@ private:
     void controls(App& app) {
         App* a = &app;
         gt3r::InputManager& in = app.input();
-        rows_.action("Player 1's controls", in.device_name(0), "open", [a] { a->push(make_controls_screen(*a, 0)); });
+        // (a touch screen's on-screen controls are player 1's whenever no controller is)
+        const std::string first = in.device_name(0);
+        rows_.action("Player 1's controls", app.touch_ui() && first == "Keyboard" ? std::string("Touch screen") : first, "open", [a] { a->push(make_controls_screen(*a, 0)); });
         rows_.action("Player 2's controls", in.device_name(1), "open", [a] { a->push(make_controls_screen(*a, 1)); });
         const auto keep = [a] {
             input::save_config(a->input(), a->config());
             a->save_config();
         };
-        rows_.choice("Another window in front", {"The race pauses", "Controllers keep driving"}, in.background(), [&in, keep](size_t i) { in.set_background(i == 1), keep(); });
+        if (!gt3r::platform::is_mobile()) // (a phone's app in the background stops)
+            rows_.choice("Another window in front", {"The race pauses", "Controllers keep driving"}, in.background(), [&in, keep](size_t i) { in.set_background(i == 1), keep(); });
 #ifdef SDL_PLATFORM_WINDOWS
         PageRow& xbox = rows_.choice("Xbox controllers", {"XInput", "Raw Input, with the triggers' motors"}, in.xbox_rawinput(), [&in, keep](size_t i) { in.set_xbox_rawinput(i == 1), keep(); });
         if (const char* started = SDL_GetHint(SDL_HINT_JOYSTICK_RAWINPUT); started && in.xbox_rawinput() != (*started == '1')) xbox.tag = "after a restart";
@@ -333,7 +337,7 @@ private:
         rows_.heading("Connected");
         const std::vector<std::string> names = in.device_names();
         for (const std::string& n : names) rows_.info(n, "");
-        if (names.empty()) rows_.info("Only the keyboard", "");
+        if (names.empty()) rows_.info(app.touch_ui() ? "Only the touch screen" : "Only the keyboard", "");
     }
 
     // --- Views & replays ---

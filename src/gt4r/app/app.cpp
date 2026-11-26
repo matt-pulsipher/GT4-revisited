@@ -162,6 +162,11 @@ bool App::init(int argc, char** argv) {
         SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
         LOG_INFO("No window, no sound, no real input (--visible shows a scripted run)");
     }
+#ifdef SDL_PLATFORM_ANDROID
+    // Logitech wheels' force feedback (G29 in PS3 mode, G27, G25, Driving Force GT): Android plays none for them, so SDL's Logitech
+    // driver talks to the wheel over USB itself (the player is asked to allow it; refused, the wheel steers without it).
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "1");
+#endif
     // (a scripted run's controllers are its own: none is opened)
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | (run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK))) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());

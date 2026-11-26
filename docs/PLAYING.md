@@ -344,6 +344,14 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   resolution, the gamma pass, the output devices, the log file and crash notes, the disc list, the mods' archives,
   the texture packs. The race display's place on a 4:3 picture is the program's; on one wider than 16:9 its parts go out
   with the picture's edge (ours: `race/game_area.h`).
+- Android (`android/`, [android/README.md](../android/README.md)): the APK's activity, the disc picker's lasting access,
+  the save folder's documents and the user data folder in the Files app are the shared engine's Java, compiled from the
+  submodule; the app is ours (`GT4Activity`, the manifest, `org.gt4revisited.gt4r`). The on-screen touch controls are the
+  shared engine's (`input/touch_controls`, `app/screen_touch_overlay`): its D-pad and buttons over the game's menus and pauses,
+  its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Not yet: the
+  engine's Settings page for the touch controls (layout editor, tilt steering, opacity), the race display moved clear of the
+  pedals (the speed and gear can sit under them on a 16:9 screen), phone vibration, tilt steering.
+  Meta Quest: android/README.md "Meta Quest" says what a VR app needs; none is built.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

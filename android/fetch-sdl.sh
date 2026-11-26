@@ -2,7 +2,8 @@
 # Fetches the SDL3 source used for both the Java glue and the native build, at the release the
 # shared engine pins for Android (engine/gt3r/android/fetch-sdl.sh), into android/third_party/SDL.
 #   android/fetch-sdl.sh        SDL 3.4 for the phone/tablet APK (third_party/SDL)
-#   android/fetch-sdl.sh --xr   SDL's development branch for a Meta Quest APK (third_party/SDL-xr)
+#   android/fetch-sdl.sh --xr   SDL's development branch with SDL_GPU's OpenXR support (third_party/SDL-xr),
+#                               for a Meta Quest VR app (android/README.md "Meta Quest")
 set -e
 cd "$(dirname "$0")"
 engine=../engine/gt3r/android/fetch-sdl.sh

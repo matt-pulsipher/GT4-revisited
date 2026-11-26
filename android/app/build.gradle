@@ -6,10 +6,7 @@ plugins {
 // engine's activity code (engine/gt3r/android/app/src/main/java: the disc picker's lasting access,
 // the save folder through the Storage Access Framework, the documents provider that shows the
 // user data folder in the Files app, display cutouts), compiled from the submodule as it is.
-//
-// -Pquest builds the Meta Quest APK instead (docs/dev/PLATFORMS.md "Meta Quest"): the same app
-// with the headset's manifest, on SDL's development branch (fetch-sdl.sh --xr), arm64 only.
-def quest = project.hasProperty('quest')
+// (A Meta Quest VR app is not built yet: android/README.md "Meta Quest" says what it needs.)
 
 def engineAndroid = file("${rootDir}/../engine/gt3r/android")
 if (!file("${engineAndroid}/app/src/main/java").exists()) {
@@ -18,10 +15,9 @@ if (!file("${engineAndroid}/app/src/main/java").exists()) {
 
 // SDL3's Java glue and native sources come from one SDL checkout so the two always match.
 // fetch-sdl.sh creates it.
-def sdlDir = quest ? file(project.findProperty('SDL_XR_DIR') ?: "${rootDir}/third_party/SDL-xr")
-                   : file(project.findProperty('SDL_DIR') ?: "${rootDir}/third_party/SDL")
+def sdlDir = file(project.findProperty('SDL_DIR') ?: "${rootDir}/third_party/SDL")
 if (!file("${sdlDir}/android-project").exists()) {
-    throw new GradleException("SDL3 source not found at ${sdlDir}. Run android/fetch-sdl.sh${quest ? ' --xr' : ''} first.")
+    throw new GradleException("SDL3 source not found at ${sdlDir}. Run android/fetch-sdl.sh first.")
 }
 
 // The version comes from the top-level CMakeLists.txt (project(GT4Revisited VERSION x.y.z)), the
@@ -55,15 +51,11 @@ android {
                           "-DFETCHCONTENT_SOURCE_DIR_SDL3=${sdlDir}",
                           '-DGT4R_BUILD_TOOLS=OFF', '-DGT4R_BUILD_TESTS=OFF',
                           // 16 KB page devices (Android 15+): 16 KB-aligned LOAD segments
-                          '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
-                          "-DGT3R_XR=${quest ? 'ON' : 'OFF'}"
+                          '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
                 targets 'gt4r'
-                if (quest) abiFilters 'arm64-v8a'
-                else abiFilters 'arm64-v8a', 'x86_64'
+                abiFilters 'arm64-v8a', 'x86_64'
             }
         }
-        // (the OpenXR loader package brings every ABI; the Quest is arm64)
-        if (quest) ndk { abiFilters 'arm64-v8a' }
     }
 
     externalNativeBuild {
@@ -74,14 +66,6 @@ android {
     }
 
     sourceSets.main.java.srcDirs += ["${engineAndroid}/app/src/main/java", "${sdlDir}/android-project/app/src/main/java"]
-    if (quest) sourceSets.main.manifest.srcFile 'src/quest/AndroidManifest.xml'
-
-    // The Quest APK under its own name (app-quest-debug.apk, app-quest-release.apk).
-    if (quest) {
-        applicationVariants.all { variant ->
-            variant.outputs.all { outputFileName = "app-quest-${variant.buildType.name}.apk" }
-        }
-    }
 
     // Release signing: the project's own key (android/make-release-key.sh), never committed. CI
     // writes it from secrets; locally, set the same variables. Without them the release APK is
@@ -116,10 +100,4 @@ android {
     lint {
         abortOnError false
     }
-}
-
-dependencies {
-    // The Khronos OpenXR loader (libopenxr_loader.so), which SDL opens on the Quest; at the
-    // OpenXR version of the headers SDL builds with (as the engine's own app has it).
-    if (quest) implementation 'org.khronos.openxr:openxr_loader_for_android:1.1.65'
 }
