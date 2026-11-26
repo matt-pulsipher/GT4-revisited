@@ -234,8 +234,8 @@ TEST(settings_controls_words) {
 // model shows.
 TEST(disc_texture_pack_car) {
     Disc* full = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4) full = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4) full = d;
     if (!full) SKIP("no Gran Turismo 4 disc");
     Disc& disc = *full;
     const FileReader read = [&disc](const std::string& path) -> std::optional<Bytes> {

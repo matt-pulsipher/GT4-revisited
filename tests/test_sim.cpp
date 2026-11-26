@@ -79,8 +79,8 @@ std::shared_ptr<const course::Runway> open_road(Disc& disc, const std::string& n
 
 // The Gran Turismo 4 disc of GT4R_DISC whose program's tables are mapped; null without one.
 Disc* full_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d;
     return nullptr;
 }
 

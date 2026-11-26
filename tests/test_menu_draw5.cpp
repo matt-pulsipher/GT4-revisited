@@ -94,8 +94,8 @@ std::optional<Bytes> gtauto_entry(Disc& d, const char* name) {
 // standing on the floor; walked in by GTAutoEntranceMotion he stands beside the car, feet down.
 TEST(disc_gtauto_mechanic_skinned_and_walking) {
     Disc* gt4 = nullptr;
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) gt4 = disc.get();
+    for (const auto& disc : test::reference_discs())
+        if (disc->info().game == Game::GT4) gt4 = disc;
     if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const std::optional<Bytes> man = gtauto_entry(*gt4, "image/gtmode/gtauto/pitmanFix.mdl");
     const std::optional<Bytes> walk = gtauto_entry(*gt4, "image/gtmode/gtauto/GTAutoEntranceMotion.mot");
@@ -151,8 +151,8 @@ TEST(disc_gtauto_mechanic_skinned_and_walking) {
 // wide (0x245C90, 0x24600C); the last line keeps plain spaces.
 TEST(disc_menu_equalized_line_spread) {
     Disc* gt4 = nullptr;
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) gt4 = disc.get();
+    for (const auto& disc : test::reference_discs())
+        if (disc->info().game == Game::GT4) gt4 = disc;
     if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     gt3r::Vfs vfs(&gt4->volume());
     const std::optional<Bytes> fnt = vfs.read("font/system.fnt");

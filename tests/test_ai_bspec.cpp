@@ -16,8 +16,8 @@ using namespace gt4r;
 
 TEST(ai_bspec_skill_equal_to_the_program) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // Cars of the lowest, a middle and the highest class, records over and under the caps, the course byte both ways.
     const diff::BSpecSkillResult r = diff::run_bspec_skill(*disc, false, {"s500_63", "nsx_r_02", "_787b_91"}, 48);
@@ -33,8 +33,8 @@ TEST(ai_bspec_skill_equal_to_the_program) {
 
 TEST(ai_pd_steering_equal_to_the_program) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // The steering mode this program leaves unused (T[2] = 2: the PD steering), set in both races: every decision equal.
     setenv("GT4R_AI_STEERMODE", "2", 1);
@@ -52,8 +52,8 @@ TEST(ai_pd_steering_equal_to_the_program) {
 
 TEST(ai_decisions_with_tire_wear) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // The race's tire wear on (a tread curve from the start, a limit above a new tire's grip: F +0x5C2 set): the arcs' speeds by
     // the wheels' wear grips (0x4674F0) and every decision as the program's.
@@ -72,8 +72,8 @@ TEST(ai_decisions_with_tire_wear) {
 
 TEST(ai_suggested_gear_speed_equal_to_the_program) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // The pad car's suggested gear (0x469E58): whether it is set and firm, with the driver's targets and mode made up around
     // the car's speed at every call.
@@ -96,8 +96,8 @@ TEST(ai_suggested_gear_speed_equal_to_the_program) {
 
 TEST(ai_bspec_experience_equal_to_the_program) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // A B-spec driver in a field (car 4, the fastest pace and passing from 5 s) learns during the race (0x4684A8, its record
     // empty at the start): its record (car +0x8C) as ours after every decision, its arcs, braking points and lane changes
@@ -132,8 +132,8 @@ TEST(ai_bspec_experience_equal_to_the_program) {
 
 TEST(ai_bspec_shift_factor_on_our_session) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // A B-spec Ka at its slowest pace (the shift byte 115) shifts up at a lower engine speed than at its fastest (129).
     auto top_rpm_in_first = [&](int level) {
@@ -162,8 +162,8 @@ TEST(ai_bspec_shift_factor_on_our_session) {
 
 TEST(ai_held_starts_on_our_session) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // A place's held start (missions, Pace::start_delay): the session holds its car 60 steps a second of it after the
     // start's count (the program's own count per car, K + 0xCBFC: 240 steps there let it go at 4.0 s, `gt4r_diff ai

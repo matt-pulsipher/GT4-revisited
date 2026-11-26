@@ -20,8 +20,8 @@ namespace {
 
 // The US disc (these tests read v1.01's code at its addresses).
 Disc* gt4_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->info().serial == "SCUS_973.28") return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->info().serial == "SCUS_973.28") return d;
     return nullptr;
 }
 

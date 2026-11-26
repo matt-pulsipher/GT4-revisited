@@ -100,9 +100,9 @@ TEST(race_flow_section_test) {
 // Demonstrations played by our own race end on their recorded times: a stop in the box (B-1), a section with cones passed at speed (B-4),
 // moving section starts, before the section (A-1) and by its driver up to it (A-14).
 TEST(race_demonstrations_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         ran = true;
         gt3r::Volume* vol = &disc->volume();
@@ -121,8 +121,8 @@ TEST(race_demonstrations_disc) {
 
 TEST(race_driving_mode_changed_in_the_race) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // The PIT STOP menu's driving mode (0x3F19E0 command 10): a pad's car standing on its brake, given to the B-spec driver, drives
     // on along the road; given back, it stops on its pad's brake.
@@ -155,8 +155,8 @@ TEST(race_driving_mode_changed_in_the_race) {
 
 TEST(race_mission_rival_moves_from_the_grid) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     // Missions 2 .. 5 and 8: the rival's place is 0 m, the section's grid, and it moves from there at its own speed or the
     // player's, driven by its driver from the first step; the player comes from behind at the row's.

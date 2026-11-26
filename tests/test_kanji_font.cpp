@@ -102,9 +102,9 @@ TEST(kanji_font_parses) {
 }
 
 TEST(kanji_fonts_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
+    if (test::reference_discs().empty()) SKIP("no disc");
     const std::string kana = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x82\xA2\xE3\x82\xA4\xE3\x82\xA6"; // あいうアイウ
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         size_t fonts = 0, faces = 0, cells = 0;
         for (const ImageFile& f : disc->files()) {
             if (f.path.size() < 3 || f.path.compare(f.path.size() - 3, 3, ".kf") != 0) continue;

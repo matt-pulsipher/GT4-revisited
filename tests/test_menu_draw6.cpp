@@ -69,8 +69,8 @@ TEST(menu_skin_blend_two_bones) {
 // (0x364B30), a few centimetres; the same for the same car again.
 TEST(disc_menu_wheel_droop) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     db::SpecDb sdb = sim::ai::open_specdb(*disc);
     const sim::Program program = sim::Program::load(*disc);
@@ -90,8 +90,8 @@ TEST(disc_menu_wheel_droop) {
 // that are none are refused.
 TEST(disc_menu_slide_photos) {
     Disc* gt4 = nullptr;
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) gt4 = disc.get();
+    for (const auto& disc : test::reference_discs())
+        if (disc->info().game == Game::GT4) gt4 = disc;
     if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     gt3r::Vfs vfs(&gt4->volume());
     for (const char* path : {"photo/000.JPG", "photo/037.JPG", "photo/061.JPG"}) {

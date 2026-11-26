@@ -146,8 +146,24 @@ float ProgramRandom::next01() {
 
 // ---- Database
 
+// The car database's name tables for a menus' language (CAR_NAME_<language>; Europe's disc has british, french, german,
+// italian and spanish; Portuguese has none and takes the British English ones ❓).
+static std::string database_language(const std::string& code) {
+    if (code == "JP") return "japanese";
+    if (code == "GB" || code == "PT") return "british";
+    if (code == "FR") return "french";
+    if (code == "DE") return "german";
+    if (code == "IT") return "italian";
+    if (code == "ES") return "spanish";
+    if (code == "KR") return "korean";
+    if (code == "CN" || code == "TW") return "big5";
+    return "american";
+}
+
 db::SpecDb* Database::get(const RuntimeConfig& config) {
-    if (tried) return db.get();
+    const std::string want = database_language(rt ? rt->language() : config.language);
+    if (tried && (!db || want == language)) return db.get();
+    if (tried) by_label.clear(); // (the language changed: the names again)
     tried = true;
     if (config.program || config.program_image) {
         try {
@@ -164,7 +180,7 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         const FolderLister list = config.list;
         // The names in the menus' language: Prologue (Japan) shows its cars' Japanese names
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
-        language = config.language == "JP" ? "japanese" : "american";
+        language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;

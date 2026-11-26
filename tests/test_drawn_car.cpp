@@ -19,8 +19,8 @@ using namespace gt4r;
 
 TEST(drawn_car_rides_its_suspension) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Volume* vol = &disc->volume();
     db::SpecDb sdb([vol](const std::string& path) -> std::optional<Bytes> {

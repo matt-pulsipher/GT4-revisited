@@ -207,9 +207,9 @@ TEST(dive_clock_and_markers) {
 
 // The director over the courses: every step a view of a car, cut by its clock.
 TEST(dive_director_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     int courses = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue;
         race::DiveDirector d;
         const auto image = disc->program_image();

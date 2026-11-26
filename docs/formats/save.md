@@ -25,7 +25,10 @@ the name typed, the garage's key and the display's numbers.
 ## The folder
 
 The game's folder on the card is `BA` + the product code + `GAMEDATA` (`BASCUS-97328GAMEDATA`;
-0x1CC958, 0x1CDA48). Here the card is a folder of the data folder (`<data>/memorycard/`), and
+0x1CC958, 0x1CDA48). Each release names its own: Europe's `BESCES-51719GAMEDATA`, Japan's `BISCPS-17001GAMEDATA` (its
+0x1C92C0), and the photos' folders likewise (`BESCES-51719P...`). Our saves, card images in and out and the save library
+use the disc's (`DiscInfo::product`), so each release's games stand apart and a card's folder of one release is not
+taken for another's ❓ (whether the game data's own layout differs between releases is not read). Here the card is a folder of the data folder (`<data>/memorycard/`), and
 the save is that folder as on a card:
 
 | File | What | Size |

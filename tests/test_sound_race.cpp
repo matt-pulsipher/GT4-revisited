@@ -47,8 +47,8 @@ double rms(const std::vector<s16>& pcm, size_t from, size_t frames) {
 
 // The Gran Turismo 4 disc of GT4R_DISC whose program's tables are mapped (sessions); null without one.
 Disc* full_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d;
     return nullptr;
 }
 
@@ -415,8 +415,8 @@ TEST(sound_race_car_mix_on_disc) {
 // 4651 / 5464 of 16383 on each side.
 TEST(sound_race_engine_against_original) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     auto library = std::make_shared<audio::SoundLibrary>(vfs);
@@ -462,8 +462,8 @@ TEST(sound_race_engine_against_original) {
 // rendering correlate far less than without it, and the chase view's (the car ahead) not at all less.
 TEST(sound_race_surround_cue_on_disc) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     auto library = std::make_shared<audio::SoundLibrary>(vfs);
@@ -495,8 +495,8 @@ TEST(sound_race_surround_cue_on_disc) {
 // gearbox's grade: 1 close, 2 super close, 3 racing) whines with the clutch in and torque through it.
 TEST(sound_race_gear_whine_on_disc) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     CHECK(!audio::car_sound_files(vfs, "ka_01").whine && audio::car_sound_files(vfs, "impreza_wrc_03").whine);
@@ -817,8 +817,8 @@ TEST(sound_race_two_cameras_on_disc) {
 // plays the race's first piece again at the replay's levels.
 TEST(sound_race_rolling_start_and_replay) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("bgm/us/ads.inf")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("bgm/us/ads.inf")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     audio::OfflineSound s(false);

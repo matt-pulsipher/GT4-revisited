@@ -507,8 +507,8 @@ TEST(sound_driver_held_notes) {
 // --- on the discs ---------------------------------------------------------------------------
 
 TEST(sound_files_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         size_t banks = 0, sequences = 0, notes = 0, engines = 0, unordered = 0, markers = 0, programs = 0, missing_programs = 0;
         for (const ImageFile& f : disc->files()) {
@@ -579,8 +579,8 @@ TEST(sound_files_on_disc) {
 }
 
 TEST(sound_indexes_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -639,10 +639,10 @@ TEST(sound_indexes_on_disc) {
 }
 
 TEST(sound_menu_effects_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
+    if (test::reference_discs().empty()) SKIP("no disc");
     // The names the menus' scripts play.
     const char* const names[] = {"ok", "cancel", "disable", "cursor", "next", "return", "select", "buy"};
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         gt3r::Vfs vfs(&disc->volume());
         for (const char* name : names) {
             // (Prologue's "buy" is a tone of volume 0.)
@@ -676,8 +676,8 @@ TEST(sound_menu_effects_on_disc) {
 }
 
 TEST(sound_menu_music_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::OfflineSound s;
@@ -752,8 +752,8 @@ TEST(sound_menu_music_on_disc) {
 }
 
 TEST(sound_music_renders_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -801,8 +801,8 @@ TEST(sound_music_renders_on_disc) {
 }
 
 TEST(sound_cars_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue; // (Prologue's database is in the earlier format)
         gt3r::Vfs vfs(&disc->volume());
         db::SpecDb db([&](const std::string& path) { return vfs.read(path); }, [&](const std::string& dir) { return vfs.list_dir(dir); });
@@ -859,8 +859,8 @@ TEST(sound_cars_on_disc) {
 
 // The music a menu page names is a group of the sequenced music.
 TEST(sound_page_music_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue; // (Prologue's pages name none)
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -899,8 +899,8 @@ TEST(sound_page_music_on_disc) {
 // exhaust bank.
 TEST(sound_equipped_cars_on_disc) {
     Disc* disc = nullptr;
-    for (const auto& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (const auto& d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     db::SpecDb db([&](const std::string& path) { return vfs.read(path); }, [&](const std::string& dir) { return vfs.list_dir(dir); });
