@@ -17,7 +17,9 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The scene (course, car, lights, shadows) | `app/race_world.*` | as in the races: Gran Turismo 4's files and rules drawn by the shared engine |
 | The finder's depth of field | the shared engine's pass (the program's own, `0x399550`, has the same steps) | 🔎 the blur steps are of the shared engine's 448-line picture; the program counts in the finder's own 190 lines and shows none of the smallest |
 | The finder's color correction | the shared engine's grade pass, a curve through the gamma's middle value | 🔎 the photo itself uses the program's gamma table |
-| Not built | developing a film, the printer and the USB memory (their pages open), the photo drive (`PhotoPause`, `racephoto.strb`) | |
+| The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
+| The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
+| Not built | developing a film, the photo drive (`PhotoPause`, `racephoto.strb`) | |
 
 ## The sequence
 
@@ -142,11 +144,37 @@ places of u64 (the folder's number, its letter in the top byte), u32 count at 0x
 bytes and not scrambled (0x1D0F38). The slide show face shows the list's photos, or the disc's
 (`photo/%03d.JPG`) when the card has none or the face's `demo` is set (0x1C6BE8).
 
+## The photo drive and films (read, not built)
+
+- **Where a player meets it**: the sequence `photo_drive` (9 of the program's sequence names, 0x6A53D8), the fourth
+  event of a course in GT Mode (`CourseEvents`: `EventInfo("photo_drive", 3)`, "Photo Drive" Cr 3 beside Practice on
+  the course's page), run by 0x11ABE0 (0x11B160); and the Replay Theater's replays (0x10CA50). Here the photo drive runs
+  as a free run of the car alone, without the pause below.
+- **The pause** (`PhotoPause`, vtable 0x681B98, a `PauseBase`; made at 0x3C3C20): its photo is set up for 640 x 480,
+  4:3, 32 pictures (0x333560, +0x138); the shutter's sound stream `racephoto.strb` (0x3C4640). Each picture (vf4,
+  0x3C4A48): in a pit stop it refuses (the race's text `CantCaptureWhenPitSequence`, sound `disable`); ❓ pad bit 0x80
+  leaves after 3 pictures; 0x20 steps +0x1A8 through 0, 1, 2 (given to the photo at +0x148); bits 0x200, 0x1, 0x400, 0x2
+  pick +0x1AC 0 to 3; the race's camera manager moves the camera by the pad (`CameraSys::CameraShot` vf10 0x37FFB0: the
+  turn, the climb, the zoom between its limits, kept out of the scenery 0x380C50) and says when the shutter is pressed:
+  sound `shutter`, the photo of the camera's focal length, +0x150 = 1 + an option / 10, focus and aperture from the
+  manager (+0x154, +0x158).
+- **After the shot** (0x3C48D8 -> 0x3C51A0): the race's 0x17E0-byte display state is kept, the menus run the project
+  `photo_save` with the argument `filmphoto` over the still race (the photo, START to save), and the state comes back.
+- **Saving** (`photo_save`'s `DestinationDialog`): the method film, film and photo, or photo; the USB memory as slot 2.
+  A **film** (`MODE_SAVE_PHOTO_FILM`, the folder `F%04d`, `icon/GT4_film_*.ico`) holds the photo's settings (0x334FC8:
+  the lens, focus, filters and the car's frame) and one or two frames of the race's replay (0x33A2A0).
+- **Developing** (Photo Lab's Film folder, "Development"): the film is read, `photo_labo` returns `develop`, and
+  0x1C7BF8 runs `RacePhotoDevelop` with a `DevelopCamera`: the course and cars of the frame drawn again at the film's
+  settings into a photo.
+
 ## Checked against the original
 
 The reference's Times Square (saved states, the saved photo, the pages' pictures): the camera's place,
 heading and angle, the car's place and heading from the saved state to the last digit shown; the pages
 and dialogs by eye; the photo against the original's: the same geometry, levels within 2 to 5 of 255
-in every part (the corners' darkening included), the car lit the same. 🔎 Left: the car reflects the sky
-about half as strongly again as in the original's photo; the darkest parts are about 4 levels lighter
-(the program's half-strength 8-bit picture rounds down at every step).
+in every part (the corners' darkening included), the car lit the same. The car's reflections are weighted by the course's factors as in a race (Times Square's
+0.85 and 0.85, nothing head-on; [model.md](model.md) "A car in a race"): mean levels of the car 39.4 against the original's
+37.1, its bonnet 52.2 / 49.8, its roof 31.6 / 27.3 (`~/gt4re-out/looks/bin/cmp.py`, the pictures blurred).
+🔎 Left: the darkest parts are 2 to 5 levels lighter than the original's (the night sky 31.8 / 26.8). The live
+view in the finder is too, by as much (its top 37.4 / 31.2, against `times_square_photo_page.png`, the page's grey
+the same), so it is the scene's drawing, not the photo's steps: the correction's black level is 0 (0x3EFC10, +0x0C).

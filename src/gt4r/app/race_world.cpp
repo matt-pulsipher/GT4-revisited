@@ -138,9 +138,17 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     const std::optional<Bytes> course = app.vfs()->read("crs/" + setup.course);
     if (!course || !course::CourseFile::looks_like_course(*course)) throw FormatError("There is no course file crs/" + setup.course + ".");
     if (setup.entries.empty()) throw FormatError("A race needs a car.");
+    float reflection_c0 = -1, reflection_c1 = 0;
     {
         const ByteSpan env = course::CourseFile::parse(*course).section(*course, course::kSlotEnv);
         night_ = env.size() >= 0x14 && (rd32(env, 0x10) & 0x8000) != 0;
+        // The cars' reflection passes are weighted by the course's factors (0x397CE0 sets the draw's: C0 = +0x34,
+        // C1 = +0x34 x +0x30).
+        if (env.size() >= 0x38) {
+            float k[2];
+            std::memcpy(k, env.data() + 0x30, 8);
+            reflection_c0 = k[1], reflection_c1 = k[1] * k[0];
+        }
     }
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
@@ -178,6 +186,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = night_ ? 1 : 0;
+            if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1;
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
             o.driver = setup.drivers;
@@ -954,6 +963,14 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
             motion.velocity = {F(car.velocity.x), F(car.velocity.y), F(car.velocity.z)};
             motion.turn = turn_of(car);
             motion.roll = F(-std::atan2(car.right.y, car.up.y));
+            // The gaze's: the front wheels' angle, the computer driver's aim (its x, -z; 🔎 at the car's own height, the
+            // program's is the height where the car was put on the road) when the car has one.
+            motion.front_wheels = F(-0.5f * (car.wheels[0].steer + car.wheels[1].steer)); // (the program's + is to the left)
+            motion.co_driver = d.co_driver;
+            if (field_ && d.car < field_->size()) {
+                const sim::ai::Field::Probe p = field_->probe_get(d.car);
+                if (!(p.aim_x == F(0.0f) && p.aim_y == F(0.0f))) motion.aim = race::posture::V3{p.aim_x, F(car.position.y), -p.aim_y};
+            }
             d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;
