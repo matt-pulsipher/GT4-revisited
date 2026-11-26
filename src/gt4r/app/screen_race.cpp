@@ -2735,12 +2735,21 @@ public:
             last_frame_ns_ = 0; // (the race's frame times count the race's frames only)
             return;
         }
-        // The results page covers the race display (the program hides it under the page).
-        // (nor is it drawn under the Race Monitor)
+        // The results page goes up at the player's finish over the race display, which goes on under it: its
+        // movie's first 3.3 s show nothing (result.strb's root waits on its sprite 1), so FINISH and the A-spec
+        // points are seen first (✔ the original's: the page up at the FINISH state, the rows ~3.5 s after the line).
+        // A license test's page covers it. (Nor is it drawn under the Race Monitor.)
         const bool monitor_up = monitor_ && race_->watched() && !race_->replaying();
-        if (setup_.hud && !monitor_up && (!results_shown() || (prologue_hud_ && license_page()))) {
+        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()))) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
+                // At the player's finish the display stays full 1 s, then fades out over 0.25 s (RaceDisplay::vf41 0x3A1568,
+                // its fader +0xBC); its words stay on their own times (RaceHud: draw_words).
+                hud_state_.opacity = 1;
+                if (const race::RaceFlow& f = race_->flow(); !race_->viewing() && f.player_finished()) {
+                    const float t = float(f.steps_since_player_finish()) / 60;
+                    hud_state_.opacity = t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
+                }
                 // The display's parts the options switch off; a replay's display as they say.
                 const menu::GameSettings::Display& d = settings_.display;
                 hud_state_.show_map = d.map, hud_state_.show_time = d.time, hud_state_.show_lap = d.lap;
@@ -4074,8 +4083,9 @@ private:
             result_->navigate(true, true);
             return;
         }
+        // The page up (ResultArcade::vf7 0x3DFE20: the movie at its frame 0, 0x4751D0): the root stops there and waits for its
+        // sprite 1 (40 frames at the movie's 12 a second, Prologue's 60) to play it on, so the rows come ~3.4 s after the line.
         result_ = std::make_unique<race::StrobePlayer>(result_movie_, host);
-        result_->play(); // the page up: the movie plays on from its first frame
     }
 
     // After the run and its replay: the race's menus, back to the menus that asked for the race, or the

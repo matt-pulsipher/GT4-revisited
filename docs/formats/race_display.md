@@ -282,8 +282,10 @@ ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 
 red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
 +0x38, red 0x800000F0) the same at the rev counter's (x - 16, y + 19). ✔ Against the original's in-car
 view (03-race incar frames): the fuel arc left of the speedometer, the throttle's blue arc right of the
-digits. Drawn here (`RaceHud::Impl::draw_bars`, the gauge always shown: ❓ the flag +0x1B's source not read;
-the nitrous gauge not drawn: no nitrous part yet). Sign
+digits. The flag +0x1B is the followed car's tank (F +0x5D0) more than 0 (`RaceDisplay::vf2` 0x39E598 through 0x354E38;
+the chase panel's fuel meter reads the same flag), and the tank is 0 when the race counts no fuel (0x354AF8: the car's tank
+zeroed by the race's flag): no arc at the Ice Arena (✔ the original's `35-ice-arena`). Drawn here (`RaceHud::Impl::draw_bars`,
+with `fuel_on`; the nitrous gauge not drawn: no nitrous part yet). Sign
 colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the two dials'
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.
@@ -531,7 +533,7 @@ name).
 |---|---|---|
 | Start countdown | 0x252C: 320, 224 | The whole seconds left of the race's count (🔎 the count's source is the race object, not read), `"%d"`, once a second: font `FC_48` (`FC_48*75,75` for two players), color 0x80C8C8C8; from 3 down each shows 0.8 s and fades out in 0.15 s. The display has **no lights**: numbers only. `FC_48` holds the digits and A C D E F G H I L M N O P R S T U V W Z É Ó |
 | Start | same | Key `RaceStart` ("START"), 1 s, fade out 0.15 s |
-| Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s; the whole display then fades |
+| Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s (`RaceDisplay::vf41` 0x3A1568); with it the display's fader (+0xBC) keeps the rest full 1 s and takes it out over 0.25 s; FINISH, the lap's line and the A-spec points stay on their own times (✔ the original's chase race), under the results page |
 | Lap time at the line | Event line: 320, 139, w 580 | `"%s%d/%d   %s"`: key `WordOfLapTime` ("L"), the lap, the laps, the time (`"%s%d   %s"` without a lap count): "L1/3   1'23.456". Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s |
 | Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red (the single race's; who is told which gap: race_flow.md "2 Player Battle"; the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
 | Gap to another car 🔎 | Event line, offset (32, 25) | The gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |

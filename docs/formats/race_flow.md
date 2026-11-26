@@ -133,7 +133,15 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
 
 `ResultArcade` (0x3DEEA0..; base `RaceResultBase`): a row per place, filled as each car finishes
 (`ResultArcade::vf6` 0x3DFCC8). The page (`menu/common/result.strb`, a converted Flash movie)
-goes up at the player's finish (vf7 0x3DFE20); its callbacks `CB_STABLE`, `CB_PLAYERRANK`,
+goes up at the player's finish: the race's tick (`RaceBasic::vf74` 0x38AB98) runs the result (race +0xE41C, set by
+0x38B8D8; ResultArcade at RaceArcade +0x22738) through its vf4: `RaceResultBase::vf4` (0x3E05A0) fills a row for each event 5
+of the step (vf6) and, when the car is the player's (vf8) and the page is not up, calls vf7 (0x3DFE20: +0 = 1, +0x4FC = 1,
+the movie to its frame 0 by 0x4751D0). (✔ the championship's saved state at FINISH, `26-endurance/tcgp_race_30`: the page is up,
++0 = 1, its movie made.) Nothing shows at first: the movie's root waits at frame 0 for its sprite 1 (40 frames at the movie's
+12 a second; Prologue's `menu/result.strb` 60), which plays it on, so the title and the rows come about 3.4 s after the line;
+the race display goes on under the page all the while (FINISH, the A-spec points, the panels' fade: race_display.md "Finish").
+(Race +0xE420 is the race display, `RaceBasicWithRaceDisplay`'s, not the result: `RaceBasic::vf19` 0x38AB40 tells the display
+the race's mode.) Its callbacks `CB_STABLE`, `CB_PLAYERRANK`,
 `CB_GETTIME`, `CB_GETNAME`, `CB_ISVISIBLE`, `CB_ENABLEEXIT`, `CB_RACEEXIT`, `PLAY_SOUND` name what
 it shows; times are written `%d'%02d.%03d` (`fn_003E0198`). Leaving it (`CB_RACEEXIT`) ends the
 run at once. The movie and its callbacks: [strobe.md](strobe.md). The pause menu is a movie too
@@ -498,7 +506,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The replay's card and logo | `screen_race.cpp` `fill` | GT4's times (0x39BEC8) | the black under it, the caption's and the small logo's times measured |
 | B-spec's views | `screen_race.cpp` `next_view` | GT4: the course's cameras, Cross the car's nose | the Race Monitor's own view keys |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks; a passed license test's page also the trophy (0x3E18D0 / 0x3E1A80, race/license_trophy.*), drawn once a frame (no averaged passes), the program's camera for its live picture judged (the course's TV cameras), the trophy's kind by the grade judged | ResultLicense's result kind (+0x88) and its camera |
-| When the results page goes up | `screen_race.cpp` `results_shown` | **judged**: at the player's finish, hiding the display, so FINISH and the finish's A-spec points are not seen; the original keeps the display with FINISH about 3-4 s first (its videos) | the caller of the race's vf19 (0x38AB40 → the result's vf7 0x3DFE20, result at race +0xE420) |
+| When the results page goes up | `screen_race.cpp` `results_shown`, `open_results`; `race_hud.cpp` `draw_words` | GT4: up at the player's finish (event 5, RaceResultBase::vf4 0x3E05A0), its movie held at frame 0 for its sprite 1 (3.3 s), the display under it fading at 1 s (0x3A1568) but for FINISH, the lap's line and the A-spec points; ✔ against the original's chase race (FINISH, panels out by 1.25 s, rows from ~3.5 s) and the championship's saved state (page up under FINISH) | the license test's page still covers the display at once |
 | The race display's small parts | `race_hud.cpp` `draw_small_parts`, `draw_tires`, `draw_fuel` | GT4: the tire diagram (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires), the fuel gauge (0x3A57A8; drawn when fuel is counted), the pedals (0x3A54F8, 0x3AB570), the signs (0x3A6C28, lit as 0x39E280: the aids' status, the handbrake, the oil), the gear digit (0x3A6DE0, 0x3A6D60) | the other drivetrain kinds' tire mapping (0x359538) not read |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
 | The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70); drawn each frame in the course's car light and reflection, where the program makes them once at set-up through a ShowRoomCar (0x393D20, 0x364760; 128 x 64 and 64 x 32) with no course light: at Fuji '90s ours are dull | the icons' own showroom light |
