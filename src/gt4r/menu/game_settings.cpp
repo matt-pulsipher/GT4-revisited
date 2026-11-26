@@ -81,6 +81,7 @@ GameSettings settings_from(const std::map<std::string, OptionValue>& options) {
     d.meter = r.flag("race_display_meter", d.meter), d.time = r.flag("race_display_time", d.time), d.lap = r.flag("race_display_lap", d.lap);
     d.position = r.flag("race_display_position", d.position), d.car_name = r.flag("race_display_car_name", d.car_name);
     d.suggested_gear = r.flag("race_display_suggested_gear", d.suggested_gear), d.g_meter = r.flag("race_display_g_meter", d.g_meter);
+    d.config = r.flag("race_display_config", d.config);
     s.replay_display = r.flag("replay_display_enable", false);
     s.replay_mode = r.text("replay_mode", "NORMAL");
     s.replay_shuffle = r.text("replay_play_mode", "STRAIGHT") == "SHUFFLE";
