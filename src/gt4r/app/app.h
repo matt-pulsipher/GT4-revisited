@@ -141,6 +141,9 @@ public:
             for (const gt3r::TouchRect& r : touch_.control_bounds()) out.push_back({r.x, r.y, r.w, r.h});
         return out;
     }
+    // The on-screen controls' overlay: a screen's own button moved clear of them (clear_above) or drawn in the window's bars
+    // beside the game area (draw_whole_window).
+    const gt3r::TouchOverlay& touch_overlay() const { return touch_; }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
@@ -321,7 +324,7 @@ std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::st
 std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
 // The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Views & replays, 4 Disc & saves,
 // 5 Mods: kModsPage).
-constexpr int kModsPage = 5;
+constexpr int kDiscPage = 4, kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
@@ -329,7 +332,7 @@ std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
 // The game itself: the menus running from power on, over the whole window, as a player sees
-// them (screen_menu_viewer.cpp). Select and Start together leave it.
+// them (screen_menu_viewer.cpp). On the title, Select or the GT4R menu button beside it leaves it.
 // (`new_card`: a new game, to be made in this folder: save/save_library.h.)
 std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card = {});
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
