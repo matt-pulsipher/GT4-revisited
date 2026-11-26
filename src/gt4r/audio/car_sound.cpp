@@ -175,8 +175,9 @@ SoundView sound_view(SoundListener::Kind kind, bool target) {
     }
 }
 
-Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z) {
+Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z, bool cue_moved) {
     Placement p;
+    const float z0 = z;
     float d = std::sqrt(x * x + z * z);
     if (d < 0.25f) { // (a sound at the camera is moved a quarter metre along its axis)
         z = z + 0.25f - d;
@@ -185,7 +186,9 @@ Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z) {
     p.gain = mic.slope > 0 ? 1.0f / (1.0f + mic.slope * std::max(d - mic.reach, 0.0f)) : 32.0f / d;
     const float angle = std::clamp((x / d + 1.0f) * (kPi / 4), 0.0f, kPi / 2);
     p.left = std::cos(angle), p.right = std::sin(angle);
-    p.x = x / d, p.z = z / d;
+    // The surround cue's side: Gran Turismo 4 (0x391AF0) takes the place before the quarter metre over the
+    // distance after it, Prologue (0x3A18A8) the moved place.
+    p.x = x / d, p.z = (cue_moved ? z : z0) / d;
     return p;
 }
 
@@ -394,9 +397,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int i = 0; i < 3; ++i) px[i] = x, pz[i] = z;
     }
     const OutputMode mode = mix.mode;
-    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
-    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
-    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
+    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0], t.prologue);
+    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1], t.prologue);
+    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2], t.prologue);
     const float master = mix.master;
     const auto held = [&](const Placement& p) {
         return t.prologue ? std::clamp(p.gain, -1.0f, 1.0f) * master : std::clamp(p.gain * master, -1.0f, 1.0f);
@@ -483,7 +486,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     for (size_t w = 0; w < 4; ++w) {
         const WheelSoundState& wheel = car.wheels[w];
         const race::Vec3 from = sub(wheel.position, listener.position);
-        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward), t.prologue);
         behind(wheel_cue_[w], at);
         const float g = t.prologue ? held(at) : held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];

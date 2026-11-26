@@ -484,7 +484,11 @@ sides' crossfaded levels).
   `PROLOGIC2`); a new game's is 1 (the original's saved states).
 - **The surround cue** (the panner's two flags): a sound behind the camera has one side inverted
   (in front, x >= 0: the left follows the right's flag, x < 0 the right the left's; behind, the
-  same with the flag's opposite). The program does it in **every** output mode: the original's
+  same with the flag's opposite). The flags are the car's frame's (0x391AF0, after the panner 0x39A7B0): x and z
+  over the distance, z read from the place before the quarter metre's move (a sound at the camera, or just behind it,
+  counts as behind: its left side inverted), the distance after it; Prologue's mix (0x3A18A8) takes the moved place
+  (a sound at the camera counts as ahead). The rule is the shared `gt3r::SurroundCue`'s, z = 0 behind and x = 0 on
+  the right in both, the camera's forward being the program's -z. The program does it in **every** output mode: the original's
   stereo recordings of the nose view carry the exhaust's left side inverted (its players' volumes
   -5464 / +5464 in the saved state; the recording's two sides correlate +0.28 there, +0.90 from
   the chase view). Here the shared mixer's surround option is on while a disc is open (`with_surround_cue`; the

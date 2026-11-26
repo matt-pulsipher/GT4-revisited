@@ -150,8 +150,21 @@ TEST(sound_race_place_sound) {
     CHECK(near(p.gain, 1.0 / 1.5, 1e-6) && near(p.left, 0, 1e-6) && near(p.right, 1, 1e-6));
     p = audio::place_sound(mic, -3, 3); // half way to the left
     CHECK(p.left > p.right && near(p.left * p.left + p.right * p.right, 1, 1e-5));
-    p = audio::place_sound(mic, 0, 0); // at the camera: a quarter metre ahead
-    CHECK(near(p.z, 1, 1e-6) && near(p.gain, 1, 1e-6));
+    p = audio::place_sound(mic, 0, 0); // at the camera: a quarter metre ahead for the level and the pan
+    CHECK(near(p.gain, 1, 1e-6) && near(p.left, p.right, 1e-6));
+    // The surround cue's side: Gran Turismo 4 (0x391AF0) keeps the place before the move (0: behind, the left
+    // inverted), Prologue (0x3A18A8) takes the moved one (ahead: neither).
+    CHECK(near(p.z, 0, 1e-6));
+    gt3r::SurroundCue cue;
+    cue.update(p.x, p.z);
+    CHECK(cue.invert_l && !cue.invert_r);
+    p = audio::place_sound(mic, 0, -0.1f); // just behind: moved to 0.05 m ahead, the cue's side still behind
+    CHECK(p.z < 0);
+    p = audio::place_sound(mic, 0, 0, true);
+    CHECK(near(p.z, 1, 1e-6));
+    cue.reset();
+    cue.update(p.x, p.z);
+    CHECK(!cue.invert_l && !cue.invert_r);
     p = audio::place_sound(audio::RaceSoundTables::Mic{0, 9}, 0, 64); // a microphone switched off: 32 / d
     CHECK(near(p.gain, 0.5, 1e-6));
 }
