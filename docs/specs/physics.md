@@ -1296,6 +1296,13 @@ its multiplier alone 13, its divider alone 10, its square root alone 11, its add
 on these runs). So the demonstrations do discriminate the multiplier, the divider and the square root, and the adder's
 difference between the two models is not exercised by them.
 
+B-1 is one that does not turn on the model. With all four operations replaced it ends at the same step on 10,083 ms. Car 0's
+place differs in the height's low bits alone: x and y are equal in every bit at the stop. Its speed is never more than
+0.00002 m/s apart. A short straight run at full throttle and full brake is not where the two models part. The emulator's
+own B-1 demonstration does not play as recorded (the reference's 08-more and 11-license-tt). Its file fails the key check
+under PCSX2's arithmetic, as all 498 do (above), so what it shows is not a measure of the race step ❓ (what the program
+does with a file that fails the check is not read).
+
 **The misses**:
 - B-6 ends at 22,715 ms under our model and under PCSX2's alike (the recording 22,749), so it does not turn on the float model.
   Its stop is at the same step with holds of 476, 478, 479, 480 and 481; a hold of 478 gives 22,748. ❓ Not explained, and 478 is
