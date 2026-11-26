@@ -3,6 +3,7 @@
 
 #include "base/config.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/race/car_visual.h"
 #include "gt4r/race/dive_camera.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/replay_effects.h"
@@ -276,4 +277,15 @@ TEST(dive_director_disc) {
         }
     }
     if (!courses) SKIP("no Gran Turismo 4 disc");
+}
+
+// The cars' lamp glows: the directional power is the record's x the course's factor (Env0 +0x17A0), rounded as the EE does, at most 32.
+TEST(car_lamp_power) {
+    CHECK_EQ(race::lamp_power(16, 1), 16);
+    CHECK_EQ(race::lamp_power(4, 4), 16);
+    CHECK_EQ(race::lamp_power(16, 4), 32);
+    CHECK_EQ(race::lamp_power(4, 0), 4);      // (0 reads as 1)
+    CHECK_EQ(race::lamp_power(1, 0.49f), 0);  // (0.49 + 0.5 toward zero)
+    CHECK_EQ(race::lamp_power(1, 0.5f), 1);
+    CHECK_EQ(race::lamp_power(-3, 1), 0);
 }

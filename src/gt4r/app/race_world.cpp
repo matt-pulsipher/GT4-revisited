@@ -226,10 +226,13 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         if (!visual) {
             visual = take_car(gpu, jobs, job_of[key]);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
-            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
+            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A4) {
                 float v[3];
                 std::memcpy(v, e0.data() + 0x1794, 12);
                 visual->set_lamp_strengths(v[0], v[1], v[2]);
+                float power;
+                std::memcpy(&power, e0.data() + 0x17A0, 4);
+                visual->set_lamp_type_factor(power);
                 // The brake discs' glow: heat^2 x Env0 +0x4C / +0x38 (the race's sponsor, 0x3D75F0).
                 float gain, scale;
                 std::memcpy(&gain, e0.data() + 0x4C, 4), std::memcpy(&scale, e0.data() + 0x38, 4);
@@ -1167,9 +1170,13 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
     course_->add_items(m.items, pose.eye, lists, &v.fade);
     if (m.sun_disc.active()) {
-        // The sun's disc right after the sky (the first item), before the backdrop.
+        // The sun's disc right after the sky (the first item), before the backdrop. GT4 draws it as the shared engine's routine does
+        // (fn_00398650 -> 0x4986D8: the sun's RGB x gain / 2, added at As / 128) into the frame that is then multiplied by the
+        // picture's scale (Env0 +0x38, docs/formats/course.md "The picture's scale"), which ours puts on the stored colors instead:
+        // the disc's passes once per unit of that scale (twice the shared engine's strength at 2.0).
         std::vector<render::DrawItem> disc;
-        m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
+        const int times = std::clamp(int(std::lround(course_->color_scale())), 1, 4);
+        for (int k = 0; k < times; ++k) m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
         for (render::DrawItem& it : disc) it.background = false, it.in_order = true, it.no_fog = true;
         m.items.insert(m.items.begin() + 1, disc.begin(), disc.end());
     }

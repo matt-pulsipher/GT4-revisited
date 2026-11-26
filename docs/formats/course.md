@@ -125,8 +125,8 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0xF30 / +0xF34 / +0xF38 | u32 draw flags of the one-player view, the two-player halves and the mirror: bit 0 draws the billboards. 0xFFFFFFFE in the halves and the mirror on 38 courses | read |
 | +0xF50 + 0x40 i | ❓ 32 records {RGB, f32, f32, f32, u32 1} with the shape of the color grade's values. No reader found | |
 | +0x1750..+0x1764 | **new**: a glow filter on the finished picture, on when u32 +0x1750 bit 0 is set (`ss_gion`, `ss_sagano`, `ss_sanmarco`, `ss_shibuya`): three factors (+0x1754..+0x175C), a radius (+0x1760, scaled by the picture's diagonal) and a u32 count (+0x1764). It works on a copy of the picture of half its width and a quarter of its height ❓ the roles of the factors | read |
-| +0x1794..+0x179C | **new**: an RGB the race car model reads (non-zero on 25 courses, most of them the night ones: 1.0 0.6 0.6 on route5, 1 1 1 on `ss_shibuya`, 0.75 0.5 0.5 on the Nürburgring) ❓ | read |
-| +0x17A0 | **new**: one more factor of the cars' lamp glow (1.0 on 91 courses, 4.0 on 10). 0 reads as 1.0 | read |
+| +0x1794..+0x179C | **new**: the strengths of the cars' three lamp lists' glows (`RaceCarModel::vf36` 0x3911D0): the lamps lit with the lights, the brake lamps (times the brake's ramp), the tail lamps (non-zero on 25 courses, most of them the night ones: 1.0 0.6 0.6 on route5, 1 1 1 on `ss_shibuya`, 0.75 0.5 0.5 on the Nürburgring) | read |
+| +0x17A0 | **new**: the factor on the power of a car lamp's directional factor (the lamp's +0x60, [model.md](model.md); 0x3B8530): 1.0 on 91 courses, 4.0 on 10, so their glows narrow. 0 reads as 1.0 (0x397C38) | read |
 | +0x17B4..+0x17C8 | **new**: an RGBA color and two size factors of the cars' exhaust flame (`race/after_fire.mdl`) 🔎. When the RGBA is all 0 the six read as 1.0 | read |
 
 ### Flags (+0x10)
