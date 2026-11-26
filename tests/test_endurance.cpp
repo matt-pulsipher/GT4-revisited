@@ -5,6 +5,7 @@
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/race_events.h"
+#include "gt4r/race/race_display.h"
 #include "gt4r/race/race_flow.h"
 
 #include <cmath>
@@ -108,4 +109,23 @@ TEST(endurance_time_limit_finish) {
     race::RaceFlow open(s, h.cars);
     for (int i = 0; i < 20000; ++i) h.step(), open.step(h.cars);
     CHECK(!open.car(0).finished && open.car(0).laps_done > 30);
+}
+
+// The single race's display with the total time (0x6A09A8 + 0x6A08F0) in every release's program: the race's time at 550, 58
+// and the best lap at 550, 110, no last lap; shown for 10 laps or more or a time limit (RaceDisplay::vf9).
+TEST(endurance_total_time_display) {
+    CHECK(race::total_time_display(10, 0) && race::total_time_display(0, 60000) && !race::total_time_display(9, 0) && !race::total_time_display(0, 0));
+    int ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        ++ran;
+        const std::shared_ptr<const gt3r::CoreImage> image = d->program_image();
+        const race::DisplayLayout l = race::read_total_race_layout(image->program, image->load_address);
+        CHECK(l.valid());
+        const race::DisplayPlace* total = l.find(race::element::kTotalTime);
+        const race::DisplayPlace* best = l.find(race::element::kBestTime);
+        CHECK(total && total->x == 550 && total->y == 58 && best && best->y == 110 && !l.find(race::element::kLastTime));
+        CHECK(l.find(race::element::kPosition) && l.find(race::element::kLapCount) && l.find(race::element::kMap));
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
 }

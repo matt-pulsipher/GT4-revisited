@@ -124,7 +124,7 @@ struct RaceHud::Impl {
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
     Picture course_logo;
-    race::DisplayLayout layout, mode1, split[2]; // (the halves': above and below, side by side)
+    race::DisplayLayout layout, total, mode1, split[2]; // (the halves': above and below, side by side)
     const race::DisplayLayout* cur = &layout; // the layout drawn now
     std::array<menu::TextColor, 4> button_colors{};
     std::vector<race::DialFace> rev_faces, speed_faces, speed_faces_by[2]; // the speedometer's: now, km/h, mph
@@ -345,6 +345,7 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         const gt3r::CoreImage& core = *image;
         m.layout = race::read_single_race_layout(core.program, core.load_address);
         m.mode1 = race::read_mode1_layout(core.program, core.load_address);
+        m.total = race::read_total_race_layout(core.program, core.load_address);
         for (int k = 0; k < 2; ++k) m.split[k] = race::read_split_layout(core.program, core.load_address, k == 1);
         if (const auto colors = menu::find_button_colors(core.program)) m.button_colors = *colors;
         m.rev_faces = race::read_rev_faces(core.program, core.load_address);
@@ -422,7 +423,7 @@ bool RaceHud::point_movie(const App& app, race::StrobePlayer& player) {
 
 bool RaceHud::event_line_at(const HudState& s, float& x, float& y) const {
     if (s.split) return false;
-    const race::DisplayLayout& l = s.bspec && !s.replay && impl_->mode1.valid() ? impl_->mode1 : impl_->layout;
+    const race::DisplayLayout& l = s.bspec && !s.replay && impl_->mode1.valid() ? impl_->mode1 : s.total_display && impl_->total.valid() ? impl_->total : impl_->layout;
     const DisplayPlace* p = l.find(element::kEventLine);
     if (!p) return false;
     x = race::place_x(*p, true), y = float(p->y);
@@ -692,7 +693,8 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         const Picture& watch = picture("GT4_meter_texture_laptime");
         draw_picture(watch, {left - 8 - watch.w, float(p->y) + 7 - watch.h, watch.w, watch.h}, kNeutral, o);
     }
-    if (const DisplayPlace* p = cur->find(element::kBestWord); p && s.show_time) draw_at(s.bspec ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
+    const bool with_total = cur == &total; // (0x3A2480: "Total Time" over the race's time, "Best Lap" over the best lap)
+    if (const DisplayPlace* p = cur->find(element::kBestWord); p && s.show_time) draw_at(s.bspec || with_total ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
     if (const DisplayPlace* p = cur->find(element::kTotalTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_total_time(s.total_ms));
     if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
@@ -700,7 +702,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     if (s.license && s.show_time) {
         draw_targets(s);
     } else {
-        if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
+        if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at(with_total ? "JP/best_time" : "JP/last_time", *p, kNeutral, o);
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
             draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
     }
@@ -1051,7 +1053,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     // (a display faded out still shows its own words: FINISH and the points after the player's finish)
     const bool faded = s.opacity <= 0;
     if (faded && s.replay) return;
-    impl_->cur = s.bspec && !s.replay && impl_->mode1.valid() ? &impl_->mode1 : &impl_->layout;
+    impl_->cur = s.bspec && !s.replay && impl_->mode1.valid() ? &impl_->mode1 : s.total_display && impl_->total.valid() ? &impl_->total : &impl_->layout;
     // Touch screens: the parts at the bottom corners (the meters, the signs, the fuel) moved clear of the on-screen controls, by
     // where they were last drawn.
     const DisplayRect lower_right = race::take_lower_box(true), lower_left = race::take_lower_box(false);

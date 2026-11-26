@@ -1621,6 +1621,7 @@ public:
         h.bspec = watched_ && !replaying_ && !menu_scene_;
         h.pace = bspec_pace_, h.overtake = overtake_steps_ > 0;
         h.total_ms = flow_.time_ms();
+        h.total_display = setup_.conductor == race::Conductor::Other && race::total_time_display(setup_.laps, flow_.setup().limit_ms);
         h.help = bspec_help_;
         // Select Car's name on the strip (0x39CFD8: the car's name on the strip's timed line for 5 s, fades of 0.2 s, as the
         // display is set up for another car), over the help line.

@@ -83,6 +83,9 @@ struct HudState {
     int pace = 3;                     // 1 .. 5 (the words key_pace1 .. 5)
     bool overtake = false;            // the overtake command is on
     s64 total_ms = -1;                // the race's time
+    // The single race's display with the total time (race::total_time_display: 10 laps or more, a time limit): "Total Time" and
+    // the race's time, "Best Lap" and the best lap in place of the best and the last laps.
+    bool total_display = false;
     bool help = true;                 // the help strip along the bottom
     std::string strip_name;           // Select Car: the followed car's name on the strip, over the help line
     float strip_name_opacity = 0;
