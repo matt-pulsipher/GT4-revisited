@@ -206,6 +206,8 @@ void reset_controllers(GameState& s, const std::array<std::string, 2>& before);
 // The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).
 std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::string label);
 
+struct TransferState; // earlier_saves.cpp
+
 struct GameNatives {
     Runtime& rt;
     RuntimeConfig config;
@@ -246,6 +248,7 @@ struct GameNatives {
     // The program's generator (0x874D50: MRandom.GetValue, the opponent picker), its state from 0x12345678.
     ProgramRandom random{0x12345678u};
     script::Value photo_print_list = {}; // the photos chosen for the printer (game_photos.cpp)
+    std::shared_ptr<TransferState> transfer; // the Status page's transfer from an earlier game (earlier_saves.cpp)
 };
 
 // The screen's figures for the option's monitor_size and wide_mode (0x436D60).

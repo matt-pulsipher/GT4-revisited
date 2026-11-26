@@ -36,6 +36,9 @@ const Rule kRules[] = {
     {"BootProject::ExplainRoot", "kounaru", 1},
     {"BootProject::ExplainRoot", "dont unplug", 1},
     {"BootProject::ExplainRoot", "GT savedate is available", 0}, // (Gran Turismo 3's and Prologue's data on a card)
+    // The Status page's transfer (earlier_saves.h): the saves are all offered at once, the player chose none (or there was none).
+    {"GTmodeProject::StatusRoot", "gt3 data not found in slot n", 0},
+    {"GTmodeProject::StatusRoot", "gt4p data not found in slot n", 0},
     {"ArcadeProject::TopRoot", "load ok?", 1},
     {"ArcadeProject::TopRoot", "broken create new?", 1},
     {"ArcadeProject::TopRoot", "create new?", 0},
@@ -176,9 +179,6 @@ void reword_card_texts(Project& project, const std::string& language) {
         {"MemoryCard", "You can turn off the power", "The game has been saved."},
         {"GTmodeProject::HomeRoot", "You can turn off the power", "The game has been saved."},
         {"GTmodeProject::TopRoot", "now saving", "Saving data..."},
-        {"GTmodeProject::TopRoot", "NOTICE|Home_firstday", "Your garage, your game's\nstatus and the options are\nhere."}, // (it speaks of Gran Turismo 3's data on a card)
-        {"GTmodeProject::StatusRoot", "gt3 data not found in slot n", "No GT3 game save data found."},
-        {"GTmodeProject::StatusRoot", "gt4p data not found in slot n", "No GT3 game save data found."},
         {"ArcadeProject::MakerRoot", "TOOLTIP|Slot1", "Load the garage of the game being played."},
         {"ArcadeProject::MakerRoot", "TOOLTIP|Slot2", "Load the garage of another saved game."},
         {"OptionProject::ReplayRoot", "LabelMcSlot", "Save slot"},
