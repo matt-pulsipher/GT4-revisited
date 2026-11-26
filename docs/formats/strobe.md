@@ -385,7 +385,8 @@ scene"), and after a run failed by the rules the camera circling the car (Camera
 degrees, 0x37CCA8 steps it half a degree a step; the view translate(0, 0, -4) x rotate X 30 degrees x rotate Y by its angle x
 translate(-the car's drawn point, 0x344798 ..), so 4 m off, 30 degrees above, from the course's +z at first; a lens of 65
 degrees; ✔ by picture against the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`: the car's
-front with the cone first, its left side about 2 s on, a turn in 12 s). ❓ The still picture with a white edge the original
+front with the cone first, its left side about 2 s on, a turn in 12 s; ❓ the routine that puts the camera manager on it for a
+failed test is not read: ours takes it for every rule failure of a Gran Turismo 4 test). ❓ The still picture with a white edge the original
 shows for a moment as the run fails is not drawn. ✔ The
 page's timing against the original's pass (18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`, 0.1 s frames
 from the stop): the title 0.1 s after, the time 0.6 s, the trophy fading in from 1.2 s (the original's 0.1 .. 0.3, 0.5 .. 0.7,
