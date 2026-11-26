@@ -40,6 +40,36 @@ void save_config(const gt3r::InputManager& input, gt3r::IniDocument& ini) {
         if (const auto v = ini.get(section, key)) ini.set(section, key, our_word(*v));
 }
 
+void register_extra_controls() {
+#if GT4R_EXTRA_CONTROLS
+    gt3r::clear_extra_controls();
+    gt3r::name_extra_control(kNitrousControl, "Nitrous");
+    gt3r::add_extra_control_default(kNitrousControl, "wheel", true, "joy.button6");
+#endif
+}
+
+bool nitrous_held(const gt3r::InputManager& input, int player) {
+#if GT4R_EXTRA_CONTROLS
+    return input.race_pad(player).extra_down(kNitrousControl) || input.pad(player).extra_down(kNitrousControl);
+#else
+    (void)input, (void)player;
+    return false;
+#endif
+}
+
+namespace {
+
+// The keys the player's button configuration of a device gives an action, pressed on the port.
+void press_keys(GamePort& port, const PortConfig& config, Device d, ButtonAction action) {
+    const std::span<const std::string_view> names = button_names(d);
+    for (const std::string& key : keys_with(config.of(d), d, action))
+        for (size_t i = 0; i < names.size(); ++i)
+            if (names[i] == key)
+                if (const int bit = button_bit(d, i); bit > 0) port.set(bit);
+}
+
+} // namespace
+
 bool console_layout(const gt3r::InputManager& input, int player, const PortConfig& config) {
     return input.race_uses_menu_pad(player) || keys_changed(config.of(Device::DualShock2), Device::DualShock2);
 }
@@ -108,10 +138,20 @@ RaceInput modern_input(const PadState& menu, const PadState& race) {
 
 RaceInput read_player(const gt3r::InputManager& input, int player, const PortConfig& config, const WheelSettings& wheel, Mode mode) {
     const PadState &menu = input.pad(player), &race = input.race_pad(player);
-    if (input.wheel_steering(player)) return read_port(wheel_port(menu, race, wheel), config, mode);
-    if (console_layout(input, player, config)) return read_port(pad_port(menu, race), config, mode);
+    const bool nitrous = nitrous_held(input, player);
+    if (input.wheel_steering(player)) {
+        GamePort port = wheel_port(menu, race, wheel);
+        if (nitrous) press_keys(port, config, wheel.wheel == 2 ? Device::Jaguar : Device::Cheetah, ButtonAction::Special);
+        return read_port(port, config, mode);
+    }
+    if (console_layout(input, player, config)) {
+        GamePort port = pad_port(menu, race);
+        if (nitrous) press_keys(port, config, Device::DualShock2, ButtonAction::Special);
+        return read_port(port, config, mode);
+    }
     if (mode == Mode::Watch) return {};
     RaceInput in = modern_input(menu, race);
+    if (nitrous) press(in, ButtonAction::Special);
     if (mode == Mode::DriveNoDirections && (in.frame.flags & 1) == 0) in.frame.steer = 0;
     return in;
 }

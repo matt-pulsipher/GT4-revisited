@@ -252,6 +252,7 @@ bool App::init(int argc, char** argv) {
     reset_dynamic_scale();
     apply_frame_limit();
 
+    input::register_extra_controls(); // (Nitrous: its default goes into the layouts the bindings are made from)
     input_ = std::make_unique<gt3r::InputManager>();
     {
         gt3r::IniDocument controls = config_; // (our words for the original's layouts as the engine has them)

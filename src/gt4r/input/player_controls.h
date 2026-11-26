@@ -14,6 +14,14 @@
 #include "gt4r/input/race_input.h"
 #include "input/input_manager.h"
 
+// The engine's extra controls (binding targets beyond the virtual pad's 16 buttons), where the engine has them: Nitrous is one.
+#if __has_include("input/extra_controls.h")
+#include "input/extra_controls.h"
+#define GT4R_EXTRA_CONTROLS 1
+#else
+#define GT4R_EXTRA_CONTROLS 0
+#endif
+
 namespace gt3r {
 class IniDocument;
 }
@@ -29,6 +37,16 @@ struct WheelSettings {
     static WheelSettings load(const gt3r::IniDocument& ini);
     void save(gt3r::IniDocument& ini) const;
 };
+
+// Nitrous (the game's Special: the nitrous of a car that has it) as an extra control of the engine's: bound on any device, and by
+// default on a wheel's R2 button (joy.button6 on the usual USB wheels), where the Driving Force Pro's own layout has it. Pressed,
+// it presses the key the player's button configuration gives Special (the Driving Force Pro's R2, the Driving Force's R1, the
+// DualShock 2's R1), so the game reads it as its own. Without the engine's extra controls, nothing (a wheel then has no nitrous).
+constexpr size_t kNitrousControl = 0;
+// Named and given its default; before the bindings are loaded.
+void register_extra_controls();
+// The control held on the player's pads.
+bool nitrous_held(const gt3r::InputManager& input, int player);
 
 // Whether the player's pad is read as the console's (above).
 bool console_layout(const gt3r::InputManager& input, int player, const PortConfig& config);
