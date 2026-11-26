@@ -164,6 +164,11 @@ bool license_all_bronze(Database& d, const GameState& s, const std::string& cate
 // Whether the player may drive an event himself (the race's menus' IsASpec): it asks for no license (its RACE row's byte
 // +0x45), or every test of that license is passed (0x110498).
 bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
+// The course records (0x433C10: a course's unit, made in order of its code when `make`; -1 none) and a ranking's insert
+// (0x433260 by time, 0x433348 by top speed: the place by the value, the real clock's date, the car's code, the pass code;
+// false past the tenth). `base` the unit's offset in `block` (the course record's or the machine test's).
+int course_record_unit(Database& d, GameState& s, const std::string& course, bool make);
+bool ranking_insert(Database& d, Bytes& block, size_t base, bool by_speed, u32 value, const std::string& car, const std::string& pass_code);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
 s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
@@ -173,7 +178,7 @@ s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms
 std::vector<std::string> saved_replays(const std::string& data_dir);
 struct GameNatives;
 // The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
-void install_replay_list(GameNatives& n, Object& manager);
+void install_replay_list(GameNatives& n, Object& manager, const std::string& mode);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
 // ---- game_photos.cpp

@@ -1345,6 +1345,12 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (m.pit_live && i == 0 && m.license_scene) m.license_scene->add_items(m.items);
         light_items(m.items, first, m.lights[i]);
     }
+    if (ghost_state_ && !cars_hidden_ && !car_visuals_.empty()) { // (the ghost: the player's car's model again)
+        const size_t first = m.items.size();
+        car_visuals_[0]->add_items(m.items, *ghost_state_, pose.eye, 0.0f, lens_ && lens_->full_detail ? nullptr : &lod_view);
+        for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = ghost_alpha_;
+        if (!m.lights.empty()) light_items(m.items, first, m.lights[0]);
+    }
     if (!split) course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
         // The puffs after everything else of the scene, facing the camera.
@@ -1631,6 +1637,11 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
+    }
+    if (ghost_state_ && !car_visuals_.empty()) {
+        const size_t first = m.mirror_items.size();
+        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f);
+        for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;
