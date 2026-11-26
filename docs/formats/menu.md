@@ -987,9 +987,14 @@ Class `mMovieFace` (vtable 0x664398, derived from `mImageFace`, 0x160 bytes). It
 `FF A1 00 <track>` (`FF A0` also PCM sound, `FF 90` AC-3), each track a whole ADS stream (`SShd`,
 `SSbd`) of its own. The US opening (`opening_us.pss`) holds two, tracks 1 and 2 (48 kHz stereo
 PS-ADPCM, 1024-byte interleave, 200.6 s each), packet for packet; `ending_us.pss` and `pv.pss`
-one, track 0; the course and title films none. Track 2 is other music: over the first 20 s it
-follows track 1 in part (correlation 0.47 of the sides' sum), from 20 s on not at all (-0.07 to
-0.08), about 3 dB quieter.
+one, track 0; the course and title films none. Track 2 is the same soundtrack as track 1 in
+another rendering, not a surround pair to it: its spectrogram matches track 1's event for event
+and band for band (the same music and sounds at the same moments), about 3 dB quieter from
+60 Hz up and 6 dB louder below; its waveform is offset from track 1's by an amount that changes
+through the film (polarity inverted and 7.6 ms early at 30-60 s, about 50 ms late at 100 s,
+36 ms at 150 s, 9-14 ms at 185 s; cross-correlation peaks 0.2-0.75), as a separately edited and
+mixed copy would be, so at zero offset the two do not correlate. Both of its sides mirror track
+1's (the same left-right relation), which a rear pair of a four-channel mix would not.
 
 Which track plays: the movie start (0x1FE2B8) asks the player (`mpegif`, 0x54EB20, its request
 word: bits 0-3 the track, 0x10 repeat, 0x20 AC-3, 0x40 sound; 0x54E414) for track **0** in every
