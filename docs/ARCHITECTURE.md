@@ -74,6 +74,27 @@ the heights beside it (`course::Runway::Cells`). A course's animated models are 
 all of them at a time (`race/animated_models.cpp`). A `gtm1::Gtm1` points into the block it was
 parsed from: the block has to outlive it.
 
+## What comes from the shared engine
+
+On a Gran Turismo 4 or Prologue disc no value of Gran Turismo 3's serves as a fallback for one of
+Gran Turismo 4's.
+
+- **The program's tables.** Gran Turismo 4's are values in our code (`sim/program_tables*`,
+  SCUS-97328 v1.01's). `sim::Program` serves them by their v1.01 address on any Gran Turismo 4
+  disc and checks the disc's own program against them once, logging what differs or is missing
+  (physics.md "Program tables"). Prologue's are read from its recognized build
+  (`sim/program_prologue.*`).
+- **The engine's GT3 tables** (`ProgramData`, `sim::core_program`) reach the race step only
+  through the engine's own rules (`GT4R_SIM_RULES=engine`, for comparisons) and through parts of
+  Prologue's path (physics.md "What runs where").
+- **A program that is neither Gran Turismo 4's nor a placed Prologue build** races nothing.
+- **What still runs the engine's code on a Gran Turismo 4 disc** is listed where it runs:
+  - the race step: physics.md "What runs where" (only the shared math, checked bit for bit);
+  - sound: formats/sound.md;
+  - the camera: formats/camera.md;
+  - drawing: formats/course.md and race_display.md;
+  - input and rumble: specs/input.md.
+
 ## Changing the shared engine
 
 A change the engine needs for both games is made in GT3 Revisited, in terms that apply to any
