@@ -716,9 +716,14 @@ constexpr SteerCurve kSteerCurve{
 };
 void pack(Pack& p, const SteerCurve& s) { p(s.x)(s.pad_6)(s.y)(s.pad_e); }
 
-// a table the game's natives read (game_natives): 0x6A6188 .. 0x6A61B4.
+// the screen's figures MOption's monitor_size copies (game_natives apply_monitor, 0x436D60): 4:3 at 0x6A6188, 16:9 (wide_mode)
+// at 0x6A61B8, "subaru" at 0x6A61E8, 0x2C bytes each: 0x6A6188 .. 0x6A6214.
 struct GameNatives {
-    std::array<u32, 11> words; // +0x000 (0x6A6188)
+    std::array<u32, 11> words;      // +0x000 (0x6A6188) 4:3
+    std::array<u32, 1> pad_2c;      // +0x02C (0x6A61B4)
+    std::array<u32, 11> wide;       // +0x030 (0x6A61B8) 16:9
+    std::array<u32, 1> pad_5c;      // +0x05C (0x6A61E4)
+    std::array<u32, 11> subaru;     // +0x060 (0x6A61E8) "subaru"
 };
 constexpr GameNatives kGameNatives{
     .words = {
@@ -726,8 +731,20 @@ constexpr GameNatives kGameNatives{
         0x434D0000, 0x3F7851EB, 0x3F800000, 0x0,
         0x0, 0x0, 0x0,
     },
+    .pad_2c = {0x0},
+    .wide = {
+        0x0, 0x3F800000, 0x438A05E3, 0x43D48000,
+        0x43700000, 0x3F7AE147, 0x3F800000, 0x0,
+        0x0, 0x0, 0x0,
+    },
+    .pad_5c = {0x0},
+    .subaru = {
+        0x1, 0x3EFBC371, 0x4482A000, 0x43A8F333,
+        0x43872666, 0x3F676C8B, 0x3F800000, 0x4174CCCC,
+        0x4174CCCC, 0x41ADEB84, 0x42ADEB84,
+    },
 };
-void pack(Pack& p, const GameNatives& s) { p(s.words); }
+void pack(Pack& p, const GameNatives& s) { p(s.words)(s.pad_2c)(s.wide)(s.pad_5c)(s.subaru); }
 
 // the used-car tables: thousands of km by model year, the price's factor by thousands of km (game_car): 0x6A6910 .. 0x6A69D0.
 struct UsedCars {
@@ -777,6 +794,6 @@ void pack(Pack& p, const ChampionshipPoints& s) { p(s.points); }
     X(Cipher, "the demonstration cipher", 0x655888, 0x508) \
     X(ViewFeel, "the in-car view's heading follower", 0x69F4C8, 0xC) \
     X(SteerCurve, "the spec's default steering lock curve", 0x6A4028, 0x10) \
-    X(GameNatives, "a table the game's natives read", 0x6A6188, 0x2C) \
+    X(GameNatives, "the screen's figures by monitor size", 0x6A6188, 0x8C) \
     X(UsedCars, "the used-car tables", 0x6A6910, 0xC0) \
     X(ChampionshipPoints, "a championship's points by place", 0x6A6EF0, 0x8)
