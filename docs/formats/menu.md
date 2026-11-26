@@ -981,7 +981,18 @@ Class `mMovieFace` (vtable 0x664398, derived from `mImageFace`, 0x160 bytes). It
 | `interlace` | 1 | the movie holds its two fields as the frame's halves |
 | `audio` | 0 | its sound played |
 | `repeat` | 1 | starts again at its end |
-| `ac3` (scripts: `AC3`), `audio_track` | 0, 0 | |
+| `ac3` (scripts: `AC3`), `audio_track` | 0, 0 | the movie start (0x1FE2B8) passes the player a sound kind: 0 none, 1 with `audio`, 2 with `audio` and `ac3`; no script sets `ac3` or `audio_track` on the US disc, and the start does not read `audio_track` ❓ |
+
+**Sound tracks.** A movie's sound is private stream 1 (0xBD), each packet's data after a header
+`FF A1 00 <track>`, each track a whole ADS stream (`SShd`, `SSbd`) of its own. The US opening
+(`opening_us.pss`) holds two, tracks 1 and 2 (48 kHz stereo PS-ADPCM, 1024-byte interleave,
+200.6 s each), packet for packet; `ending_us.pss` and `pv.pss` one, track 0; the course and
+title films none. The original with Sound Output Stereo plays track 1: its recording
+(`01-boot/boot_to_title_full.mp4`) follows track 1's waveform (correlation 0.84 / 0.80 by side)
+and not track 2's (0.25 / 0.17). What track 2 is (the Pro Logic II output's mix?) and whether the
+original plays it with `PROLOGIC2` is not known ❓. Here (`formats/movie_tracks.*`) a movie plays
+its first track: the packets of the others are turned into padding as the file is read, so the
+engine's demuxer, which takes every private stream 1 packet as one stream, sees one.
 
 `MpegRoot` is the configuration's (`config-main`: `main`, `main_pal` for the UK; Prologue's
 `prologue`), `preview` when it has none. A face with no `geometry` fills the page; all seven
