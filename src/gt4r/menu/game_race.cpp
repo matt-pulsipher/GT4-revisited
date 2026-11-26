@@ -519,6 +519,24 @@ s64 Runtime::race_finished(const RaceResult& r) {
     }
     case RaceResult::Kind::License: {
         const u32 result = r.finished ? result_number(r.result) : 15;
+        if (!d.db || !d.db->prologue()) {
+            // 0x1105A8: only a graded run (the race's grade +0x88: 2 gold, 3 silver, 4 bronze, as results 9, 10, 11) is
+            // kept: the test's unit, its ranking (time, result, the real date, the pass code); any other run (failed, not
+            // finished, 13) is kept nowhere. The sequence's day takes the graded run whose time beats the sequence's best
+            // so far (its result and time, the best then that time); none graded: a day with nothing in it (0x110800).
+            if (result < 9 || result > 11) break;
+            if (unit >= 0) unit_result(w, 1, result);
+            if (r.time_ms < s.race_session.license_best) {
+                s.race_session.license_best = r.time_ms;
+                day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.time_ms, day.code = race_code;
+            }
+            const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(r.pass_code.empty() ? "--------" : r.pass_code)};
+            const Value record = vm().attribute(vm().lookup("game"), "license_record");
+            const Value label[1] = {Value::string(race)};
+            const Value u = record.p ? vm().call(vm().attribute(record, "getUnit"), label) : Value{};
+            if (u.p) vm().call(vm().attribute(u, "insertEntry"), args);
+            break;
+        }
         if (unit >= 0) unit_result(w, 1, result);
         { // Prologue's license (prologue_natives.cpp): the medal, points and time into its record.
             const Value lic = vm().attribute(vm().lookup("game"), "license");
@@ -564,9 +582,11 @@ s64 Runtime::race_finished(const RaceResult& r) {
         return prize;
     }
     // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
-    // sequence puts it at once.
-    if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;
-    else s.put_day(day);
+    // sequence puts it at once. (Gran Turismo 4's: only a graded run's that beat the sequence's best, above.)
+    if (r.kind == RaceResult::Kind::License && s.race_session.license_open) {
+        if (day.type == 4) s.race_session.license_day = day;
+    } else if (r.kind != RaceResult::Kind::License || day.type == 4)
+        s.put_day(day);
     return prize;
 }
 

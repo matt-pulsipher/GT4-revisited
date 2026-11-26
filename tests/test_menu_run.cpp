@@ -934,6 +934,21 @@ TEST(disc_menu_race_results) {
     menu::RaceResult retired = won;
     retired.finished = false;
     CHECK(f.rt->race_finished(retired) == 0 && g.rank_counts[0] == 1 && g.diary.back().b1 == 15);
+    // A license run without a grade (failed, or not finished) is kept nowhere (0x1105A8): no unit, no ranking, no day.
+    {
+        menu::RaceResult failed;
+        failed.kind = menu::RaceResult::Kind::License, failed.race = "l0b0002", failed.result = "failed", failed.time_ms = 12'000;
+        const size_t days = g.diary.size();
+        f.rt->race_finished(failed);
+        failed.finished = false;
+        f.rt->race_finished(failed);
+        const Value flabel[1] = {Value::string("l0b0002")};
+        const Value funit = vm.call(vm.attribute(record, "getUnit"), flabel);
+        const Value franking = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "license_record"), "getUnit"), flabel);
+        std::printf("  a failed run: the unit's type %s, result %s; %d ranked; days %zu -> %zu\n", vm.attribute(funit, "type").as_string().c_str(),
+                    vm.attribute(funit, "result").as_string().c_str(), int(vm.call(vm.attribute(franking, "getRankNum"), {}).i), days, g.diary.size());
+        CHECK(vm.attribute(funit, "type").as_string() == "none" && vm.call(vm.attribute(franking, "getRankNum"), {}).i == 0 && g.diary.size() == days);
+    }
     // A license test passed with gold: its unit, its ranking, a day.
     menu::RaceResult test;
     test.kind = menu::RaceResult::Kind::License, test.race = "l0b0001", test.result = "gold", test.time_ms = 10'123;

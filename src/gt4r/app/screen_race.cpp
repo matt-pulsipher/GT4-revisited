@@ -3892,6 +3892,11 @@ private:
             menu::complete_race_request(*menus_, q);
             if (q.course.empty() || q.car.empty()) return false;
             q.sequence = sequence_;
+            // The test's own run loop ends here (0x11CB38 puts its day, 0x110800); the next test's starts afresh (its best,
+            // its day).
+            g.end_race_sequence();
+            g.race_session = {};
+            g.race_session.sequence = sequence_, g.race_session.license_open = true;
             menu::start_quick_work(*menus_, q);
         } else {
             return false;

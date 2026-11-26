@@ -315,10 +315,12 @@ struct GameState {
     struct RaceSession {
         int best_place = 15; // the best place finished in it (an event's record follows a better one only, 0x114498)
         std::string sequence; // the sequence asked for ("" : none under way)
-        // A license test's sequence puts its day in the diary when it ends (0x110800): the last
-        // run's result and time, or a day with nothing in it when no run passed (result 13).
+        // A license test's sequence puts its day in the diary when it ends (0x110800): the result and
+        // time of the graded run that last beat the sequence's best (0x1105A8), or a day with nothing in
+        // it when no run was graded (result 13).
         bool license_open = false;
-        DayEvent license_day; // type 0 until a run
+        DayEvent license_day;       // type 0 until a graded run
+        u32 license_best = kNoTime; // the sequence's best graded time (0x11CB38 starts it at 359,999,999)
     } race_session;
     // The race sequence is over (the menus go on): what the program writes at its end.
     void end_race_sequence();
