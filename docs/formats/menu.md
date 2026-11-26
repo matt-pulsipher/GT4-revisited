@@ -997,7 +997,12 @@ case: no sound output mode, language or region enters, and the face's `audio_tra
 there. The IOP streaming module (`IRX/PDISTR.IRX`, its demuxer at 0x1F74 of its text) plays,
 for track 0, the first sound track it meets, keeping that packet's whole four-byte header and
 skipping every packet whose header differs; for track n, the packets whose low 16 bits are n.
-So the opening plays track 1 whatever the options, and track 2 is never heard. The original's
+So the opening plays track 1 whatever the options, and track 2 is never heard: the start
+request has two callers (0x54EBE0 from 0x1FE200, track 0; 0x54EC70 from 0x1FE240, which nothing
+calls), the preload (0x1FD4A8 → 0x54DF90) asks for no sound, `audio_track` (face + 0x10C) is
+read only by the script getter (0x21E640) and the settings copy (0x2213A8), no script of
+`projects/` names it, and the opening's other plays (the demonstration's `MovieRoot`, 0x434770)
+go through the same face. The original's
 recording (`01-boot/boot_to_title_full.mp4`, Sound Output Stereo) follows track 1's waveform
 (correlation 0.84 / 0.80 by side) and not track 2's (0.25 / 0.17). Here (`formats/movie_tracks.*`)
 the same rule: a movie plays the first track met, the packets of the others turned into padding
