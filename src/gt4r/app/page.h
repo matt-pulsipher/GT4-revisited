@@ -10,12 +10,18 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace gt4r {
 
 class App;
+
+// The header of an app page with a "< Back" button at its left, then the title (as GT3 Revisited's pages have it): a click or a
+// tap on the button is the page's Triangle (App::set_back_button). `back`: "< Back", or "< Back to game" when Triangle goes back
+// to the game's page the page was opened from.
+void page_header(App& app, gt3r::Ui& ui, std::string_view title, std::string_view hint, std::string_view back = "< Back");
 
 // The place of a list's first shown row: kept while it can be, moved only so far that the selected row shows.
 struct ListScroll {

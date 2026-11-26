@@ -141,6 +141,8 @@ public:
             for (const gt3r::TouchRect& r : touch_.control_bounds()) out.push_back({r.x, r.y, r.w, r.h});
         return out;
     }
+    // The page's "< Back" (page_header) as drawn this frame, UI units: a click or tap on it is Triangle on the next.
+    void set_back_button(const gt3r::UiRect& r) { back_button_ = r; }
     // The on-screen controls' overlay: a screen's own button moved clear of them (clear_above) or drawn in the window's bars
     // beside the game area (draw_whole_window).
     const gt3r::TouchOverlay& touch_overlay() const { return touch_; }
@@ -262,6 +264,7 @@ private:
     // Phones and tablets (and GT4R_TOUCH=1 on a computer, for pictures): the on-screen controls, the display's cutout.
     bool touch_ui_ = false;
     gt3r::TouchOverlay touch_;
+    gt3r::UiRect back_button_{};          // the page's "< Back" as last drawn (set_back_button), empty when none
     std::optional<gt3r::platform::DisplayInsets> display_insets_;
     int insets_retry_ = 0;
     bool back_pressed_ = false; // Android's back button went down: pressed on player 1's pad for this frame

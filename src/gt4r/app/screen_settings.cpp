@@ -136,7 +136,7 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header("SETTINGS", "GT4 Revisited " GT4R_VERSION);
+        page_header(app, ui, "SETTINGS", "GT4 Revisited " GT4R_VERSION);
         static constexpr const char* kNames[kPages] = {"Display", "Audio", "Controls", "Views & replays", "Disc & saves", "Mods"};
         float x = 20;
         for (int i = 0; i < kPages; ++i) {

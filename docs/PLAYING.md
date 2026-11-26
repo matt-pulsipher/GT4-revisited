@@ -32,7 +32,9 @@ Prologue disc starts the same way.
    another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
    race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
-   wheel scrolls, the right button goes back); the game's pages a pad or the keyboard.
+   wheel scrolls, the right button goes back) and a touch screen (a tap chooses; **< Back** at the top left of Settings, Controls,
+   Saved games, the Save editor and Developer tools goes back, **< Back to game** where the page was opened from the game's);
+   the game's pages a pad, the keyboard or the on-screen controls.
 5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
    save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card

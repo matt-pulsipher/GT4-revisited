@@ -55,7 +55,7 @@ public:
 
     void render(App& app, Ui& ui) override {
         gt3r::InputManager& in = app.input();
-        ui.header("PLAYER " + std::to_string(player_ + 1) + "'S CONTROLS", in.device_name(player_));
+        page_header(app, ui, "PLAYER " + std::to_string(player_ + 1) + "'S CONTROLS", in.device_name(player_), to_game_ ? "< Back to game" : "< Back");
         rows_.render(ui, {20, 28, 410, 17 * 18 + 1});
         // What the race would be given now.
         const input::RaceInput now = input::read_player(in, player_, input::PortConfig{}, wheel_);

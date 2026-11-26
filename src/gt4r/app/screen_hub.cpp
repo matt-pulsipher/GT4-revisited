@@ -106,7 +106,8 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header(developer_ ? "DEVELOPER TOOLS" : "GT4 REVISITED", GT4R_VERSION);
+        if (developer_) page_header(app, ui, "DEVELOPER TOOLS", GT4R_VERSION);
+        else ui.header("GT4 REVISITED", GT4R_VERSION); // (the bottom of the app: nothing to go back to)
         const DiscInfo& d = app.disc()->info();
         ui.text(24, 34, d.description, colors::kAccent);
         ui.text(24, 46, (d.serial.empty() ? std::string() : d.key + "  v" + d.version) + (d.verified ? "" : d.modified ? "  (a modified copy)" : "  (not a tested release: some things may not work)"), colors::kDim);
