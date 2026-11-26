@@ -81,6 +81,26 @@ Every sequence (0x10F770): the options' `steering_assist_1p` into the entry's +0
 manual; QuickTuneDrivingAssist 0 none, 1 TCS, 2 both); the others the option `automatic_gear` (0x10F848, 0x10F880), the aids
 on (the license tests' and missions' 0x10F880 / 0x10F8E0 set them; the events' entries start so) and then the car's own.
 
+## A modern pad against the console's
+
+How each layout's pedals reach the step:
+- The console's DualShock 2 (kind 5): a button that accelerates is full at 45 of its 255 pressure and one that brakes at 84 (the
+  shares above). A press is analog (frame flag set).
+- Ours, the modern layout (the default): each trigger's travel is linear, full at full travel, analog.
+- Ours, the console layout on a pad without pressures (kind 4): a held button is a digital pedal.
+- In the step (0x349418), with the settings at 0x622110 the pedals move at the same rate in all three cases. A digital pedal
+  ramps by 0x620270 (the throttle 1/6 a step up and 1/6 down, the brake 1/3 up and 1/6 down). The byte 0x622121 is 1, so an
+  analog pedal slews toward its value at the same rates. Any analog value above 0 is first lifted to 0.1 + 0.9 x (K +0x04, 10).
+- So a full press is the same in each case. ✔ `input_full_presses_as_the_console_pad`: the frames are equal, and B-1's car on
+  its course gives speeds equal in every bit over 6 s at full throttle and then full brake.
+- What differs: a part press. A trigger at half travel brakes at about 0.55, where a DualShock 2's button at half pressure
+  brakes fully. A modern pad's face buttons are on or off.
+
+The steering: a stick's byte is turned (0x622F58) with no dead zone of the program's, full lock at the byte's end. Ours reads
+the stick finer than a byte, through the engine's race dead zone (0.08 of the travel, the rest rescaled) and its curve (1,
+linear). These are the shared engine's defaults, not Gran Turismo 4's. There is no other smoothing or assist of ours. The
+lock by speed, the prefilter and the active steering are the program's (physics.md §3.6).
+
 ## What is sent back
 
 Once a step, after it (0x354A78 in 0x34DB30), each car's pad block (cond + 0xCA58 + 0x10 k) goes to its controller

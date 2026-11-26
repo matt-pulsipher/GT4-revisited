@@ -381,6 +381,63 @@ TEST(input_feel_from_a_drive) {
     CHECK(rough && impact > 1.5f && original > 20 && modern > 100);
 }
 
+TEST(input_full_presses_as_the_console_pad) {
+    // A DualShock 2's Cross and Square pressed fully (its pressures 255), the modern layout's triggers fully down and the
+    // console layout's buttons on a pad without pressures: the same frame, or the same pedals in the step.
+    GamePort ds2;
+    ds2.pad = GamePort::Pad::DualShock2;
+    ds2.set(kPadCross), ds2.set(kPadSquare);
+    ds2.axis[10] = 255, ds2.axis[11] = 255; // (the pressures of Cross and Square)
+    ds2.make_halves();
+    const RaceInput console = read_port(ds2, PortConfig());
+    const RaceInput modern = modern_input({}, pad_of({PadButton::Cross, PadButton::Square}));
+    CHECK(console.frame.throttle == 4096 && console.frame.brake == 4096 && (console.frame.flags & 6) == 6);
+    std::array<u8, 32> a{}, b{};
+    console.frame.to_bytes(a.data()), modern.frame.to_bytes(b.data());
+    CHECK(a == b);
+    // The console's pressure reaches the full pedal early (the throttle at 45 of 255, the brake at 84); the triggers over
+    // their whole travel.
+    ds2.axis[10] = 45, ds2.axis[11] = 84;
+    CHECK(read_port(ds2, PortConfig()).frame.throttle == 4096 && read_port(ds2, PortConfig()).frame.brake == 4096);
+    ds2.axis[10] = 44, ds2.axis[11] = 83;
+    CHECK(read_port(ds2, PortConfig()).frame.throttle < 4096 && read_port(ds2, PortConfig()).frame.brake < 4096);
+
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // B-1's car and course: 6 s at full throttle, then full brake. The digital pedals ramp (0x620270) as the analog ones slew
+    // (0x622121 set), so the three runs are equal in every bit.
+    const std::string car = "demio_glx_99";
+    const auto drive = [&](auto&& frame_at) {
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "testcourse_100m", std::span<const std::string>(&car, 1));
+        std::vector<float> speeds;
+        for (int i = 0; i < 560; ++i) {
+            race::PadRecord record;
+            race::CarInput in;
+            frame_at(i).to_bytes(record.bytes.data());
+            in.pad = &record;
+            s->step_once(std::span<const race::CarInput>(&in, 1));
+            speeds.push_back(s->cars()[0].speed);
+        }
+        return speeds;
+    };
+    const auto gas = [](int i) { return i < 360; };
+    const std::vector<float> pressures = drive([&](int i) {
+        GamePort p;
+        p.pad = GamePort::Pad::DualShock2;
+        p.set(gas(i) ? kPadCross : kPadSquare);
+        p.axis[gas(i) ? 10 : 11] = 255;
+        p.make_halves();
+        return read_port(p, PortConfig()).frame;
+    });
+    const std::vector<float> triggers = drive([&](int i) { return modern_input({}, pad_of({gas(i) ? PadButton::Cross : PadButton::Square})).frame; });
+    const std::vector<float> buttons = drive([&](int i) {
+        const PadState p = pad_of({gas(i) ? PadButton::Cross : PadButton::Square});
+        return read_port(pad_port(p, p), PortConfig()).frame;
+    });
+    std::printf("  full throttle 6 s: %.2f km/h, then 200 steps of full brake: %.2f km/h\n", double(pressures[359]) * 3.6, double(pressures.back()) * 3.6);
+    CHECK(pressures[359] * 3.6f > 50 && pressures == triggers && pressures == buttons);
+}
+
 namespace {
 
 // A made-up pad, no real device opened (the real drivers are off; only SDL's virtual one runs).
