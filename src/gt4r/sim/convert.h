@@ -89,6 +89,8 @@ ConditionTable condition_table(const Program& program);
 // 0x35A058: a special car (the layout row 1, or the car category 6), whose body and tires come from the program's
 // table 0x6205C8 (0x78 bytes a row, by the spec's byte +0x23).
 bool special_car(const Spec& s);
+// The radius of the driven axle's tire (m): the axle 0x34BC98 picks, its tire as 0x34BA30 makes it (0x354FF8's).
+gt3r::ee::F driven_tire_radius(const Spec& s, const Program& program);
 
 // The step's record of a car from its block: every member of the engine's mirror and of Gran Turismo 4's own part
 // that has a place in the parameter block (car_layout.h, record.h), and the wheel layout's row; then the mirror's members

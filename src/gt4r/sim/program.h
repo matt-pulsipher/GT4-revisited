@@ -1,14 +1,14 @@
 #pragma once
 
-// The game program's own tables that the simulation reads (docs/specs/physics.md "Program tables"):
-// read from the user's CORE.GT4 when a race is set up, never kept in the repository. The tables are
-// at known places in Gran Turismo 4 SCUS-97328 v1.01, the build the specification was written from;
-// that build is recognized by its code (a hash of the routines that address the tables). For any
-// other program (Prologue, another release) known() is false and the simulation runs on the shared
-// engine's own values (Prologue's own tables where program_prologue.h places them).
+// The game program's own tables that the simulation reads (docs/specs/physics.md "Program tables"). On a Gran Turismo 4
+// disc, whatever its build, they are Gran Turismo 4's own as program_tables.h carries them (SCUS-97328 v1.01's), read by
+// their address in that build; the disc's program is checked against them once (check(): what differs or is not found is
+// logged). On a Prologue disc the image's own bytes serve (program_prologue.h places Prologue's tables). A program image
+// given as it is (from_image: the interpreter's memory) serves its own bytes.
 
 #include "disc/core_image.h"
 #include "gt4r/base/types.h"
+#include "gt4r/sim/program_tables.h"
 
 #include <memory>
 #include <string>
@@ -24,18 +24,26 @@ public:
     Program() = default;
     // From the disc's packed program; never throws (a program that cannot be read is unknown).
     static Program load(Disc& disc);
-    // From a program image loaded at `load_address`.
+    // A program image loaded at `load_address`, its own bytes served (the interpreter's memory: known() when it holds
+    // SCUS-97328 v1.01's code).
     static Program from_image(Bytes image, u32 load_address);
+    // A disc's program: Gran Turismo 4's tables served (ours), or Prologue's image.
     static Program from_core(std::shared_ptr<const gt3r::CoreImage> core);
 
+    // Gran Turismo 4's tables are served (any Gran Turismo 4 program; an image of v1.01's code).
     bool known() const { return known_; }
-    // Why the tables are not the disc's ("the disc's program is not a build whose tables are mapped").
+    // Why they are not ("Gran Turismo 4 Prologue's program, ...", "no program").
     const std::string& issue() const { return issue_; }
+    // Our tables served (a disc's Gran Turismo 4 program), not the image's bytes.
+    bool ours() const { return ours_; }
+    // The disc's program against our tables (empty rows for an image or Prologue's).
+    const TableCheck& check() const;
 
     // The image as loaded at base() (kept for a build that is not known too: program_prologue.h).
     ByteSpan image() const { return core_ ? ByteSpan(core_->program) : ByteSpan{}; }
     u32 base() const { return base_; }
-    // The image's bytes at a program address (0 outside it).
+    // The byte at a program address: ours of the table holding it (0 outside every table; a read inside the image is
+    // logged once), or the image's (0 outside it).
     u8 b(u32 addr) const;
     u16 h(u32 addr) const { return u16(b(addr) | (b(addr + 1) << 8)); }
     u32 w(u32 addr) const { return u32(h(addr)) | (u32(h(addr + 2)) << 16); }
@@ -57,9 +65,11 @@ public:
     static constexpr u32 kSoft = 0x622430;
 
 private:
+    static Program from_core(std::shared_ptr<const gt3r::CoreImage> core, bool prologue_disc);
     std::shared_ptr<const gt3r::CoreImage> core_; // (shared: every Program of a disc holds the one image)
+    std::shared_ptr<const TableCheck> check_;     // (shared likewise: made once per image)
     u32 base_ = 0;
-    bool known_ = false;
+    bool known_ = false, ours_ = false;
     std::string issue_ = "no program";
 };
 

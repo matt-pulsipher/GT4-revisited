@@ -302,6 +302,18 @@ void tire(const Spec& s, const Program& program, ParamBlock& p, u32 a) {
     }
 }
 
+} // namespace
+
+F driven_tire_radius(const Spec& s, const Program& program) {
+    ParamBlock p;
+    drive(s, program, p, nullptr);
+    const u32 axle = p.b(kD + 3) & 1;
+    tire(s, program, p, axle);
+    return p.f(kD + 0x90 + 4 * axle);
+}
+
+namespace {
+
 void driveline(Spec& s, const Program& program, ParamBlock& p, ConvertGlobals* g) {
     drive(s, program, p, g);
     for (u32 a = 0; a < 2; ++a) p.set_b(kD + 0x10 + a, diff_index(program, s.b(0x168 + a)));

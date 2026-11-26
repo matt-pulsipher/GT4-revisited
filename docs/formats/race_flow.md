@@ -176,6 +176,17 @@ IB and IA, 0x11CB38 for the others; the choice in 0x10FBD8 by 0x38A3D0's class: 
 Here the Drive screen rebuilds the race on the next race's course (a test with its own car through
 the menus' request completion) and opens its menus.
 
+**What a license test's page shows behind it.** The test's page (project `quick-license`, 0x11D1B8) runs the race in
+mode 2, the replay of the last run: the replay's start shots round the car, then the course's replay cameras, with no race
+display; before the first run there is no run to play and the page is black. The license's camera (RaceLicense::vf40
+0x3BC350) is put in mode 5 (the scenic shots) only while the demonstration's flag (+0x24EE0, set by 0x3BC5A8 from
+0x11D270's `quick` page, which runs the race in mode 4) is up. ✔ The original's B-1 page before any run (black,
+05-gtmode `36_license_test_b1_page.png`) and after one (05-gtmode `license_b1_test_run_fail.mp4` from 124 s: close-ups
+of the car on its start, then the shot from the stopping box up the straight; 11-license-tt `b1_page_after_pass.png`).
+The course's scenic shots would not do there: Test Course 100 m's four stand 1.5 to 2.0 km from the test's start, where
+that course has no ground. 🔎 Whether the replay's sound plays under the page is not read (ours is quiet); ours plays the
+replay again from its start when it ends.
+
 ### The license tests' rules
 
 Code: `race/license_rules.*` (the rules and the judge), `screen_race.cpp` `judge_license`. The race copies
@@ -281,6 +292,19 @@ mass is the car's parameter block's P +0x48 as 0x35FE80 reads it; the time limit
 +0x4AF's meaning ❓). Seen here: B-1 run at full throttle past the box ends in FAIL on the row of cones at
 the box's far end (`lic3`), as the original's; braking into the box passes (9.849).
 
+**B-1's grades** (gold 0'10.150, silver 0'10.400, bronze 0'11.300 from its row, as the original's page shows them; a grade
+is its time or less, 0x3F8AB0's loop over 0x3C0B88): the program's step in the interpreter, on the demonstration's
+inputs to step 900, then full throttle and full brake from step S. The hold ends at step 480, so the clock reads
+(S - 480) / 60 s when the brake goes on. Results:
+- S 967 or earlier: the car stops short of the box, with no time.
+- S 968 .. 973 (0.1 s): gold, 10.033 .. 10.133. The console's demonstration brakes at 969 .. 972: 10.083.
+- S 974 .. 986: silver.
+- S 987 to about 1020: bronze (S 1020: 11.065).
+- Each step later costs 17 or 33 ms.
+
+So the time is lowest when the car stops just inside the box's near edge. A part brake can recover a brake begun too
+early: S 964 with the brake at 2700 of 4096 from step 1000 gives 10.148.
+
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
 single race's commands are run here.
@@ -301,6 +325,17 @@ Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose:
 At its finish (virtual 21, 0x357B98, the license's 0x3F8AB0) a car is marked (F +0x4B2) and its driver takes over (0x343D78, mode 3: kind 5):
 it cruises on at the race's limit or 80 km/h, the player's car too (`Field::finish_run`, `RaceWorld::finish_car`). A test ended by the player
 sends the computer's cars off the same way (0x3F88E8). A car on the pit lane (kinds 2 .. 4) keeps its driver.
+
+**A license test's end** (0x3F8AB0 for a test timed or ended at its goal, 0x3F8980 for one failed; `race::license_end_mode`,
+`license_fail_mode`, `screen_race.cpp` `end_test`): the player's car is given to its driver in the mode 0x3F8818 picks (1 it coasts down
+and stops, kind 6; 2 it brakes to a stop, kind 7; 3 it drives on, kind 5): the rules' +0x41 1, 2, 3 give 3, 1, 2; else by the test's kind,
+1 (the stop in the box) 2, 3, 4 and 6 3, any other 1; then 2 when the test counts cones (+0x46) and 3 when other cars are in it (+0x40).
+A failure by leaving the course, a hit or kind 6's lead asks the same with kind 1 giving 1, and alone a 3 becomes 1; any other failure 2.
+So B-1's car stays in the box when it has stopped there, and coasts to a stop past it when it runs into the cones. ✔ The original's
+B-1 pass (11-license-tt `license_b1_pass_bronze.mp4`: the car stays in the box under the result scene) and overshoot
+(18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`: stopped past the box). The judge's ends (the stop, a failure, the cones
+counted) come through here as well as the line's; before, the player's car was left to the stand-in follow-the-line driver and drove
+on.
 
 ## A-spec points
 
@@ -492,6 +527,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620); none in a free run (its pace 0x3F7880 is 0) | |
 | The replay cameras (TV shots), their choice by distance, their lens | `replay_script.*`, `drive_camera.h` `shown_angle` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); ✔ the lens and the picture against 47 of the original's replay states (camera.md); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
+| A license test's page's scene | `screen_race.cpp` `stand`, `start_replay(page)` | GT4 (mode 2 from 0x11D1B8: the last run's replay; black before a run) | the replay's sound under the page; what the replay does at its end (ours: again) |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md), the roof view's by its mount as the program's angles show (`shown_angle`); their springs ❓ | the on-board camera's own lens |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |

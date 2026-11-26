@@ -27,7 +27,7 @@ struct RecordingSetup {
 
 replay::Demonstration make_recording(const RecordingSetup& setup, const std::vector<sim::Entry>& entries, const std::vector<replay::PadRecord>& records);
 
-// The card file of it (FileGT4ReplayFull's: ReplayData scrambled), and one read.
+// The card file of it (FileGT4ReplayFull's: ReplayData scrambled; empty without Gran Turismo 4's tables), and one read.
 Bytes recording_file(const replay::Demonstration& d, const sim::Program& program, u32 random);
 
 // B-spec's commands and the pit menu's choice as the record carries them (the bytes from +0x10).

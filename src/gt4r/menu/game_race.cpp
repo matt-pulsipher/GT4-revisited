@@ -497,7 +497,13 @@ s64 Runtime::race_finished(const RaceResult& r) {
         break;
     }
     case RaceResult::Kind::Mission: {
-        // 0x11C328: the place's prize whatever the run, the record's kind 3 with the place,
+        // A run the player's car did not finish (the pause's Exit, a time-out: its +0x5B6 clear) only goes in the
+        // diary (0x11C2E0: the mission's day with place 15, note 15, no time); no prize, record or rows.
+        if (!r.finished) {
+            day.type = 5, day.b1 = 15, day.b2 = 15, day.word = kNoTime, day.code = race_code;
+            break;
+        }
+        // 0x11C328 (the car finished): the place's prize whatever the place, the record's kind 3 with the place,
         // the score; the diary's mission day (place, note 15, time).
         const int p = std::clamp(place, 0, 15);
         prize = prize_of(p);

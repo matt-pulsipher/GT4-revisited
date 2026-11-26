@@ -634,8 +634,13 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   `SeriesRank` is the number of the others with at least the player's points (0x3EF2D8); the
   diary's note is 0 for a won championship. The race's menus' rows (0x11A168), in finishing order, carry the place's points (the work's +0x37C + 4 i, read by `getWeight`: Session Results' Pts) and the entrant's points so far (+0x364 + 4 i, `getPower`: Total; the pre-race page's Pts column reads it too, 0 before the first race); the work's race label is the session's race (the series' label with the race's number), whose last two digits the prize page writes as "Race n". A championship left in the middle is kept
   (`GameState::suspend_series`, 0x119BD8) in the save and offered again on the map.
-- **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
-  place) and its score, the diary's mission day (place, note 15, time).
+- **A mission** (its sequence 0x11BB60): a run that ended other than by Retry (end code 4) counts only when the
+  player's car finished (its +0x5B6): then 0x11C328, the place's prize whatever the place, the record ("mission",
+  the place) and its score, the diary's mission day (place, note 15, time), `IsSessionFinished` 1 and the page's
+  Results rows; otherwise (the pause's Exit, end code 2; a time-out) 0x11C2E0 puts only the day in the diary (place
+  15, note 15, no time) and the mission's page comes back as before the run with `canReplay` 1 (Replay and Save
+  added). ✔ The original's mission 1 exited (reference 21-gtmode-deep `mission1_page_after_exit.png`); ours the
+  same, and a finished run's Results.
 - **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
   real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
