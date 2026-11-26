@@ -3,6 +3,7 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
@@ -427,7 +428,7 @@ private:
         const std::string log = gt3r::log_file::path();
         if (!log.empty()) {
             rows_.action("Log of this session", "", "open it", [this, a, log] { show(*a, log); });
-            const std::string before = app.data_dir() + "gt3r.prev.log";
+            const std::string before = app.data_dir() + log_file_name(true);
             if (gt3r::host_path_exists(before)) rows_.action("Log of the session before", "", "open it", [this, a, before] { show(*a, before); });
             rows_.action("Copy both logs", "to the clipboard", "copy", [this, log, before] { copy_logs(log, before); });
         }

@@ -3,17 +3,49 @@
 
 #define SDL_MAIN_USE_CALLBACKS 1
 #include "gt4r/app/app.h"
+#include "gt3r_version.h"
+#include "gt4r_version.h"
 
 #include <SDL3/SDL_main.h>
 
 #include <cstdio>
 #include <cstring>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 using gt4r::App;
+
+namespace {
+
+// --help and --version print before SDL starts (no window). On Windows the game has no console of its own: the text goes to
+// the one it was started from, if any.
+void to_console() {
+#ifdef _WIN32
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        FILE* f = nullptr;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+    }
+#endif
+}
+
+} // namespace
 
 SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
     for (int i = 1; i < argc; ++i)
+        if (!std::strcmp(argv[i], "--version")) {
+            to_console();
+            std::printf("GT4 Revisited %s (engine %s)\n", GT4R_VERSION, GT3R_VERSION);
+            return SDL_APP_SUCCESS;
+        }
+    for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--help") || !std::strcmp(argv[i], "-h")) {
+            to_console();
+            std::printf("GT4 Revisited %s\n\n", GT4R_VERSION);
             std::printf("usage: gt4r [disc.iso|disc.chd] [options]\n\n"
                         "With a disc and no other choice the game starts from power on; Select and\n"
                         "Start together leave it for the home screen ([game] start = hub in config.ini:\n"
@@ -44,7 +76,8 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "  --headless          any run without a window (GT4R_HEADLESS=1)\n"
                         "  --pace <n>          frames a second of a run without a window that goes by\n"
                         "                      the clock (default 60; display: its rate; off: not held)\n"
-                        "  --no-gpu            2D screens only\n");
+                        "  --no-gpu            2D screens only\n"
+                        "  --version           the version, then quit\n");
             return SDL_APP_SUCCESS;
         }
     auto* app = new App();

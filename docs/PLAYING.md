@@ -103,7 +103,7 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
   are kept in (a new one gets a copy of what it does not have; nothing is written over); the server of the races over the
   internet (none until you choose one); what opens at the start; the data
-  folder; the log of this session and of the one before (`gt3r.log`, `gt3r.prev.log` in the data folder: an uncaught error or
+  folder; the log of this session and of the one before (`gt4r.log`, `gt4r.prev.log` in the data folder: an uncaught error or
   a crash is its last line; your name is taken out of the paths); the version.
 - *Mods*: below.
 
