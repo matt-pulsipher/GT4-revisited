@@ -281,6 +281,19 @@ mass is the car's parameter block's P +0x48 as 0x35FE80 reads it; the time limit
 +0x4AF's meaning ❓). Seen here: B-1 run at full throttle past the box ends in FAIL on the row of cones at
 the box's far end (`lic3`), as the original's; braking into the box passes (9.849).
 
+**B-1's grades** (gold 0'10.150, silver 0'10.400, bronze 0'11.300 from its row, as the original's page shows them; a grade
+is its time or less, 0x3F8AB0's loop over 0x3C0B88): the program's step in the interpreter, on the demonstration's
+inputs to step 900, then full throttle and full brake from step S. The hold ends at step 480, so the clock reads
+(S - 480) / 60 s when the brake goes on. Results:
+- S 967 or earlier: the car stops short of the box, with no time.
+- S 968 .. 973 (0.1 s): gold, 10.033 .. 10.133. The console's demonstration brakes at 969 .. 972: 10.083.
+- S 974 .. 986: silver.
+- S 987 to about 1020: bronze (S 1020: 11.065).
+- Each step later costs 17 or 33 ms.
+
+So the time is lowest when the car stops just inside the box's near edge. A part brake can recover a brake begun too
+early: S 964 with the brake at 2700 of 4096 from step 1000 gives 10.148.
+
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
 single race's commands are run here.
