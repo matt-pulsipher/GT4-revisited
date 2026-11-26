@@ -1,4 +1,5 @@
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_folder.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/presence.h"
@@ -103,8 +104,10 @@ std::string user_data_dir() {
 #endif
         return dir;
     }
-    const char* base = SDL_GetBasePath();
-    if (base && gt3r::host_path_exists(std::string(base) + "portable.ini")) {
+    const std::string base = SDL_GetBasePath() ? SDL_GetBasePath() : "";
+    if (const std::string beside = app_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
+        dir = beside;
+    } else if (!base.empty() && gt3r::host_path_exists(base + "portable.ini")) {
         dir = base;
     } else if (char* pref = SDL_GetPrefPath("GT4Revisited", "GT4Revisited")) {
         dir = pref;

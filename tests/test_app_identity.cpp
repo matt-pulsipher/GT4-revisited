@@ -2,6 +2,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/app/app_folder.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/net/identity.h"
 #include "net/session.h"
@@ -24,4 +25,13 @@ TEST(app_identity_names_the_engine) {
 #else
     CHECK(gt4r::log_file_name(true) == "gt3r.prev.log");
 #endif
+}
+
+// A portable.ini beside a macOS app bundle, not inside it: the folder holding gt4r.app from SDL's base path.
+TEST(app_folder_beside_the_bundle) {
+    CHECK(gt4r::app_folder("/Volumes/Stick/GT4R/gt4r.app/Contents/Resources/") == "/Volumes/Stick/GT4R/");
+    CHECK(gt4r::app_folder("/Applications/GT4 Revisited.app/Contents/Resources/") == "/Applications/");
+    CHECK(gt4r::app_folder("/Users/me/build/").empty());        // a plain executable's folder
+    CHECK(gt4r::app_folder("C:\\Games\\GT4R\\").empty());
+    CHECK(gt4r::app_folder(".app/Contents/Resources/").empty());
 }

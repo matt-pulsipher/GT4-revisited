@@ -18,7 +18,8 @@ Prologue disc starts the same way.
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
 3. Your saved games, options and replays are kept in the app's data folder (on macOS
    `~/Library/Application Support/GT4Revisited/GT4Revisited/`; a `portable.ini` beside the program
-   keeps them beside it; `GT4R_DATA_DIR` names another folder). With none saved yet, choosing Gran Turismo mode
+   keeps them beside it: on macOS in the folder that holds `gt4r.app`, not inside the app, which would break its
+   signature; `GT4R_DATA_DIR` names another folder). With none saved yet, choosing Gran Turismo mode
    starts a new game (the name entry, then back to the title, as the game itself does; choose Gran Turismo mode again
    to go to the map); Arcade needs none. The game saves itself after every race and purchase (Options,
    Miscellaneous, Autosave) and the next launch goes on with it.

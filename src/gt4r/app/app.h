@@ -320,8 +320,9 @@ private:
     std::string sweep_, sweep_out_;     // --sweep <list>, --sweep-out <dir>
 };
 
-// The folder of the config file and mods: GT4R_DATA_DIR, else the executable's folder when it
-// has a portable.ini, else the system's per-user folder. Ends with a separator.
+// The folder of the config file and mods: GT4R_DATA_DIR, else the program's folder when it has a portable.ini
+// (a macOS app's: the folder holding gt4r.app; its own resources' folder still counts), else the system's per-user
+// folder. Ends with a separator.
 std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
