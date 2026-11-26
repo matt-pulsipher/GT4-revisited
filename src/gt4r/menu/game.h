@@ -319,6 +319,10 @@ struct GameState {
         // run's result and time, or a day with nothing in it when no run passed (result 13).
         bool license_open = false;
         DayEvent license_day; // type 0 until a run
+        // A course visit's sequence (the free run 1, practice 3, photo drive 4, machine test 6) puts one day when it
+        // ends, whatever its runs (0x1179F8, 0x1184DC, 0x11B0D8, 0x115E90): the course's code and the kind (0: none).
+        u8 course_kind = 0;
+        u64 course_code = 0;
     } race_session;
     // The race sequence is over (the menus go on): what the program writes at its end.
     void end_race_sequence();
@@ -337,6 +341,8 @@ struct GameState {
     // The championship is left in the middle (keep) or closed (0x119BD8): a kept one is saved
     // in the game's championship block and taken up again from it.
     void suspend_series(bool keep);
+    // A course's unit in the course records (0x433C10): its place, made in order of the code when `make` (-1: none).
+    int course_unit(u64 code, bool make);
 
     GameState();
     void new_game(); // the constructors' values: no car, no records, the first day

@@ -281,6 +281,10 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
         w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
     }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
+    // A course visit's one day, put when the sequence ends (GameState::end_race_sequence).
+    const int course_kind = q.sequence == "freerun" ? 1 : q.sequence == "practice" ? 3 : q.sequence == "photo_drive" ? 4 : q.sequence == "machinetest" ? 6 : 0;
+    if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && course_kind && s.race_session.sequence == q.sequence)
+        s.race_session.course_kind = u8(course_kind), s.race_session.course_code = n->db().code(kCourseTable, q.course);
     if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)), w.set("canLoadGhost", 1); // ❓ (Prologue's constructor is not read: dashes, as before; ✔ its card icon is lit on lessons 1 and 2)
     if (q.sequence == "license") {
         // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
@@ -546,6 +550,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
         break;
     }
     case RaceResult::Kind::Course:
+        // A course visit's sequence puts its day when it ends (0x1179F8, 0x1184DC, 0x11B0D8, 0x115E90), not by the run.
+        if (s.race_session.course_kind && s.race_session.course_kind == r.course_kind) return prize;
         day.type = 8, day.b3 = u8(r.course_kind), day.b1 = u8(r.finished ? 0 : 15), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime;
         day.code = d.code(kCourseTable, r.course);
         break;

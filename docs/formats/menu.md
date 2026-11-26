@@ -645,7 +645,13 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
-  original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
+  original's calendar shows. **A course visit** is one day of the diary, put when its sequence ends whatever its
+  runs (none without a run is still a day): RUN_COURSE (0x42F448) with the course, the kind (the free run 1,
+  practice 3, photo drive 4, machine test 6), place 15 and note 14, no time; the machine test's at 0x115E90,
+  practice's 0x1184DC, photo drive's 0x11B0D8; the free run's (0x1179F8) with the session's best lap (its +0x498, no
+  time when none) and note 13 when that best is the course's record (the ranking's first time and not its second's,
+  0x4334F8; the course's unit made when it has none, 0x433C10). So a visit moves the calendar, and the used cars'
+  weeks, by one day (`GameState::end_race_sequence`; ✔ test `disc_gt_mode_course_visit_is_a_day`).
   Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 - **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
