@@ -4220,7 +4220,11 @@ private:
             return V::number(0); // isChampionship, isStage1, ...: no
         };
         if (is_license(sequence_) && license_movie_) {
-            race_->tv_view();
+            // The live picture behind the page: a run that ended with a time keeps the race's own view until the staff's
+            // cameras take over (✔ the original's pass, 18-round4-gt, and slow finish, 05-gtmode `license_b1_test_run_fail.mp4`:
+            // the chase view on); a run failed by the rules turns to a camera beside the course (27-license-fails ❓ its rule
+            // not read: the replay's cameras here).
+            if (race_->license_failed() || prologue_license_) race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {

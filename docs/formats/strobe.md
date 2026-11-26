@@ -374,7 +374,11 @@ with its spin from 1000 (gain 1.2), kinds 4, 5 at 270 and turned over (about x f
 1.5; the spin's gain 3). The race display's three target times with their trophies stay over the
 page (the original's pass pictures). Here: the trophy drawn once a frame (no averaged passes), the
 grade's kind gold 1, silver 3, bronze 4 (❓ the result's kind +0x88 is not read), the live picture
-from the course's TV cameras (❓ the program's camera for the page is not read).
+the race's own view after a run with a time, until the license staff's cameras take it over (pit_scene.md "The license
+scene"), and the course's TV cameras after a run failed by the rules (❓ the program's camera for that is not read). ✔ The
+page's timing against the original's pass (18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`, 0.1 s frames
+from the stop): the title 0.1 s after, the time 0.6 s, the trophy fading in from 1.2 s (the original's 0.1 .. 0.3, 0.5 .. 0.7,
+1.3 s). ❓ The original fades the race display out over about 0.3 s as the title comes; ours takes it away at once.
 Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
 tests' own failing rules are not read), the gap to the next grade up, the title from the race code
 (❓ the program's title routine is not read); RETRY runs the test again at once.
