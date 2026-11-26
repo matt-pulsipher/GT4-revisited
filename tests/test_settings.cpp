@@ -10,6 +10,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/input/player_controls.h"
+#include "gt4r/race/drive_camera.h"
 #include "gt4r/race/game_area.h"
 #include "gt4r/race/race_display.h"
 #include "gt4r/settings/mod_files.h"
@@ -42,7 +43,7 @@ TEST(settings_video_round_trip) {
     CHECK(ini.serialize().find("video") == std::string::npos);
     // Every field changed comes back, and only the changed ones are written.
     v.fullscreen = true, v.vsync = false, v.limit_60fps = true, v.show_fps = true, v.dynamic_resolution = true, v.sharp_menu_models = false, v.texture_packs = false;
-    v.msaa = 8, v.anisotropy = 16, v.render_scale = 1.25f, v.gamma = 1.15f, v.aspect = gt3r::platform::Aspect::Fill, v.gpu = Gpu::Gles;
+    v.msaa = 8, v.anisotropy = 16, v.render_scale = 1.25f, v.gamma = 1.15f, v.aspect = gt3r::platform::Aspect::Classic, v.gpu = Gpu::Gles;
     v.save(ini);
     CHECK(Video::load(ini) == v);
     CHECK(Video::load(gt3r::IniDocument::parse(ini.serialize())) == v);
@@ -56,7 +57,24 @@ TEST(settings_video_round_trip) {
     CHECK_EQ(odd.anisotropy, 16);
     CHECK(!odd.vsync && odd.fullscreen);
     CHECK(!odd.render_scale);
-    CHECK(odd.aspect == gt3r::platform::Aspect::Wide);
+    CHECK(odd.aspect == gt3r::platform::Aspect::Fill);
+    // The screen's shape by default; a config naming 16:9 or 4:3 keeps it.
+    CHECK(Video{}.aspect == gt3r::platform::Aspect::Fill);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\nvsync = on\n")).aspect == gt3r::platform::Aspect::Fill);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = 16:9\n")).aspect == gt3r::platform::Aspect::Wide);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = 4:3\n")).aspect == gt3r::platform::Aspect::Classic);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = Fill\n")).aspect == gt3r::platform::Aspect::Fill);
+    {
+        // Another setting changed leaves the shape unwritten (it stays the default); the shape chosen is written.
+        gt3r::IniDocument c;
+        Video d;
+        d.vsync = false;
+        d.save(c);
+        CHECK(!c.get("video", "aspect"));
+        d.aspect = gt3r::platform::Aspect::Wide;
+        d.save(c);
+        CHECK(c.get("video", "aspect").value_or("") == "16:9");
+    }
     CHECK(odd.gpu == Gpu::Off);
     CHECK(std::fabs(odd.gamma - 2.0f) < 1e-6f);
 }
@@ -103,6 +121,44 @@ TEST(settings_game_area) {
     CHECK(std::fabs(place_x(right, true) - (600 + anchor_push(wide))) < 1e-3f);
     CHECK_EQ(place_x(right, false), 600.0f);
     set_wide_push(96.0f);
+    // A picture narrower than 4:3 (fill on a screen squarer than 4:3): the canvas fits its width, in the middle, with room above
+    // and below; at 4:3 and wider it is 360 tall with none.
+    CHECK_EQ(canvas_scale(480), 0.75f);
+    CHECK_EQ(canvas_scale(640), 0.75f);
+    CHECK_EQ(canvas_top(480), 0.0f);
+    CHECK_EQ(canvas_top(640), 0.0f);
+    CHECK(std::fabs(canvas_scale(432) - 0.675f) < 1e-6f);
+    CHECK(std::fabs(canvas_top(432) * 2 + 480 - 360 / canvas_scale(432)) < 1e-3f); // (the canvas and its room fill the 360)
+    CHECK_EQ(canvas_side(432), 0.0f);
+}
+
+TEST(settings_picture_width) {
+    using gt3r::platform::Aspect;
+    // The Pixel Fold's inner screen (2208 x 1840, 1.2:1): a race fills it, the menus' pages stay 4:3.
+    CHECK_EQ(picture_width(Aspect::Fill, 2208, 1840, true), 432);
+    CHECK_EQ(picture_width(Aspect::Fill, 2208, 1840, false), 480);
+    // Its outer screen (22:9), phones, PCs.
+    CHECK_EQ(picture_width(Aspect::Fill, 2092, 856, true), 880);
+    CHECK_EQ(picture_width(Aspect::Fill, 2400, 1080, false), 800);
+    CHECK_EQ(picture_width(Aspect::Fill, 1920, 1080, true), 640);
+    CHECK_EQ(picture_width(Aspect::Fill, 1920, 1200, true), 576);
+    CHECK_EQ(picture_width(Aspect::Fill, 3440, 1440, true), 860);
+    CHECK_EQ(picture_width(Aspect::Fill, 5120, 1440, true), 1280);
+    CHECK_EQ(picture_width(Aspect::Fill, 1024, 768, true), 480);
+    // Narrower than 1:1, and the limit of 4:1: bars.
+    CHECK_EQ(picture_width(Aspect::Fill, 800, 1000, true), 360);
+    CHECK_EQ(picture_width(Aspect::Fill, 8000, 1000, true), 1440);
+    // The player's 16:9 and 4:3 whatever the screen.
+    CHECK_EQ(picture_width(Aspect::Wide, 2208, 1840, true), 640);
+    CHECK_EQ(picture_width(Aspect::Classic, 2560, 1080, true), 480);
+    CHECK_EQ(picture_width(Aspect::Fill, 0, 0, true), 640);
+    // The view: wider than 4:3 shows more at the sides (the vertical angle stays), narrower keeps 4:3's width of the scene.
+    race::ViewPose v;
+    v.fov = 1.2f;
+    CHECK(std::fabs(v.fovy(4.0f / 3.0f) - v.fovy()) < 1e-6f);
+    CHECK(std::fabs(v.fovy(21.0f / 9.0f) - v.fovy()) < 1e-6f);
+    CHECK(std::fabs(std::tan(v.fovy(1.2f) * 0.5f) * 1.2f - std::tan(v.fov * 0.5f)) < 1e-5f);
+    CHECK(v.fovy(1.0f) > v.fovy(1.2f));
 }
 
 TEST(settings_mod_priority_text) {

@@ -370,7 +370,7 @@ public:
             world_->render(ui, rect, cars, seen, i, pose.body_hidden ? int(i) : -1, int(i));
             // The rear-view mirror of the in-car view, while the race is driven.
             if (!replaying_ && half_[i].mount == race::DriveCamera::kInCar && pose.body_hidden && !half_[i].look_back && !half_[i].start_camera.active()) {
-                const float kx = side_by_side() ? rect.w / view.picture[0] : whole.h * 4 / 3 / view.picture[0], ky = rect.h / view.picture[1];
+                const float kx = side_by_side() ? rect.w / view.picture[0] : std::min(whole.h * 4 / 3, whole.w) / view.picture[0], ky = rect.h / view.picture[1];
                 const float x = side_by_side() ? rect.x + view.mirror[0] * kx : rect.x + rect.w / 2 + (view.mirror[0] - view.picture[0] / 2) * kx;
                 world_->render_mirror(ui, {x, rect.y + view.mirror[1] * ky, view.mirror[2] * kx, view.mirror[3] * ky}, cars, pose, int(i), int(i), view.mirror_zoom);
             }
@@ -654,6 +654,7 @@ public:
     }
 
     bool follows_aspect() const override { return race_ != nullptr; }
+    bool view_fills_narrow() const override { return race_ != nullptr; }
 
     void update(App& app, double dt) override {
         const MenuInput& m = app.menu();
