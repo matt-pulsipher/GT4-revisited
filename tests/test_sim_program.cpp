@@ -119,6 +119,22 @@ TEST(sim_program_collision_and_road_query_equal) {
     CHECK(r.query_calls > 100000 && r.query_equal == r.query_calls);
 }
 
+TEST(sim_program_car_contacts_equal) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // Car-to-car contact made on purpose: six computer drivers' cars at Laguna Seca, every 30th collision step one body pushed
+    // at its nearest neighbour by 10 m/s in the program's own record (both steps meet it, and the program's race goes on from
+    // it: the holds, the separations and the touch-ups of the steps after). Every body field equal at every call.
+    diff::AiRunOptions opt;
+    opt.collide = 2, opt.seconds = 40, opt.shove_every = 30, opt.shove_speed = 10;
+    const diff::AiRunResult r = diff::run_ai(*disc, false, "laguna", {"_1100_standard_type11_49", "z_act_70", "n360_67", "midget2_d_type_98", "s500_63", "ka_01"}, 1, opt);
+    if (!r.ran) std::printf("  %s\n", r.error.c_str());
+    CHECK(r.ran);
+    std::printf("  collision steps %llu (%llu with a car met), %llu equal\n", (unsigned long long)r.collide_calls, (unsigned long long)r.collide_cars,
+                (unsigned long long)r.collide_equal);
+    CHECK(r.collide_calls == 2400 && r.collide_cars > 50 && r.collide_equal == r.collide_calls);
+}
+
 TEST(sim_program_step_routines_equal) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");

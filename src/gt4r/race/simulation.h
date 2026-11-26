@@ -82,6 +82,9 @@ struct CarState {
     // |j|, N s) and against another car (its strength |j| / 15,000).
     float wall_hit = 0, car_hit = 0;
     bool landed = false;
+    // The position is the drawn body's own place (the simulation placed the wheels from the body's frame, as the game
+    // draws them): race::body_matrix draws the body there, without seating it on its wheels.
+    bool body_placed = false;
     // A hit's jolt of the in-car view (the collision step's record, sim::rules::view_jolt): for the step that made it, its
     // change of velocity along the body and across it (to its right), m/s, scaled.
     bool jolt = false;

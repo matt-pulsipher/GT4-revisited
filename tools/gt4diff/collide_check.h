@@ -24,6 +24,8 @@ public:
     CollideCheck(Ee& ee, const OrigRace& race, Disc& disc, const std::string& course);
     ~CollideCheck();
     void install(bool bodies, bool queries);
+    // Every `every` calls the next body pushed at its nearest neighbour by `speed` m/s before both steps (0: never).
+    void set_shove(int every, double speed) { shove_every_ = every, shove_speed_ = speed; }
     void print() const;
     u64 calls() const { return calls_; }
     u64 clean() const { return clean_; }
@@ -49,6 +51,7 @@ private:
         bool hit = false;
         sim::GroundHit mine;
     };
+    void shove(u32 manager, int n);
     void enter_step();
     void leave_step(u32 ra);
     void enter_query();
@@ -65,6 +68,9 @@ private:
     std::map<u32, std::vector<PendingQuery>> queries_;
     std::map<std::string, Stat> fields_, qfields_;
     u64 calls_ = 0, clean_ = 0, wall_contacts_ = 0, car_contacts_ = 0, qcalls_ = 0, qclean_ = 0;
+    int shove_every_ = 0;
+    double shove_speed_ = 8;
+    u64 shoves_ = 0;
 };
 
 } // namespace gt4r::diff

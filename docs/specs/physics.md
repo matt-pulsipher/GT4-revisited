@@ -972,8 +972,10 @@ the body's summed impulse strength (|j| / 15,000 between cars, / 100,000 against
 whether a wall or a car was met, and the car (the one whose edge this body's vertex met, or whose
 vertex met this body's edge). `landed`: a wheel loaded at the step's end after a step without load.
 The program's own results back to the cars (0x3F4C18) keep, per car at cond + 0xCAB8 + 0x30 i, a hit
-flag (+0x24) and, with the switch byte 0x6202BA, a change of velocity in the car's frame past a threshold
-(+0x1C / +0x20) ❓ its readers.
+flag (+0x24) and, with the switch byte 0x6202BA (1 in every race state seen), the change of velocity the step made in the
+car's frame (its two horizontal axes) when its size is past 0x6202E8 (2.78 m/s), scaled by the words 0x6202EC .. 0x6202F8
+(+0x1C / +0x20; the flag 1 for that step). Its one reader is the in-car view (CameraSys::CameraOnBoard::vf10 through 0x34A8B0):
+a jolt of the view with random draws (0x578598) after a hit: [camera.md, "A hit's jolt"](../formats/camera.md).
 
 **The collision step** (0x45BB60 on the manager at conductor + 0xDA6C: +0 the conductor, +4 the count, +8 the
 course object, +0xC the bodies, 0x4F0 bytes each) follows Gran Turismo 3's (physics §5.3) step for step, with
@@ -1001,6 +1003,10 @@ these changes:
   0x35CF40 / 0x35CF88 / 0x35D0C0, F +0x62F .. +0x631, the conductor's virtual +0x190, F +0x608 .. +0x60D) are not
   ours.
 - A body is left out of car contact (0x343BF0) when its car is not in the race or its driver is on line 4.
+- Which races meet other cars: the conductor's virtual +0x68 of a single player's race (Arcade, Championship, GT mode,
+  photo), the two battles, free practice and the training's table (training, missions, licenses) is 0x34DA70: 0x45BB60 on
+  every body together. The base conductor's (free run, machine test) is 0x34DAA8: 0x45BF20 for each body alone, with car
+  contact off (0x45C530 given 0): walls only. Those are races of one car, so ours runs 0x45BB60's step for them too.
 
 ## 8. What runs where in our simulation
 
@@ -1041,6 +1047,19 @@ packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives 
 - The constructor's hold steps run every car as a pad's: F +0x633 runs out for a computer's car too (the program leaves it
   at 30; only the steering force reads it).
 - The flaps' random stream starts from 0 (the program's 0x874D50 has run before the race).
+- The drawn car (`Session::publish`, race::CarState::body_placed) as the game draws it (RaceCarParamSponsor: virtual 7 the
+  body's angles, virtual 8 its point, virtual 10 a wheel's place): the body at 0x344040's point (the center of gravity less
+  P +0x50 along the forward axis) with the body's axes; each wheel of the layout in the body's frame at that point (0x344AA8,
+  0x344B40, 0x344C08): across, the wheel's half track at its travel (wheel +0x08); up, its axle's suspension offset (the
+  suspension block +0x0C, P +0x308 + 0x58 x the layout's byte +0x14 + w) less its suspension travel (wheel +0x94), the road's
+  bump in it, its tire loaded or not; along, half the wheelbase (P +0x18), ahead for a wheel the layout's byte +0x3C + w puts
+  ahead of the center of gravity, behind for one behind, none for one at it. The program blends each of these between the last
+  step's (car +0x8A4 .., +0x8D0 + 4 w, +0x900 + 4 w) and this step's by the frame's place; ours blends the places. Ours draws
+  the model's origin a constant (the mean ride height less the center of gravity's height) along the up axis below the point.
+  ✔ the Impreza WRC at Grand Canyon: its loaded wheels on their bumped road (3 mm), the body exactly at the simulated pose,
+  the wheels' height on the body 9 mm rms from step to step (the suspension's own travel; ours drew 17 mm before, two
+  places for loaded and unloaded wheels, and raised the body by their misfit: 8 mm rms, 11 mm a step), at Tsukuba 1 mm
+  (test `drawn_car_rides_its_suspension`). Prologue's disc and the engine's rules still draw by the earlier rule.
 
 | Distance along the course (F +0x4A4 at each step's end: the conductor's virtual +0x108, 0x3585F0 → 0x358558 → 0x3955E8 → 0x3E6858 / 0x3E6610: the point (F +0, F +8, -F +4) in the checkpoints' quads (left, middle) and (middle, right) of the cluster under the hint F +0x4A8, the nearest in height; v_i + (v_j - v_i, + a lap) x u, less a lap past one; 0 outside every quad) and its rate F +0x650 | `ground.*` `RoadGround::course_distance`, `session.cpp` `publish` | Gran Turismo 4: equal at every step (§9); the laps the race view counts are ours (`distance_along`) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
@@ -1169,7 +1188,12 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   into ours (wall pointers as indexes), ours steps them on our walls, and at its return every body field (and the
   cars' rumble F +0x610) is compared; at 0x3E5A30's entry ours answers the same point on our road, and every answer
   field is compared. Six computer drivers' cars at Grand Canyon, three laps of the program's race: 61,456 collision
-  steps, every body field equal at every one; 2,203,742 road queries, every answer equal. sincosf (0x57D8A0) is the
+  steps, every body field equal at every one; 2,203,742 road queries, every answer equal. Car contact made on purpose
+  (`GT4R_AI_COLLIDE_SHOVE=<calls>,<m/s>`: every so many steps a body's velocity in the program's own record gains that speed
+  toward its nearest neighbour before either step reads it, and the program's race goes on from the contact): one lap of
+  Grand Canyon shoved every 30 steps by 10 m/s, 30,089 steps (583 with cars met, 188 a wall), and of Laguna Seca, 15,904
+  (882 cars, with every road query equal): every body field equal at every one (test `sim_program_car_contacts_equal`,
+  40 s of Laguna Seca). sincosf (0x57D8A0) is the
   engine's, bit for bit (`leaves`).
 - **The whole step from the program's state** (`whole_step.cpp`: `GT4R_AI_WHOLESTEP=<s>`, `GT4R_AI_WHOLECAR=<i>`):
   from that time, before each of the program's steps every car's record and collision body are loaded into our

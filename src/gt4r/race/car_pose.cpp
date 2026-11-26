@@ -26,7 +26,7 @@ Mat4 basis(const render::Vec3& right, const render::Vec3& up, const render::Vec3
 Mat4 body_matrix(const CarState& s, const CarSpec& spec) {
     const render::Vec3 right = v3(s.right), up = v3(s.up), forward = v3(s.forward), pos = v3(s.position);
     float lift = 0;
-    for (int w = 0; w < 4; ++w) {
+    for (int w = 0; w < 4 && !s.body_placed; ++w) {
         const int axle = w / 2;
         lift += render::dot(v3(s.wheels[w].center) - pos, up) - (spec.tire_radius[axle] - spec.ride_height[axle] + s.wheels[w].travel);
     }

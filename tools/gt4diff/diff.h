@@ -75,6 +75,10 @@ struct AiRunOptions {
     bool band = false;   // the conductor's own rubber band kept (else off)
     int collide = 0;     // the collision step and the road query compared with ours at every call (1: both, 2: the step, 3: the query)
     double seconds = 0;  // a set length of run (0: until the laps are done)
+    // With collide: every this many collision steps a body pushed at its nearest neighbour by shove_speed (m/s), car
+    // contacts made on purpose (collide_check.cpp; GT4R_AI_COLLIDE_SHOVE=<calls>,<m/s>)
+    int shove_every = 0;
+    double shove_speed = 8;
 };
 struct AiCheck {
     u64 compared = 0, differ = 0;
