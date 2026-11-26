@@ -55,11 +55,17 @@ lens flare's screen factor (0x3B80E8: 1.2140 wide, 0.9110 otherwise, 4/3 apart),
 them was seen to change the 3D projection, so whether the original's 16:9 shows more at the sides or less above and
 below is not known; ours shows more at the sides.
 
-**Near and far**: the screen's defaults are near 0.1 m and far 750 m (set at 0x3FB48C; no
-other writer found). The on-board camera uses them as they are; every other camera multiplies
-the near plane by tan(35 degrees) / tan(angle / 2) (0.700208 at 0x3794FC), so a telephoto shot's
-near plane moves away. 🔎 Whether the course's `Env0` far clip ([course.md](course.md))
-replaces 750 m when the scene is drawn has not been read.
+**Near and far** ✔: the screen (camera manager +0x9C0) starts with near 0.1 m (+0x44) and far 750 m (+0x48) (0x3FB430). A camera
+keeps three factors, +0x1C on the near plane, +0x20 on the far and +0x24 its zoom (0x378F18), set when its angle is set (vf12):
+the on-board camera (every place of a car, and the ride-on camera derived from it; 0x37A170) 1, 1 and 1 / tan(A / 2); every other
+`CameraVariable` (0x3794A8: the replay script's, the start's, the finish's, the pit's, Dive's own) 0.700208 / tan(A / 2) (0.700208 =
+tan 35 degrees, 0x3794FC), 1 and 1 / tan(A / 2), so a telephoto shot's near plane moves away (0.80 m at 10 degrees); the photo camera
+the same with A taken no narrower than 45 degrees in the near factor (0x400CB8). Its projection (vf13 0x379588) is the screen's with
+those factors applied. The race's one-view draw sets the screen's far to `Env0` +0x20 ([course.md](course.md)) every frame
+(0x33EB9C), the several-view draw half of it (0x33FF7C), the mirror 120 m or 60 m (below). The renderer's state carries the guard
+band's (0.5, 0.5, 1, 1) at +0xFD0 into the VU's vf23 as the shared engine's GT3 renderer does (0x49FFA0, 0x49E5E4): triangles are clipped at
+twice the screen and at the projection's near plane. Here `ViewPose::near` (`race::lens_near`), the projection's near plane and the
+guard band's (`DrawOptions::guard_near`).
 
 ## Camera mounts of a car
 
@@ -271,6 +277,22 @@ and from the same eye and turn (`eye=` of `GT4R_RACE`) the in-car lens zoomed 1.
 draws 103.5. ❓ The program's own mirror camera (its lens, depth and place) was not read (no stored view matrix looking back was found in
 that state; the size factor K there is 121.38, 🔎 presumably the mirror's pass, drawn after the view): the on-board camera publishes the view's turn (the sideways
 angle, + 180 while looking back).
+
+#### The mirror in the program
+
+**The program's mirror** ✔ (`RacePS2Base::vf120` 0x341E50, called from the one-view draw `fn_0033EAB8` and a split half): a
+picture of its own drawn into a rectangle of the frame (race + 0xE2E0: x, y, w, h, then the lens factor k at + 0xE2F0). In the
+one-view race (0x33EF6C ..) the rectangle is w = 260 W / 640, h = 58 H / 448 centred at W / 2 across and 49 H / 448 down: (190, 20,
+260, 58) of the 640 x 448 frame (read in `03-race/state_at_start`, race object 0x1BBBD40), k = 1.3. A split half
+(`RaceSplitBattleBase::vf16` 0x32FCC8): side by side (the wide flag 0x6184F0) (90, 41, 140, 46) with k 1.3, one above the other (200,
+16) or (200, 8), 240 x 40, with k 2.0 (`race/split_battle.cpp`). The mirror's camera is the view's own: the current camera's projection
+(`CameraManager::vf2` with no blend, `CameraOnBoard::vf13`) times Scale(k r, k, 1), r = (the rectangle's height / width) / (the
+display's: 448 / 640), so its pixels are as square as the view's; the view matrix is the same eye turned round by Scale(1, 1, -1).
+The far plane is 120 m (60 m in a split half, which also takes the course's half list, + 0x1C) and the size factor K (0x456918) is
+recomputed for it (121.38 in that state = 721.2 x 1.3 x 58 / 448). Then its fog (Env0 + 0xA90), its sky (slot 24, depth 1000), slot 1
+by its list with Env0 + 0xF38, the multiply by + 0x3C, the cars, and a one-pixel outline round the rectangle.
+So the program's lens is the in-car lens zoomed 1.3 (half-height tangent 0.4437 / 1.3 = 0.341), the same factor as the shared engine's.
+The screen's own matrix in that state is diag(1.7320508, 2.2537780, 1, 1) (the in-car view: tan 0.5774 across the frame's x, 0.4437 up).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
 
@@ -567,6 +589,8 @@ mounts appear to have taken their place.
 - **Gran Turismo 4's**: the in-car, chase and roof views (places, lenses as the program sets them, the chase view's follower, the nod, the
   speed shake, the speed wobble, a hit's jolt), the replay script and its camera, the scenic shots, the start's shots, Dive, the
   ride-on places in replays; checked against the original's saved states and pictures as stated above.
+- **Gran Turismo 4's, read in the program**: the near plane (0.1 m; the tan-35 rule for the cameras other than a car's places) and the
+  guard band's near plane with it; the mirror's depth (120 m, 60 m in a split half) and the split halves' mirrors.
 - **Measured on the original's picture**: the rear-view mirror's place and lens (the program's mirror camera not read).
 - **Ours**: the far chase view (mount 1's place x 1.45), the in-car view without the mirror, the right stick's look round the car,
   the blend of two steps' poses for a frame between them, `eye=` for pictures. Not in replays: the hit's jolt (a replay keeps no hits).

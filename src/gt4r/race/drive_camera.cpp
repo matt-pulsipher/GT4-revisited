@@ -169,6 +169,7 @@ std::vector<CameraMount> read_camera_mounts(ByteSpan file) {
 
 ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<const CameraMount> mounts, int mount, bool look_back) const {
     ViewPose p;
+    p.on_board = true;
     const RVec origin{body.at(0, 3), body.at(1, 3), body.at(2, 3)};
     CameraMount m;
     const bool far_chase = mount == kFarChase, in_car_view = in_car(mount);
@@ -251,6 +252,7 @@ ViewPose blend_poses(const ViewPose& a, const ViewPose& b, float t, float cut) {
     ViewPose p = b;
     p.eye = {a.eye.x + dx * t, a.eye.y + dy * t, a.eye.z + dz * t};
     p.fov = a.fov + (b.fov - a.fov) * t;
+    p.near = a.near + (b.near - a.near) * t;
     p.focus = a.focus + (b.focus - a.focus) * t;
     // The turn's rows (the view's axes in course space): blended, then made square: the backward
     // axis, the up axis square to it, the right axis from both.

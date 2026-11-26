@@ -104,6 +104,26 @@ TEST(replay_cameras_least_focus) {
     CHECK(race::least_focus(8) > 4 && race::least_focus(8) < 16);
 }
 
+// The near plane: the on-board camera's 0.1 m; the others' 0.1 x tan(35) / tan(A / 2), 0.1 at 70 degrees, 0.80 at a 10-degree
+// telephoto shot; the views a car's places give keep 0.1, a blend follows its ends.
+TEST(camera_near_plane) {
+    const float deg = 3.14159265f / 180;
+    CHECK_NEAR(race::lens_near(70 * deg), 0.1, 1e-4);
+    CHECK_NEAR(race::lens_near(10 * deg), 0.1 * 0.70020831 / std::tan(5 * deg), 1e-5);
+    CHECK(race::lens_near(10 * deg) > 0.79f && race::lens_near(10 * deg) < 0.81f);
+    race::DriveCamera cam;
+    race::CarState car{};
+    cam.reset(car);
+    std::vector<race::CameraMount> mounts(7);
+    mounts[1].pos = {0, 1.7f, 6}, mounts[1].flags = 2;
+    const race::ViewPose chase = cam.pose(car, gt3r::render::Mat4::identity(), mounts, race::DriveCamera::kChase, false);
+    CHECK(chase.on_board);
+    CHECK_NEAR(chase.near, race::kScreenNear, 0);
+    race::ViewPose a = chase, b = chase;
+    a.near = 0.1f, b.near = 0.3f;
+    CHECK_NEAR(race::blend_poses(a, b, 0.5f).near, 0.2, 1e-6);
+}
+
 TEST(replay_effect_settings) {
     gt3r::IniDocument d;
     const race::ReplayEffectSettings s = race::ReplayEffectSettings::load(d);

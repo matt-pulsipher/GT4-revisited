@@ -1017,7 +1017,8 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     o.frustum_cull = true;
     o.sort_blended = true;
     o.far_clip = far;
-    o.guard_near = 0.07f;
+    // The guard band's near plane is the projection's: the screen's 0.1 m (render() sets the camera's own).
+    o.guard_near = race::kScreenNear;
     for (int i = 0; i < 3; ++i) o.clear[i] = 0;
     if (env.has_env) {
         // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
@@ -1090,9 +1091,11 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     Impl::ViewState& v = m.views[first_view ? 0 : 1];
     if (!v.view) v.view = std::make_unique<render::View3D>(*app_.gpu());
     const float aspect = rect.w / std::max(rect.h, 1.0f);
-    const Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
-    // (The backdrop's far plane lies a hundred times as far as the scenery's.)
-    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, 0.1f, scene.far * 100.0f);
+    Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
+    // The camera's near plane, where the guard band clips too (docs/formats/camera.md "Near and far"). (The backdrop's far plane
+    // lies a hundred times as far as the scenery's.)
+    scene.options.guard_near = pose.near;
+    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, pose.near, scene.far * 100.0f);
     if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
     draw_view(ui, *v.view, rect, cars, pose, proj, render::Frustum::symmetric(pose.fovy(aspect), aspect), scene);
     if (v.frame == 5) {
@@ -1213,7 +1216,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         gt3r::race::TyreSmoke::View sv;
         sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
         sv.proj_x = 1.0f / (std::tan(pose.fovy(aspect) * 0.5f) * std::max(aspect, 1e-3f));
-        sv.near_m = 0.1f, sv.far_m = far;
+        sv.near_m = pose.near, sv.far_m = far;
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 

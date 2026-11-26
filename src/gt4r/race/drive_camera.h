@@ -3,6 +3,7 @@
 // The driving views: the in-car view, the chase view and the roof view, each at one of the
 // car's camera places. docs/formats/camera.md "The driving views".
 
+#include <algorithm>
 #include <cmath>
 
 #include "gt4r/race/car_spec.h"
@@ -36,11 +37,19 @@ inline float shown_angle(float lens) { return 2 * std::atan(std::tan(lens * 0.5f
 // in-car lens zoomed 1.3) from the same eye (🔎 the program's mirror camera was not read).
 inline constexpr float kMirrorHalfTan = 0.325f;
 
+// The near plane (docs/formats/camera.md "Near and far"): the screen's 0.1 m (0x3FB48C), which the on-board camera keeps; every
+// other camera multiplies it by tan(35 degrees) / tan(A / 2) for its angle A (CameraVariable::vf12 0x3794A8), so a telephoto shot's
+// near plane moves away. The photo camera takes A no narrower than 45 degrees there (CameraPhotoBase::vf12 0x400CB8).
+inline constexpr float kScreenNear = 0.1f;
+inline float lens_near(float lens) { return kScreenNear * 0.70020831f / std::max(std::tan(lens * 0.5f), 1e-4f); }
+
 // A camera for one drawn frame.
 struct ViewPose {
     gt3r::render::Vec3 eye;
     gt3r::render::Mat4 view;      // course space -> view space (x right, y up, looking along -z)
     float fov = 1.2f;       // radians across a 4:3 picture's width
+    float near = kScreenNear; // the projection's near plane, metres (lens_near for the cameras other than the on-board ones)
+    bool on_board = false;    // one of a car's places (the on-board camera, DriveCamera): the screen's near plane as it is
     bool body_hidden = false; // the camera's own car is not drawn (the in-car view)
     // What the camera asks of the picture (its +0xEC bits), its focus (+8, metres) and its aperture (an f-number, +0x150 / 100):
     // the views the player does not drive in take them (race/replay_effects.h).
