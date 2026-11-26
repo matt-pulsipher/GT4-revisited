@@ -22,6 +22,7 @@ void write_value(gt3r::net::Writer& w, const ServiceEvent& e) {
     case ServiceEvent::Grips:
     case ServiceEvent::NewTires:
     case ServiceEvent::Flags: w.u8_(u8(e.value)); break;
+    case ServiceEvent::Driver: w.u16_(u16(e.value)); break;
     default: w.u32_(e.value); break;
     }
 }
@@ -39,6 +40,7 @@ u32 read_value(gt3r::net::Reader& r, ServiceEvent::Kind k) {
     case ServiceEvent::Grips: return r.u8_() & 3;
     case ServiceEvent::NewTires: return r.u8_() & 0xF;
     case ServiceEvent::Flags: return r.u8_();
+    case ServiceEvent::Driver: return r.u16_();
     default: return r.u32_();
     }
 }
@@ -155,6 +157,10 @@ void ServiceLog::add(const ServiceEvent& e) {
     if (e.kind == ServiceEvent::Flags) {
         if (u8(e.value) == last_flags_) return;
         last_flags_ = u8(e.value);
+    }
+    if (e.kind == ServiceEvent::Driver) {
+        if (last_driver_ == e.value) return;
+        last_driver_ = e.value;
     }
     push(e);
 }

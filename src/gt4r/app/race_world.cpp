@@ -596,6 +596,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
+    // (an online race: the pace and shift factor its drivers gave the player's car for the step, for the others)
+    if (service_on_ && session_ && !hold && service_.size() < 256)
+        service_.push_back({false, net::ServiceEvent::Driver, u32(session_->gt4_record(0).aids.tcs_class) | u32(session_->gt4_record(0).drive.shift_factor) << 8});
     if (!hold) step_pit_scene();
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,

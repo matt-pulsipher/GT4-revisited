@@ -73,6 +73,10 @@ void RemoteCar::apply_one(const ServiceEvent& e) {
     case K::Grips:
         if (retune_tires_) retune_tires_(u8(e.value));
         break;
+    case K::Driver:
+        car_->set_pace_level(0, int(e.value & 0xFF));
+        car_->set_shift_factor(0, u8(e.value >> 8));
+        break;
     case K::NewTires:
         for (int w = 0; w < 4; ++w)
             if ((e.value >> w) & 1) car_->new_tire(0, w);

@@ -110,6 +110,8 @@ Result pit_race(World& w, const Link& link, bool service, bool hardest, int seco
     m0.after = [owner](Machine& m) {
         if (m.clock < 0) return;
         owner->pits->after(*m.session, *owner->field);
+        const sim::Extra& x = m.session->gt4_record(0);
+        m.service.add({gt4r::net::s32(m.clock), ServiceEvent::Driver, u32(x.aids.tcs_class) | u32(x.drive.shift_factor) << 8});
         if (owner->boxed >= 0 && owner->left < 0 && owner->pits->car(0).hold == 0) owner->left = m.clock + gt4r::net::kClockPerStep;
     };
     r.machines[1]->drive = weaving(0.9f, 0.2f, 1.3);
@@ -170,7 +172,7 @@ TEST(net_service_section) {
     s.round = 7;
     s.events = {{-50, ServiceEvent::Hold, 721}, {100, ServiceEvent::Box, 0x40490FDB}, {150, ServiceEvent::Hold, 721 | 0x10000},
                 {150, ServiceEvent::Tires, 5 | 5 << 8 | 3 << 16}, {200, ServiceEvent::Grips, 3}, {900, ServiceEvent::NewTires, 0xF},
-                {40000, ServiceEvent::Fuel, 0x41A00000}, {40000, ServiceEvent::Flags, 0x09}, {40050, ServiceEvent::Hold, 90 | 0x10000}};
+                {40000, ServiceEvent::Fuel, 0x41A00000}, {40000, ServiceEvent::Flags, 0x09}, {40050, ServiceEvent::Hold, 90 | 0x10000}, {40050, ServiceEvent::Driver, 2 | 100 << 8}};
     const Bytes b = gt4r::net::with_service(rec.data, s);
     const ByteSpan back = gt4r::net::record_of(b);
     CHECK(Bytes(back.begin(), back.end()) == rec.data);
