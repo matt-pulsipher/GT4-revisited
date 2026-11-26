@@ -1,5 +1,7 @@
 #include "gt4r/race/race_display.h"
 
+#include "gt4r/sim/program_tables.h"
+
 #include "formats/gs_memory.h"
 
 #include <algorithm>
@@ -28,8 +30,29 @@ namespace {
 constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableMode1 = 0x6A0BA0, kTableStacked = 0x6A0DE0, kTableSide = 0x6A0FD8;
 constexpr size_t kRow = 0x24;
 
+// The same tables in the other releases' programs: Europe's at v1.01's places; Japan's (SCPS-17001) where its routines
+// address them (0x39B790 for the common, times, stacked and side tables, 0x39B978 / 0x39B9C8: v1.01's 0x3A2360, 0x3A2548,
+// 0x3A2598).
+u32 table_at(ByteSpan program, u32 load_address, u32 address) {
+    if (sim::release_of(program, load_address) != sim::Release::Japan) return address;
+    switch (address) {
+    case 0x6A3D38: return 0x69A1F0; // the rev counter's faces (Japan's 0x3E52F8; v1.01's 0x3EC4E0)
+    case 0x6A3C88: return 0x69A140; // the speedometer's in km/h, in mph (Japan's 0x3E4678; v1.01's 0x3EB860)
+    case 0x6A3C50: return 0x69A108;
+    case kTableCommon: return 0x696E88;
+    case kTableTimes: return 0x696D18;
+    case kTableMode1: return 0x6970C8;
+    case kTableStacked: return 0x697308;
+    case kTableSide: return 0x697500;
+    default: return address;
+    }
+}
+
 // Reads a table's rows (ending at a zero first word); false when what is there is not a table.
 bool read_table(ByteSpan program, u32 load_address, u32 address, std::vector<DisplayPlace>& out) {
+    // (Japan's display object has its members 4 bytes before v1.01's: its rows name them so, 0x1395 for v1.01's 0x1399)
+    const u32 member_shift = sim::release_of(program, load_address) == sim::Release::Japan ? 4 : 0;
+    address = table_at(program, load_address, address);
     if (address < load_address) return false;
     size_t at = address - load_address;
     size_t rows = 0;
@@ -38,7 +61,7 @@ bool read_table(ByteSpan program, u32 load_address, u32 address, std::vector<Dis
         const u32 member = rd32(program, at);
         if (member == 0) break;
         DisplayPlace p;
-        p.member = member - 1;
+        p.member = member - 1 + member_shift;
         p.x = s32(rd32(program, at + 8)), p.y = s32(rd32(program, at + 12));
         p.w = s32(rd32(program, at + 16)), p.h = s32(rd32(program, at + 20));
         const u32 ax = rd32(program, at + 0x18), ay = rd32(program, at + 0x1C);
@@ -162,6 +185,7 @@ std::string name_at(ByteSpan program, u32 load_address, u32 address) {
 // Rows of {f32 limit (the last: 0x7FFFFFFF), f32 max, [f32 min,] u32 -> name}.
 std::vector<DialFace> read_faces(ByteSpan program, u32 load_address, u32 address, bool with_min, const std::string& prefix) {
     std::vector<DialFace> out;
+    address = table_at(program, load_address, address);
     if (address < load_address) return out;
     const size_t row = with_min ? 16 : 12;
     for (size_t at = address - load_address; at + row <= program.size() && out.size() < 16; at += row) {
