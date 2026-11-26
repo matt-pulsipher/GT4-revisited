@@ -13,6 +13,10 @@ on:
         default: all
         type: choice
         options: [all, macos, linux, windows, android]
+      release_tag:
+        description: "Make the draft release for this tag, as a v* tag push does (empty: no release; a test name like v0.1.0-citest)"
+        default: ''
+        type: string
 
 # A newer run of the same branch or tag cancels the one still running (Windows minutes count double).
 concurrency:
@@ -29,11 +33,22 @@ concurrency:
 # engine's committed ones, so no shader tools are needed.
 #
 # Release packages (job `package`, on tags v* and manual runs) build SDL from source so they run
-# without a system SDL, and hold no game data (cmake/Packaging.cmake). On a v* tag, job `release`
-# collects them into a draft GitHub Release with SHA256SUMS and build provenance attestations,
-# one file per platform under a stable name (gt4r-<platform>.<ext>), for
-# .../releases/latest/download/<name>; review it, then publish. tools/release/package.sh makes
-# the same macOS and Linux packages on a computer.
+# without a system SDL, and hold no game data (cmake/Packaging.cmake). tools/release/package.sh
+# makes the same macOS and Linux packages on a computer.
+#
+# Making a release (docs/BUILDING.md, "Making a release"): push the tag, e.g.
+#   git tag v0.1.0 && git push origin v0.1.0
+# Job `draft` creates a draft GitHub Release for the tag (or reuses that tag's draft), each
+# `package` job uploads its file to it under a stable name (gt4r-macos-arm64.zip,
+# gt4r-linux-x86_64.tar.gz, gt4r-windows-x64.zip: .../releases/latest/download/<name> always
+# fetches the newest), and job `release` adds SHA256SUMS of the uploaded files. Then review the
+# draft on the Releases page and publish it. A release run stores nothing in Actions storage (no
+# upload-artifact / download-artifact): release assets don't count against it. Build provenance
+# attestations need a public repository: they are made only when the repository is public, and
+# re-running job `release` after the repository is made public attests the files already there.
+# A manual run with release_tag set (gh workflow run build.yml --ref <branch> -f
+# release_tag=v0.1.0-citest) runs the same path into a draft of that name, without a git tag;
+# delete that draft afterwards (gh release delete v0.1.0-citest).
 
 jobs:
   desktop:
@@ -106,6 +121,7 @@ jobs:
             .gradle-home/wrapper/dists
           key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # (an APK for testing; skipped when the account's Actions storage is full)
         with:
           name: gt4r-android-debug
           path: android/app/build/outputs/apk/debug/*.apk
@@ -130,8 +146,41 @@ jobs:
         shell: pwsh
         run: ./packaging/angle.ps1
 
+  # A release run (a v* tag, or a manual run with release_tag): the draft release the package jobs
+  # upload to, made once here so they don't race. A tag that already has a published release is
+  # left alone (the run stops).
+  draft:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write     # create the draft release
+    outputs:
+      tag: ${{ steps.draft.outputs.tag }}
+    steps:
+      - name: Draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
+        run: |
+          case "$TAG" in v*) ;; *) echo "::error::release tag '$TAG' does not start with v"; exit 1 ;; esac
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != "true" ]; then echo "::error::$TAG already has a published release; nothing changed"; exit 1; fi
+            echo "draft release $TAG exists: the packages go to it"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$TAG" --draft --verify-tag --generate-notes --title "GT4 Revisited $TAG"
+          else
+            # No git tag: publishing a draft creates its tag; a test draft is deleted unpublished.
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --generate-notes --title "GT4 Revisited $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   package:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'android')
+    needs: [draft]
+    if: >-
+      !cancelled() && (needs.draft.result == 'success' || needs.draft.result == 'skipped') &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'android'))
     strategy:
       fail-fast: false
       matrix:
@@ -140,14 +189,18 @@ jobs:
         include: ${{ fromJSON(inputs.platforms == 'windows' && '[{"os":"windows-2022","name":"windows-x64"}]' || inputs.platforms == 'macos' && '[{"os":"macos-15","name":"macos-arm64"}]' || inputs.platforms == 'linux' && '[{"os":"ubuntu-22.04","name":"linux-x86_64"}]' || '[{"os":"macos-15","name":"macos-arm64"},{"os":"windows-2022","name":"windows-x64"},{"os":"ubuntu-22.04","name":"linux-x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: read
+      contents: write     # upload to the draft release
       id-token: write     # sign this package's provenance attestation
       attestations: write
+    env:
+      RELEASE_TAG: ${{ needs.draft.outputs.tag }} # (empty: not a release run)
     steps:
-      # gt4r-<tag>-<platform>; a branch's '/' made '-' (the name is a file's).
+      # gt4r-<tag>-<platform> (the release tag, else the branch with '/' made '-': the name is a file's).
       - name: Package name
         shell: bash
-        run: echo "PKG=gt4r-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}" >> "$GITHUB_ENV"
+        run: |
+          name="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          echo "PKG=gt4r-${name//\//-}-${{ matrix.name }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -223,7 +276,7 @@ jobs:
             Write-Host "---- end ----"
           }
       - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && env.RELEASE_TAG == ''
         continue-on-error: true # (the picture alone)
         with:
           name: smoke-${{ env.PKG }}
@@ -231,14 +284,26 @@ jobs:
       - name: Archive (Linux)
         if: runner.os == 'Linux'
         run: tar -C dist -czf "$PKG.tar.gz" "$PKG"
-      # Attested where it was built. Tag runs only: manual runs are not releases.
+      # Attested where it was built. Release runs on a public repository only (attestations need one).
       - uses: actions/attest-build-provenance@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE_TAG != '' && github.event.repository.private == false
         with:
           subject-path: |
             ${{ env.PKG }}.zip
             ${{ env.PKG }}.tar.gz
+      # Release runs: straight to the draft release, under the stable name gt4r-<platform>.<ext>.
+      - name: Upload to the draft release
+        if: env.RELEASE_TAG != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ext=zip; if [ "$RUNNER_OS" = Linux ]; then ext=tar.gz; fi
+          cp "$PKG.$ext" "gt4r-${{ matrix.name }}.$ext"
+          gh release upload "$RELEASE_TAG" "gt4r-${{ matrix.name }}.$ext" --clobber --repo "$GITHUB_REPOSITORY"
+      # Other manual runs: an artifact.
       - uses: actions/upload-artifact@v4
+        if: env.RELEASE_TAG == ''
         with:
           name: ${{ env.PKG }}
           path: |
@@ -246,42 +311,35 @@ jobs:
             ${{ env.PKG }}.tar.gz
           if-no-files-found: error
 
+  # SHA256SUMS of the files the package jobs uploaded, and (public repository only) their
+  # attestations. Re-run this job alone after the repository is made public to attest a release
+  # made before: it checks the repository's visibility when it runs.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package]
+    needs: [draft, package]
+    if: ${{ !cancelled() && needs.draft.result == 'success' && needs.package.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: write     # create the release
+      contents: write     # upload to the release
       id-token: write     # sign the provenance attestations
       attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
     steps:
-      # Only this tag's packages (gt4r-<tag>-*).
-      - uses: actions/download-artifact@v4
-        with:
-          path: assets
-          pattern: gt4r-${{ github.ref_name }}-*
-          merge-multiple: true
-      # Renamed to stable names (the release itself carries the version), so
-      # https://github.com/<owner>/<repo>/releases/latest/download/<name> always fetches the newest
-      # package: gt4r-macos-arm64.zip, gt4r-windows-x64.zip, gt4r-linux-x86_64.tar.gz.
-      - name: Stable names
-        working-directory: assets
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          for f in "gt4r-$TAG-"*; do mv "$f" "gt4r-${f#gt4r-$TAG-}"; done # one file per platform
-          ls -l
       - name: Checksums
-        working-directory: assets
-        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --pattern 'gt4r-*'
+          ls -l
+          sha256sum gt4r-* > SHA256SUMS && cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --clobber
+      - name: Repository visibility
+        id: repo
+        run: echo "private=$(gh api "repos/$GH_REPO" --jq .private)" | tee -a "$GITHUB_OUTPUT"
       # Anyone can check a download came from this workflow:
       #   gh attestation verify <file> --repo <owner>/<repo>
       - uses: actions/attest-build-provenance@v2
+        if: steps.repo.outputs.private == 'false'
         with:
           subject-path: assets/gt4r-*
-      - name: Draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ github.ref_name }}" assets/* --repo "${{ github.repository }}" \
-            --draft --generate-notes --title "GT4 Revisited ${{ github.ref_name }}"
