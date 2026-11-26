@@ -14,6 +14,7 @@
 #include "formats/texture_pack.h"
 #include "platform/crash_handlers.h"
 #include "platform/mac_layer.h"
+#include "platform/render_scale.h"
 #include "vfs/mod_archive.h"
 #include "gt3r_version.h"
 #include "gt4r_version.h"
@@ -119,6 +120,30 @@ bool App::init(int argc, char** argv) {
         gt3r::log_file::open(dir);
     }
     if (const char* c = SDL_getenv("GT4R_CRASH_TEST")) gt3r::platform::crash_test(c); // throw | segv | abort
+    const bool mobile = gt3r::platform::is_mobile();
+    // Phones and tablets have no command line: <user data>/args.txt holds one argument a line (for tests), and "--env NAME=value"
+    // there sets a variable the run reads.
+    std::vector<std::string> arg_list(argv, argv + argc);
+    std::vector<char*> arg_ptrs;
+    if (mobile)
+        if (const std::optional<Bytes> extra = gt3r::read_host_file(user_data_dir() + "args.txt")) {
+            for (std::string_view line : gt3r::split(std::string_view(reinterpret_cast<const char*>(extra->data()), extra->size()), '\n'))
+                if (const std::string_view a = gt3r::trim(line); !a.empty()) arg_list.emplace_back(a);
+            for (size_t i = 1; i + 1 < arg_list.size(); ++i) {
+                if (arg_list[i] != "--env") continue;
+                const std::string& kv = arg_list[++i];
+                if (const size_t eq = kv.find('='); eq != std::string::npos && eq > 0) {
+                    const std::string name = kv.substr(0, eq), value = kv.substr(eq + 1);
+                    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), name.c_str(), value.c_str(), true);
+#if !defined(_WIN32)
+                    setenv(name.c_str(), value.c_str(), 1); // (what reads std::getenv)
+#endif
+                }
+            }
+            LOG_INFO("args.txt: %zu arguments", arg_list.size() - size_t(argc));
+        }
+    for (std::string& a : arg_list) arg_ptrs.push_back(a.data());
+    argc = int(arg_ptrs.size()), argv = arg_ptrs.data();
 #ifdef SDL_PLATFORM_WINDOWS
     // Xbox pads through SDL's RAWINPUT driver, for their impulse triggers, unless [input] xbox_driver = xinput: SDL takes it
     // as it starts its joysticks.
@@ -128,6 +153,7 @@ bool App::init(int argc, char** argv) {
     }
 #endif
     run_ = settings::RunMode::of(std::vector<std::string>(argv + std::min(argc, 1), argv + argc), [](const char* name) { return SDL_getenv(name); });
+    if (mobile) run_.windowless = false, run_.pace = 0; // (a phone's window is its screen, always shown and paced by it)
     if (run_.windowless) {
         // Nothing of the run reaches whoever is at the machine: no Dock icon and no activation, no sound (unless the environment
         // names a driver: what is set there comes first), the display may sleep.
@@ -150,6 +176,7 @@ bool App::init(int argc, char** argv) {
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
     LOG_INFO("%s %s (engine %s); user data: %s", kAppName, GT4R_VERSION, GT3R_VERSION, data_dir_.c_str());
     load_settings();
+    if (mobile) video_.fullscreen = true; // (phones and tablets: the whole screen, without the system's bars)
 
     // A scripted run does not take the keyboard from whoever is at the machine: its window is never shown, or (--visible) opens
     // without becoming the active one and cannot be focused.
@@ -159,10 +186,12 @@ bool App::init(int argc, char** argv) {
     if (const char* size = SDL_getenv("GT4R_WINDOW"); size && std::sscanf(size, "%dx%d", &window_w, &window_h) != 2) window_w = 1280, window_h = 720;
     // macOS: in full screen the menu bar comes down at the screen's top as in other apps.
     SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_MENU_VISIBILITY, "1");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight"); // phones and tablets: landscape, either way up
     window_ = SDL_CreateWindow(kAppName, std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                   (run_.windowless ? SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE
-                                    : scripted_     ? SDL_WINDOW_NOT_FOCUSABLE
+                                   (mobile             ? SDL_WINDOW_FULLSCREEN
+                                    : run_.windowless  ? SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE
+                                    : scripted_        ? SDL_WINDOW_NOT_FOCUSABLE
                                     : video_.fullscreen ? SDL_WINDOW_FULLSCREEN
                                                         : SDL_WindowFlags(0)));
     if (!window_) {
@@ -200,6 +229,12 @@ bool App::init(int argc, char** argv) {
         gt3r::IniDocument controls = config_; // (our words for the original's layouts as the engine has them)
         input::translate_config(controls);
         input_->load(controls);
+    }
+    // The on-screen controls: phones and tablets (GT4R_TOUCH=1: on a computer too, shown, for pictures).
+    if (const char* t = SDL_getenv("GT4R_TOUCH"); mobile || (t && *t == '1')) {
+        touch_ui_ = true;
+        touch_.load(config_);
+        if (!mobile) touch_.controls().note_touch();
     }
     audio_ = std::make_unique<gt3r::AudioEngine>(sound_settings_.device);
     apply_sound();
@@ -502,6 +537,10 @@ SDL_AppResult App::iterate() {
     discord_status().frame(*this);
     updates().frame(*this, !screens_.empty() && screens_.back()->update_prompts());
     const bool modal = updates().modal(); // the update dialog takes the menu input
+    if (touch_ui_) { // (player 1's pad from the on-screen controls, under what a script presses)
+        const Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), false, *input_);
+    }
     gt3r::PadState scripted = scripted_keys();
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
@@ -521,8 +560,9 @@ SDL_AppResult App::iterate() {
             for (unsigned b = 0; b < 16; ++b)
                 if (drive.held & (1u << b)) ov.buttons |= u16(1u << b), ov.pressure[b] = 255;
             ov.connected = ov.buttons != 0 || drive.steer != 0 || drive.sticks[0] != 0 || drive.sticks[1] != 0 || drive.sticks[2] != 0 || drive.sticks[3] != 0;
-            input_->set_overlay(player, ov);
             if (player == 0) menu_pad_ = ov;
+            if (player == 0 && !ov.connected && touch_ui_) ov = touch_.controls().pad(); // (the on-screen controls when no script plays)
+            input_->set_overlay(player, ov);
         }
         for (unsigned b = 0; b < 16; ++b)
             if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
@@ -553,13 +593,25 @@ SDL_AppResult App::iterate() {
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
 
+    // Phones: the display's cutout and corners (asked again until the window has them, and when the safe area changes).
+    if (gt3r::platform::is_mobile() && !display_insets_ && --insets_retry_ <= 0) {
+        display_insets_ = gt3r::platform::query_display_insets();
+        insets_retry_ = 30;
+        if (display_insets_)
+            LOG_INFO("Display cutout %d,%d,%d,%d px, corner radius %d px", display_insets_->left, display_insets_->top, display_insets_->right,
+                     display_insets_->bottom, display_insets_->corner_radius);
+    }
     const bool game = !screens_.empty() && screens_.back()->follows_aspect();
     layout_ui(game);
-    Ui::set_prompts(gt3r::button_prompts(*input_, false, false)); // "{Cross}" in the hints
+    Ui::set_prompts(gt3r::button_prompts(*input_, touch_ui_ && touch_.controls().visible(), touch_ui_)); // "{Cross}" in the hints
     begin_gamma_frame();
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
     updates().dialog_render(*ui_); // (centered on whatever width the screen below laid out)
+    if (touch_ui_) {
+        touch_.set_safe_area(safe_area_window());
+        touch_.render(*ui_);
+    }
     draw_fps(!game);
     // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
     static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
@@ -650,8 +702,11 @@ SDL_AppResult App::event(const SDL_Event& e) {
         }
     }
     if (e.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) apply_frame_limit(); // (another display's rate)
+    if (e.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED || e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || e.type == SDL_EVENT_DID_ENTER_FOREGROUND)
+        display_insets_.reset(), insets_retry_ = 0; // (asked again: a turn, a folding phone)
     SDL_Event local = e; // the pointer in UI units
     SDL_ConvertEventToRenderCoordinates(renderer_, &local);
+    if (touch_ui_ && touch_.event(local)) return SDL_APP_CONTINUE; // a finger on the on-screen controls
     if (!scripted_) pointer_.event(local); // (a scripted run's mouse is its script's)
     if (!screens_.empty()) screens_.back()->on_event(*this, local);
     return SDL_APP_CONTINUE;

@@ -111,6 +111,7 @@ public:
     }
 
     bool follows_aspect() const override { return runtime_ || player_; }
+    gt3r::TouchLayout touch_layout() const override { return follows_aspect() ? gt3r::TouchLayout::Menu : gt3r::TouchLayout::None; } // (the game's menus: the pad)
 
     // The game's title (Arcade's top page): the update dialog may open over it; the Discord status says which menus run.
     std::pair<std::string, std::string> where() const {

@@ -52,7 +52,7 @@ void App::set_video(const settings::Video& v) {
     video_ = v;
     video_.save(config_);
     save_config();
-    if (v.fullscreen != was.fullscreen && !scripted_ && fullscreen() != v.fullscreen) SDL_SetWindowFullscreen(window_, v.fullscreen);
+    if (v.fullscreen != was.fullscreen && !scripted_ && !gt3r::platform::is_mobile() && fullscreen() != v.fullscreen) SDL_SetWindowFullscreen(window_, v.fullscreen);
     if (v.vsync != was.vsync && !run_.windowless) SDL_SetRenderVSync(renderer_, v.vsync ? 1 : 0);
     if (v.limit_60fps != was.limit_60fps) apply_frame_limit();
     if (gpu_ && v.msaa != was.msaa) gpu_->set_msaa(v.msaa);
@@ -112,7 +112,34 @@ void App::layout_ui(bool game) {
     if (cur_w != w || cur_h != Ui::kHeight || mode != SDL_LOGICAL_PRESENTATION_LETTERBOX)
         SDL_SetRenderLogicalPresentation(renderer_, w, Ui::kHeight, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     if (ui_) ui_->set_layout(float(w), float(Ui::kHeight), {0, 0, float(w), float(Ui::kHeight)}, false);
+    if (touch_ui_) touch_.controls().set_game_area(float(w), float(Ui::kHeight)); // (the on-screen controls lay out beside it)
     game_area::set_width(float(w));
+}
+
+// The window clear of a phone's display cutout and rounded corners (window units): where the on-screen controls go. SDL's own safe
+// area counts the system's gesture bands too, so the cutout comes from the activity where it can be read.
+SDL_FRect App::safe_area_window() const {
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(window_, &ww, &wh);
+    SDL_FRect r{0, 0, float(ww), float(wh)};
+    SDL_Rect sa{};
+    float corner = 0;
+    if (display_insets_ && ww > 0) {
+        int pw = 0, ph = 0;
+        SDL_GetWindowSizeInPixels(window_, &pw, &ph);
+        const float k = pw > 0 ? float(ww) / float(pw) : 1.0f;
+        const gt3r::platform::DisplayInsets& d = *display_insets_;
+        r = {d.left * k, d.top * k, float(ww) - float(d.left + d.right) * k, float(wh) - float(d.top + d.bottom) * k};
+        corner = float(d.corner_radius) * k;
+    } else if (SDL_GetWindowSafeArea(window_, &sa) && sa.w > 0 && sa.h > 0) {
+        r = {float(sa.x), float(sa.y), float(sa.w), float(sa.h)};
+    }
+    // A rectangle inset by 0.3 x the corners' radius from both edges keeps its corner on the screen (an unknown radius: about a
+    // tenth of the short side).
+    const float c = corner > 0 ? 0.3f * corner : 0.03f * float(std::min(ww, wh));
+    const float x0 = std::max(r.x, c), y0 = std::max(r.y, c);
+    const float x1 = std::min(r.x + r.w, float(ww) - c), y1 = std::min(r.y + r.h, float(wh) - c);
+    return {x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
 }
 
 // The gamma: the frame goes into the pass's target, which its end puts on the window just before it is shown.

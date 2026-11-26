@@ -84,6 +84,7 @@ public:
     }
 
     bool follows_aspect() const override { return true; }
+    gt3r::TouchLayout touch_layout() const override { return gt3r::TouchLayout::Menu; }
 
     void render(App&, Ui& ui) override {
         ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});

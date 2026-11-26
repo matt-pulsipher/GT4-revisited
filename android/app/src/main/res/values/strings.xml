@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">GT4 Revisited</string>
+    <!-- Under the app's entry in the Files app (the user data folder's documents provider) -->
+    <string name="documents_summary">Mods, screenshots and settings</string>
+</resources>

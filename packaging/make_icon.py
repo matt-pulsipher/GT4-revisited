@@ -3,7 +3,8 @@
 
 The same family as the shared engine's own icon (a rounded square with a road on it): white,
 an S-bend seen from above with navy and blue kerbs, and a 4 in Barlow Condensed SemiBold (the
-engine's own UI font). Writes packaging/icon.png (1024x1024) and packaging/icon.ico (Windows).
+engine's own UI font). Writes packaging/icon.png (1024x1024), packaging/icon.ico (Windows) and the
+Android launcher icons (android/app/src/main/res/mipmap-*/ic_launcher.png).
 Needs Pillow:
 
     python3 packaging/make_icon.py
@@ -131,6 +132,11 @@ def main():
     icon = draw()
     icon.save(os.path.join(HERE, "icon.png"))
     icon.save(os.path.join(HERE, "icon.ico"), sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    res = os.path.join(os.path.dirname(HERE), "android", "app", "src", "main", "res")
+    for name, px in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+        out = os.path.join(res, "mipmap-" + name)
+        os.makedirs(out, exist_ok=True)
+        draw(px).save(os.path.join(out, "ic_launcher.png"))
     print("icons written")
 
 
