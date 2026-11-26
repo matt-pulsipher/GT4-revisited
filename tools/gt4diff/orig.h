@@ -89,5 +89,10 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                 std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr,
                 const std::function<void()>& before_init = {}, u32 conductor = 0, u32 vtable = 0);
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
+// The road's own grid made as long as the field (GT4R_RACE_GRID's places, the rule block's layout kept) in the races set up
+// after this: a field longer than the road's list reads past its end in the program (0x3952C0, no bound), which on
+// SCPS-17001 v1.05's courses places the cars off the road (the computer drivers' check, ai.cpp); with it the rule block's layout is
+// none (+0x21 = -1), as GT4R_RACE_GRID has it.
+void set_extend_grid(bool on);
 
 } // namespace gt4r::diff

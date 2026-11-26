@@ -254,7 +254,8 @@ void Field::setup(Driver& d) {
     if (c.p.weight != F()) {
         d.p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.weight;
         const rules::BodyExtra& b = session_->extra(d.car).body;
-        d.p.aero_bonus = b.speed_part_kind == 7 ? (b.speed_part_lift * F::raw(0x3F4CCCCC)) / c.p.weight : F();
+        // (SCPS-17001 v1.05's 0x45F1C8 makes no aero bonus: its block has no word for it)
+        d.p.aero_bonus = b.speed_part_kind == 7 && !tables_.japan ? (b.speed_part_lift * F::raw(0x3F4CCCCC)) / c.p.weight : F();
     }
     // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
     int thr = pace_.throttle[size_t(d.drive_class)], brk = pace_.brake[size_t(d.drive_class)], cs = pace_.corner[size_t(d.drive_class)];

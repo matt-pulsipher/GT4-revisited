@@ -35,10 +35,12 @@ constexpr Pa kStep{0x34DB30};      // (conductor, first car)
 constexpr u32 kStubZero = 0x100000, kStubPad = 0x100004;
 
 OrigRace* g_active = nullptr;
+bool g_extend_grid = false;
 
 } // namespace
 
 OrigRace* active_race() { return g_active; }
+void set_extend_grid(bool on) { g_extend_grid = on; }
 
 void pad_frame(const Pad& p, u8* b) {
     std::memset(b, 0, 0x20);
@@ -114,7 +116,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         // heading, at the road's height there), so the two races start alike. Without it the conductor's virtual 26 takes the
         // rule block's layout 0 (the road's +0x9C list, +0x18 its places; 0x395220 into the course object's +0xB0) and
         // 0x3952C0 reads place i past that list's end (it has no bound).
-        if (std::getenv("GT4R_RACE_GRID")) {
+        if (std::getenv("GT4R_RACE_GRID") || g_extend_grid) {
             const course::Runway r = course::Runway::parse(road);
             const sim::RoadGround g(r);
             const u32 have = ee.r16(o.runway + 0x3A);
@@ -230,7 +232,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             const u8 b[9] = {40, 60, 20, 5, 3, 10, 10, 25, 30};
             for (u32 i = 0; i < 9; ++i) ee.w8(o.cond + 0xF818 + 0x2C + i, b[i]);
         }
-        if (std::getenv("GT4R_RACE_GRID")) ee.w8(o.cond + 0xF818 + 0x21, 0xFF); // (the course's layout: none)
+        if (std::getenv("GT4R_RACE_GRID") || g_extend_grid) ee.w8(o.cond + 0xF818 + 0x21, 0xFF); // (the course.s layout: none)
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
         if (std::getenv("GT4R_AI_PLACES")) // (each car's set-up, 0x363B10: its start kind and place, record frame)

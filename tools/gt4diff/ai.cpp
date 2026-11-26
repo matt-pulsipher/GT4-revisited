@@ -265,11 +265,14 @@ void check_params(Ee& ee, const OrigRace& o, const sim::ai::Field& field, std::m
         f("brake", 0x00, p.brake), f("corner scale", 0x04, p.corner_scale), f("corner offset", 0x08, p.corner_offset), f("yaw gain", 0x0C, p.yaw_gain);
         f("sat throttle", 0x10, p.sat_throttle), f("sat brake", 0x14, p.sat_brake), f("look speed", 0x18, p.look_speed), f("look min", 0x1C, p.look_min);
         f("look max", 0x20, p.look_max), f("front weight", 0x58, p.front_weight), f("corner bonus", 0x5C, p.corner_bonus), f("steer rate", 0x60, p.steer_rate);
-        f("pit speed", 0x64, p.pit_speed), f("throttle", 0x6C, p.throttle), f("downforce", 0x70, p.downforce), f("aero bonus", 0x74, p.aero_bonus);
-        f("bonus angle", 0x7C, p.bonus_angle), f("bonus speed", 0x80, p.bonus_speed);
+        f("pit speed", 0x64, p.pit_speed), f("throttle", 0x6C, p.throttle), f("downforce", 0x70, p.downforce);
+        // (SCPS-17001 v1.05's block has no aero bonus word: what follows it is 4 bytes earlier)
+        const u32 a = japan() ? 4 : 0;
+        if (!japan()) f("aero bonus", 0x74, p.aero_bonus);
+        f("bonus angle", 0x7C - a, p.bonus_angle), f("bonus speed", 0x80 - a, p.bonus_speed);
         t["params bonus ticks"].add("ticks", double(ee.r32(PB + 0x68)), p.bonus_ticks, 0);
-        t["params straight bonus"].add("flag", ee.r8(PB + 0x78), p.straight_bonus ? 1 : 0, 0);
-        for (u32 k = 0; k < 3; ++k) f("grip", 0xA8 + 4 * k, p.grip[k]);
+        t["params straight bonus"].add("flag", ee.r8(PB + 0x78 - a), p.straight_bonus ? 1 : 0, 0);
+        for (u32 k = 0; k < 3; ++k) f("grip", 0xA8 - a + 4 * k, p.grip[k]);
     }
 }
 
@@ -621,6 +624,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     boot(ee, disc, sdb);
     OrigRace o;
     std::string err;
+    set_extend_grid(japan()); // (boot has set the program)
     if (!setup_race(ee, disc, sdb, course, cars, 0, o, err, true)) {
         result.error = err;
         if (print) std::printf("ai: %s\n", err.c_str());
