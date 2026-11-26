@@ -130,7 +130,7 @@ the stop first (0x43D680): so a paused race, a menu and a replay send it.
 | The devices: SDL's gamepads, wheels, keyboard, hot plug, bindings, dead zone and response curve | the shared engine's input layer (`gt3r::InputManager`) on a virtual DualShock 2 |
 | The devices into a port (`input/player_controls.*`) | ours: a pad without pressures is the console's kind 4 (its buttons pressed or not); the sticks are read finer than a byte; a trigger's travel set to a pedal moves it as an axis; a wheel's axis x its rotation over the original wheel's (200 or 900 degrees) |
 | The modern layout (triggers for pedals) | ours, into the same frame (kind 2, the pedals as axes); left for the Key Configuration's keys once they differ from its preset's (the page's OK leaves the preset 0 without a change too; Controls' *Restore the game's layout* puts the presets back) |
-| The vibration's level, the wheel's force | Gran Turismo 4's (physics.md §3.6), sent as they are with "Gran Turismo 4 original" chosen |
+| The vibration's level, the wheel's force | Gran Turismo 4's (physics.md §3.6), sent as they are with "Gran Turismo 4 original" chosen: the pad block as the port packs it (bit 0 of +0x00 the small motor, +0x01 the large motor's byte; `input/race_feedback.*` `RaceFeedback::rumble`) |
 | The Modern rumble and the Modern wheel force (the default) | the shared engine's (`gt3r::race::RumbleModel`, `force_feedback.*`), fed from Gran Turismo 4's step (`input/race_feedback.*`) |
 | The triggers (a DualSense's resistance and buzz, an Xbox pad's impulse triggers) | the shared engine's, from the step's tires |
 

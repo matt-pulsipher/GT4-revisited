@@ -209,6 +209,8 @@ Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<Pa
 }
 
 Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program) {
+    key = 0;
+    if (!program.known()) return {}; // (the cipher's tables are Gran Turismo 4's)
     key = (save::crc32(plain) & 0xFFFFFFu) | (plain.empty() ? 0u : u32(plain[0]) << 24);
     Bytes out(plain.size());
     u32 a = (key & 0xFFFFFFu) | 0x3F000000u;
@@ -222,6 +224,7 @@ Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program) {
 }
 
 Bytes Demonstration::encode(const sim::Program& program) const {
+    if (!program.known()) return {};
     Bytes b = header;
     b.resize(kHeader);
     auto w32 = [](Bytes& to, size_t at, u32 v) {

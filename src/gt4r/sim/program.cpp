@@ -2,66 +2,79 @@
 
 #include "gt4r/sim/program_prologue.h"
 
+#include "base/log.h"
 #include "disc/core_image.h"
 #include "gt4r/disc/disc.h"
 
+#include <atomic>
 #include <exception>
+#include <map>
+#include <mutex>
 
 namespace gt4r::sim {
 
 namespace {
 
-// FNV-1a over a stretch of the image.
-u64 hash(ByteSpan image, u32 base, u32 from, u32 to) {
-    if (from < base || to > base + image.size() || from >= to) return 0;
-    u64 h = 0xcbf29ce484222325ull;
-    for (u32 a = from; a < to; ++a) h = (h ^ image[a - base]) * 0x100000001b3ull;
-    return h;
-}
+const TableCheck kNoCheck;
+constexpr const char* kPrologue = "Gran Turismo 4 Prologue's program, whose own physics block, driver sets and spec defaults serve; for the rest";
 
-// The routines that address the tables in SCUS-97328 v1.01: the spec builder, its wrapper with the
-// fix-ups and the converter.
-struct Routine {
-    u32 from, to;
-    u64 hash;
-};
-constexpr Routine kRoutines[] = {
-    {0x4413C8, 0x44194C, 0x74b88b8726c105c9ull},
-    {0x3F3B68, 0x3F4078, 0xca526b3daf3e7935ull},
-    {0x361908, 0x362DF8, 0xddee4b2a031785e5ull},
-};
+// Each disc program's check, made once (by the image it was made of).
+std::shared_ptr<const TableCheck> checked(const std::shared_ptr<const gt3r::CoreImage>& core) {
+    static std::mutex m;
+    static std::map<const gt3r::CoreImage*, std::pair<std::weak_ptr<const gt3r::CoreImage>, std::shared_ptr<const TableCheck>>> done;
+    std::lock_guard<std::mutex> lock(m);
+    for (auto it = done.begin(); it != done.end();) it = it->second.first.expired() ? done.erase(it) : std::next(it);
+    auto& slot = done[core.get()];
+    if (slot.second && !slot.first.expired()) return slot.second;
+    auto c = std::make_shared<const TableCheck>(check_tables(core->program, core->load_address));
+    for (const std::string& line : c->lines()) {
+        if (c->differ() || c->not_found()) LOG_WARN("Program tables: %s", line.c_str());
+        else LOG_INFO("Program tables: %s", line.c_str());
+    }
+    slot = {core, c};
+    return c;
+}
 
 } // namespace
 
 Program Program::from_image(Bytes image, u32 load_address) {
     auto core = std::make_shared<gt3r::CoreImage>();
     core->program = std::move(image), core->load_address = load_address;
-    return from_core(std::move(core));
-}
-
-Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core) {
     Program p;
     p.core_ = std::move(core);
     p.base_ = p.core_->load_address;
-    p.known_ = true;
-    for (const Routine& r : kRoutines)
-        if (hash(p.image(), p.base_, r.from, r.to) != r.hash) p.known_ = false;
-    // The static block's shape: a rolling-resistance curve of 1 to 8 rising speeds.
-    if (p.known_) {
-        const u32 n = p.b(kStatic + 0x0B);
-        if (n < 1 || n > 8) p.known_ = false;
-        for (u32 i = 1; i < n && p.known_; ++i)
-            if (p.b(kStatic + 0x0C + i) < p.b(kStatic + 0x0C + i - 1)) p.known_ = false;
+    if (PrologueProgram::locate(p).recognized()) {
+        p.issue_ = kPrologue;
+        return p;
     }
-    p.issue_ = p.known_ ? "" : "the disc's program is not a build whose tables are mapped";
-    if (!p.known_ && PrologueProgram::locate(p).recognized())
-        p.issue_ = "Gran Turismo 4 Prologue's program, whose own physics block, driver sets and spec defaults replace Gran Turismo 3's; for the rest";
+    p.known_ = reference_build(p.image(), p.base_);
+    p.issue_ = p.known_ ? "" : "the image is not SCUS-97328 v1.01's program";
+    return p;
+}
+
+Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core) { return from_core(std::move(core), false); }
+
+Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core, bool prologue_disc) {
+    Program p;
+    p.core_ = std::move(core);
+    p.base_ = p.core_->load_address;
+    if (PrologueProgram::locate(p).recognized()) {
+        p.issue_ = kPrologue;
+        return p;
+    }
+    if (prologue_disc) { // (never Gran Turismo 4's tables, nor the shared engine's, for a Prologue build not placed)
+        p.issue_ = "a Gran Turismo 4 Prologue build whose tables are not placed";
+        return p;
+    }
+    p.known_ = p.ours_ = true;
+    p.issue_ = "";
+    p.check_ = checked(p.core_);
     return p;
 }
 
 Program Program::load(Disc& disc) {
     try {
-        return from_core(disc.program_image());
+        return from_core(disc.program_image(), disc.info().game == Game::Prologue);
     } catch (const std::exception& e) {
         Program p;
         p.issue_ = std::string("the disc's program cannot be read: ") + e.what();
@@ -69,7 +82,17 @@ Program Program::load(Disc& disc) {
     }
 }
 
+const TableCheck& Program::check() const { return check_ ? *check_ : kNoCheck; }
+
 u8 Program::b(u32 addr) const {
+    if (ours_) {
+        if (const ProgramTable* t = gt4_table_at(addr)) return t->bytes[addr - t->address];
+        if (core_ && addr >= base_ && addr - base_ < core_->program.size()) {
+            static std::atomic<int> told{0};
+            if (told.fetch_add(1) < 8) LOG_WARN("Program tables: a read at 0x%06X, outside Gran Turismo 4's tables (0)", addr);
+        }
+        return 0;
+    }
     if (!core_ || addr < base_ || addr - base_ >= core_->program.size()) return 0;
     return core_->program[addr - base_];
 }

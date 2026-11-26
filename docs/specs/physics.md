@@ -649,8 +649,16 @@ set of parts (`GENERIC_CAR` +0x00, the `df_pt_sim_` row of `DEFAULT_PARTS`) and 
 parts to their places; the paints' id (0x4457B0) and paint 0; then each part's default
 settings (0x4449C0: eleven setters 0x444A88 .. 0x445230), every one clamped into its range
 (0x4452A8; index settings have the least value 1); then, for a gearbox whose ratios are made
-(`GEAR` +0x25), the ratios from the slider (0x443240 → 0x354FF8, GT3's 0x1E28A8: the same
-ratios on every car whose gearbox is made, physics §6.7). The generator's caller copies twelve
+(`GEAR` +0x25), the ratios from the slider (0x443240 → 0x354FF8, GT3's 0x1E28A8 with other constants; ours
+`sim::computed_gears`). 0x443240 builds the spec of the equipment (0x4413C8) and calls 0x354FF8 with the slider
+(equipment +0x12A) x 10 as s, in km/h: the gears n (spec +0x155), the row of the steps table 0x620448 (6 bytes a row,
+the rows of 5, 6 and 7 gears; fewer than 5 take 5's, more than 7 take 7's), the driven axle's tire radius r (0x34BC98's
+axle, 0x34BA30's radius), t = (s - 150) / 250; the top gear's ratio x = 100 x the rev byte (spec +0xBD) x 0.1047198
+(0x3DD6774E) x r / (s x 0.2777778 (0x3E8E38E3)) / (the final drive's s16 +0x150 x 0.001 (0x3A83126E)); each row's
+pairs eased q(a, b) = 200 / b + t (200 / a - 200 / b) for (b0, b1), (b2, b3), (b4, b5); from gear n down to 1: gear 1
+first takes x q3; the gear's word is x x 1000 converted (toward zero), then x x q1, q1 x q2. Reverse (3 first +
+second) / 4, toward zero. ✔ word for word with the program's on every made gearbox at every slider (test
+`disc_gear_ratios_equal_the_programs`). The generator's caller copies twelve
 words into the record, so the gear words past the gearbox's count hold whatever the last
 call left; the spec builder overwrites them. The columns:
 [formats/database.md](../formats/database.md).
@@ -877,8 +885,10 @@ returns the engine's share plus the motor's (none while the clutch is open).
 
 ## 5. The program's tables
 
-Read from the user's `CORE.GT4` when a session is set up (`sim::Program`); the build is
-recognized by a hash of the three routines above.
+Gran Turismo 4's own values, as SCUS-97328 v1.01 holds them, carried in our code (`sim/program_tables*`, the
+"Program tables" row below) and served on every Gran Turismo 4 disc by their address in that build; the disc's own
+program is checked against them (v1.01 recognized by a hash of the three routines above, another build's tables found
+by the routines that address them).
 
 - **The static physics block, 0x620CD8**: GT3's block (physics §3.6, 0x2D28B0) with 24
   surfaces. +0x00 air density x 10, +0x01 / +0x02 slipstream shares, +0x03 / +0x04 added
@@ -1016,8 +1026,8 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | Part | Runs | Follows |
 |---|---|---|
 | Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2): equal to the program's on all 722 cars, byte for byte (§9); computed gearboxes' ratios by the engine's generator (7 gears at most) |
-| Spec → parameter block | `convert.*` (`sim::convert`, `sim::build_record`) | Gran Turismo 4 (§4.3): the converter 0x361908 and every routine it calls, in the program's arithmetic: the whole 0x1100-byte block equal to the program's in every word on all 722 cars, as sold and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages (§9). The step's record is read out of the block: the engine mirror's members by their places, the mirror's members the block keeps in another shape made from Gran Turismo 4's (the 24-point curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the steering and camber curves, the inverse masses: the engine's routines that still run read these), and Gran Turismo 4's own part. The engine's converter (`exact_bridge.*`: `core_spec`, `gt4_params`, and `gt4_extras`) serves only a program that is not a known build |
-| Program tables | `program.*`, `core_program`, `rules::tables` | Gran Turismo 4's routines read the program's own tables and the globals the race's start makes (`rules::tables`, the converter's, `speed_tables`, `wear_rules_block`); the engine's routines that still run (the list below) read `core_program`: the static block from `CORE.GT4` folded to the core's 16 surface rows (0 .. 11 as they are, 20 / 21 / 22 → 12 / 13 / 14, 12 → 15), and the core's own tables (GT3's values) for the rest: the input's pad and steering tables, the steering force's, the tire effects' and the engine sound's scales, the engine condition's limits (GT4's are `condition_table`) |
+| Spec → parameter block | `convert.*` (`sim::convert`, `sim::build_record`) | Gran Turismo 4 (§4.3): the converter 0x361908 and every routine it calls, in the program's arithmetic: the whole 0x1100-byte block equal to the program's in every word on all 722 cars, as sold and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages (§9). The step's record is read out of the block: the engine mirror's members by their places, the mirror's members the block keeps in another shape made from Gran Turismo 4's (the 24-point curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the steering and camber curves, the inverse masses: the engine's routines that still run read these), and Gran Turismo 4's own part. The engine's converter (`exact_bridge.*`: `core_spec`, `gt4_params`, and `gt4_extras`) serves only the engine's rules (`GT4R_SIM_RULES=engine`) |
+| Program tables | `program.*`, `program_tables.*`, `program_code.*`, `rules::tables` | Gran Turismo 4's own on every Gran Turismo 4 disc: the tables the simulation, the computer drivers and the race's rules read are values in our code (`program_tables_values.inc`: 14 areas, 6,084 bytes, SCUS-97328 v1.01's, named fields, a pinned hash), served by their v1.01 address (`sim::Program::b`); a read outside them gives 0 and is logged. The disc's program is checked against them once: v1.01 at their places, another build where the routines that address each table put it (masked-code hashes, `ProgramCode`: no loaded value hashed, an index added to an upper half followed; one to three routines a table); a table that differs or is not found is logged (`gt4tool tables`). ✔ v1.01 bit for bit; a copy with the code and data moved finds every table at its new place (test `disc_program_tables_found_by_their_routines`). No other region's disc is here to check ❓. The race's globals the start makes (`rules::tables`, the converter's, `speed_tables`, `wear_rules_block`) are made from them. `core_program` (the engine's `ProgramData`: GT3's values but for the static block and the soft materials) reaches no step on a Gran Turismo 4 disc: only the engine's rules read it (`GT4R_SIM_RULES=engine`) and Prologue's path (Prologue's own tables over some of it, program_prologue.h). A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing ("this release is not supported yet") |
 | The road query (0x3E5A30 with 0x3E5BC8 / 0x3E5FD8), surface index | `ground.*` | Gran Turismo 4 (§6), in the PlayStation 2's arithmetic: equal to the program's answer at every call (§9) |
 | The collision step (phase 13: 0x3F4B20, 0x45BB60 and its routines, 0x3F4C18; the walls near a body, 0x395A38 / 0x3E6A58) | `collide.*` through `session.cpp` | Gran Turismo 4 (§7): every body field equal to the program's at every call (§9); the bodies built as 0x45B978 builds them |
 | The query points (phase 16, 0x3697A8), the steep ground's normal (phase 17, 0x344458), the wheels' surfaces as 24-row indexes, wheel 0's triangle as the collision step's hint (phase 18), the ground's frame (phase 19, 0x35D350) | `rules_body.*`, `session.cpp` | Gran Turismo 4 (§6) |
@@ -1037,7 +1047,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The start: the car's set-up (0x363B10 from the converter on: the pose 0x3630C0, the standing start 0x363560, the rolling hold 0x3452F0, the moving start 0x363868), the countdown's hold per car (0x34C210, cond + 0xCBFC + 4 i into F +0x4BC), the attitude's start hold (0x36AE20), the rolling start's release (0x345228 through the conductor's virtual 20) | `rules_start.*` through `session.cpp` (`setup`, `release_start`, `place_standing`, `set_pit_hold`, `set_countdown`) | Gran Turismo 4: equal at every call; the grid pose at Grand Canyon equal to the original's saved states; a rolling start's place on the road's middle, not the driving line (0x34C5E0 / 0x46ADE8); the session's countdown is its last 2 s (120 steps) before time 0 |
 
 **What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` calls the shared engine's step
-routines only on its own rules (`GT4R_SIM_RULES=engine`, a program that is not a known build) and Prologue's; its math
+routines only on its own rules (`GT4R_SIM_RULES=engine`) and Prologue's; its math
 (`ex::lookup_bisect`, `ex::bump_wave`, `ex::atan2`) is shared. Not ported, because nothing here asks for them: a LAN battle's
 packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives and the pad block's sending (0x354A78):
 [input.md](input.md). Judged or ours:
