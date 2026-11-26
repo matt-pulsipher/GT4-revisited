@@ -9,6 +9,8 @@
 #include "formats/text/text_layout.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/menu/font.h"
+#include "gt4r/menu/kanji_font.h"
+#include "gt4r/menu/text_layout.h"
 #include "gt4r/menu/text_table.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
@@ -68,6 +70,23 @@ std::string time_text(s64 ms) {
 } // namespace
 
 struct PrologueHud::Impl {
+    std::map<std::string, std::string> short_names; // a car's label -> CAR_NAME_japanese's short name (+0x0C: Prologue's own +0x04)
+    // The double-byte font of the disc's Japanese (unicode.kf), for kana and kanji in a text; one picture per cell (few are drawn).
+    std::optional<menu::KanjiFont> kanji;
+    std::map<std::string, menu::FontSpacing> spacing; // system.fnt's (the double-byte step)
+    std::map<std::pair<size_t, u32>, SDL_Texture*> kanji_cells;
+    SDL_Texture* kanji_cell(const menu::KanjiFace& face, size_t palette, u32 code) {
+        auto [it, fresh] = kanji_cells.try_emplace({palette, code}, nullptr);
+        if (!fresh) return it->second;
+        const int cell = face.cell(code);
+        if (cell < 0 || face.cell_width <= 0 || face.cell_height <= 0) return nullptr;
+        const std::vector<u32> px = menu::cell_rgba(*kanji, face, cell, palette);
+        SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, face.cell_width, face.cell_height);
+        if (!t) return nullptr;
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_UpdateTexture(t, nullptr, px.data(), face.cell_width * 4);
+        return it->second = t;
+    }
     struct Picture {
         SDL_Texture* texture = nullptr;
         float w = 0, h = 0;
@@ -183,6 +202,34 @@ struct PrologueHud::Impl {
             SDL_RenderTexture(r, atlas, &src, &dst);
         }
     }
+    // Text that may hold kana or kanji: the menus' layout with the double-byte face nearest the font's cell (its palette by the
+    // font's variant, as the menus draw them); the pen on its baseline.
+    void text_wide(const FontSpec& f, float x, float y, u32 color, float opacity, const std::string& s) {
+        if (!f.font || s.empty() || opacity <= 0) return;
+        menu::TextStyle st;
+        st.font = f.font, st.scale_x = f.sx, st.scale_y = f.sy, st.valign = gt3r::text::VAlign::Baseline;
+        if (const auto it = spacing.find(f.font->name); it != spacing.end()) st.spacing = it->second;
+        if (kanji) st.kanji = kanji->face_for_height(f.font->kanji_height);
+        const menu::TextLayout lay = menu::layout_menu_text(s, st, x, y);
+        const Rgba8 c = gs(color, opacity);
+        SDL_Texture*& atlas = atlases[{f.font, f.variant}];
+        if (!atlas) atlas = make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
+        for (const menu::PlacedGlyph& g : lay.glyphs) {
+            if (!g.sw || !g.sh) continue;
+            SDL_Texture* t = nullptr;
+            SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+            if (g.font) t = atlas;
+            else if (st.kanji) {
+                t = kanji_cell(*st.kanji, size_t(st.kanji - kanji->faces.data()) * 2 + size_t(std::clamp(f.variant, 0, 1)), g.code);
+                src = {0, 0, float(st.kanji->cell_width), float(st.kanji->cell_height)};
+            }
+            if (!t) continue;
+            SDL_SetTextureColorMod(t, c.r, c.g, c.b);
+            SDL_SetTextureAlphaMod(t, c.a);
+            const SDL_FRect dst = to_ui({g.x, g.y, g.w, g.h});
+            SDL_RenderTexture(r, t, &src, &dst);
+        }
+    }
     void triangles(const std::vector<SDL_Vertex>& v) { SDL_RenderGeometry(r, nullptr, v.data(), int(v.size()), nullptr, 0); }
     static SDL_Vertex vertex(float x, float y, const Rgba8& c) {
         SDL_Vertex v{};
@@ -238,6 +285,16 @@ PrologueHud::PrologueHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>
     if (!vfs || !app.disc()) return;
     Impl& m = *impl_;
     m.r = app.renderer();
+    // The replay's car names (0x4087A8: table 35's row by the car's id, its short name; 🔎 the language's table taken as the disc's,
+    // Japanese: every short name of CAR_NAME_american is " ").
+    if (db::SpecDb* sdb = app.db()) try {
+            const db::Table* t = sdb->table("CAR_NAME_japanese");
+            const db::Strings* pool = sdb->strings("japanese_StrDB");
+            if (t && pool)
+                for (const db::CarEntry& c : sdb->cars())
+                    if (const ByteSpan row = t->row(c.id); row.size() >= 16) m.short_names[c.label] = pool->at(rd32(row, 12));
+        } catch (const std::exception&) {
+        }
     try {
         const std::optional<Bytes> modes = vfs->read("database/racemode_e3.db"), rows = vfs->read("database/racedetail_e3.db");
         std::optional<Bytes> file;
@@ -251,7 +308,12 @@ PrologueHud::PrologueHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>
         }
         if (const int at = imgs.find("prius_monitor"); at >= 0) m.load_monitor(imgs.set(*file, size_t(at)));
         if (const std::optional<Bytes> f = vfs->read("font/race.fnt")) m.fonts = menu::read_fonts(*f);
-        if (const std::optional<Bytes> f = vfs->read("font/system.fnt")) m.more_fonts = menu::read_fonts(*f); // (sw_*)
+        if (const std::optional<Bytes> f = vfs->read("font/system.fnt")) m.more_fonts = menu::read_fonts(*f), m.spacing = menu::read_font_spacing(*f); // (sw_*)
+        for (const std::string& path : menu::kanji_font_paths("JP"))
+            if (const std::optional<Bytes> f = vfs->read(path); f && !m.kanji) try {
+                    m.kanji = menu::KanjiFont::parse(*f);
+                } catch (const std::exception&) {
+                }
         for (const gt3r::text::FontFile* file : {&m.fonts, &m.more_fonts})
             for (const gt3r::text::LatinFont& f : file->fonts) m.font_by_name.emplace(f.name, &f);
         if (const std::optional<Bytes> t = vfs->read("rtext/raceJP.rt2"); t && menu::TextTable::is_table(*t)) {
@@ -301,6 +363,8 @@ PrologueHud::~PrologueHud() {
     for (auto& [name, p] : impl_->pictures)
         if (p.texture) SDL_DestroyTexture(p.texture);
     for (auto& [key, t] : impl_->atlases)
+        if (t) SDL_DestroyTexture(t);
+    for (auto& [key, t] : impl_->kanji_cells)
         if (t) SDL_DestroyTexture(t);
     if (impl_->logo.texture) SDL_DestroyTexture(impl_->logo.texture);
     if (impl_->flows.texture) SDL_DestroyTexture(impl_->flows.texture);
@@ -799,6 +863,17 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         case hr::HudPart::AccelBrake:
             if (row.sub == 0 && !e.live) m.draw_pedals(row, e, opacity);
+            break;
+        case hr::HudPart::CarName:
+            // A replay's followed car's name (0x38D260: RaceDisplay + 0xF20, a message in `sw_20#1*75,75`, 0x80C0C0C0, its text the
+            // database's short name, table 35's +0x04, by 0x38B620 / 0x4087A8), at the left of its box (0x3956A0); 🔎 its line in the
+            // box (the message's own drawing not followed). The view mode's part (24) has no object in this program
+            // (RaceReplayModeDisplay is never made): nothing.
+            if (const auto it = m.short_names.find(e.car_label); !e.live && it != m.short_names.end() && !it->second.empty()) {
+                const auto f = m.font("sw_20", 75, 1);
+                const float top = left_of(row.y, row.h, row.valign & 3);
+                m.text_wide(f, left_of(row.x, row.w, row.align), top + 0.8f * 20 * f.sy, 0x80C0C0C0, opacity, it->second); // (sw_20: 20 lines high)
+            }
             break;
         case hr::HudPart::Title:
             // The count (0x38A558: 0.8 s a second, fading over the last 0.15), START (0x38CDC8: one second), FINISH (0x38CE68: three,

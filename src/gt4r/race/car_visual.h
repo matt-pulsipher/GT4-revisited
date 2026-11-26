@@ -37,6 +37,8 @@ public:
         // program's globals [0x6238A0] and [0x62389C], op 0x56), not the constant 1 the shapes get without them.
         bool reflection_by_draw = false;
         bool driver = false; // draw the driver
+        // A Gran Turismo 3 car file's brake parts (Prologue's cars): the disc's race/brake.bin. Empty: none drawn.
+        ByteSpan brake_parts;
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.
@@ -112,6 +114,7 @@ public:
     // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
     bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     const CarSpec& spec() const { return spec_; }
+    bool gt3_file() const { return gt3_file_; } // a Gran Turismo 3 car file (Prologue's)
     int lods() const { return lods_; }
     // The body's box in the model's frame.
     const render::Vec3& bounds_min() const { return min_; }
@@ -153,6 +156,9 @@ private:
     int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
+    // A Gran Turismo 3 car file's brake parts drawn by its program's rule (car_visual_prologue.cpp): on a wheel's two
+    // nearest levels of detail, seen from outside its outer face; their glow on those levels.
+    bool gt3_brakes_shown(const CarState& s, int w, const render::Vec3& eye, const LodView* view, bool& parts) const;
 };
 
 } // namespace gt4r::race

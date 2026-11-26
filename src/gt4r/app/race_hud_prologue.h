@@ -56,6 +56,7 @@ public:
         u8 hybrid_flags = 0;
         float hybrid_store = 0, hybrid_mileage = 0, hybrid_fuel = 0;
         bool guide = false;                   // a lesson's guide film: the recorded run's monitors alone
+        std::string car_label;                // a replay's: the followed car's label (its name the database's)
     };
     void draw(Ui& ui, const HudState& s, const Extra& e);
 
