@@ -1230,7 +1230,9 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     render::DrawOptions& o = s.options;
     o = draw_options(*course_, far);
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
-    // at a time.
+    // at a time. GT4's map camera (DynamicEnvmapCamera, 0x44EEA8 / 0x44E660) is the shared engine's: 0.8 m above the car, tilted
+    // 15 degrees, three panels to 200 m warped at 0.9 into a sphere map, so the engine's lookup is GT4's; the map is 128 pixels
+    // across (race + 0xE330: 256 / 2) and 32 bits a pixel (its frame's format 0, PSMCT32), not GT3's 16: no 5-bit steps.
     {
         m.env_items.clear();
         const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
@@ -1240,7 +1242,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
             eo.fog = false;
-            eo.quantize_rgb5 = true;
+            eo.quantize_rgb5 = false;
             for (float& c : eo.clear) c = 0;
             eo.clear[3] = 1;
             // (Whole when it starts and after a jump: another car, a restart, a replay's start.)

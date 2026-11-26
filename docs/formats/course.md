@@ -292,7 +292,11 @@ is copied to its place on the screen.
 
 The reflection picture of the cars is drawn before all this as in the shared engine: its sky
 (slot 23) turned by +0x28 about the vertical and then +0x48, depth cleared, slot 5 by slot 6's
-list of the car's place.
+list of the car's place. ✔ Its camera (`DynamicEnvmapCamera`, 0x44EEA8; the panels 0x44E660) has the shared engine's numbers: 0.8 m
+above the car, tilted 15 degrees, three panels (79.975 degrees, 120 degrees apart) to 200 m from 0.005 m, warped at 0.9 into the
+sphere map. The race's map is 128 x 256 pixels (race + 0xE330 = 256, halved across; 512 in the photo drive, 0x3338A8) of 32-bit color
+(its frame's format 0): GT4 keeps no 5-bit steps in it. Here the engine's cube (128 pixels a face, `env_gt3_lookup`, 200 m), without
+`quantize_rgb5`.
 
 ### Road reflection (slots 9, 13, 50)
 
