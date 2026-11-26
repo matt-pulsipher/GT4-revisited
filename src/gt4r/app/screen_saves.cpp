@@ -6,6 +6,7 @@
 #include "gt4r/app/page.h"
 #include "gt4r/app/screen_saves.h"
 
+#include "base/file.h"
 #include "base/log.h"
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/save_library.h"
@@ -14,7 +15,6 @@
 
 #include <algorithm>
 #include <ctime>
-#include <fstream>
 #include <memory>
 #include <utility>
 
@@ -163,14 +163,12 @@ private:
             std::string why;
             const Bytes image = save::export_card(from_, std::nullopt, &why, library_->product());
             if (image.empty()) return say("Not exported: " + why, true);
-            std::ofstream out(path, std::ios::binary | std::ios::trunc);
-            out.write(reinterpret_cast<const char*>(image.data()), std::streamsize(image.size()));
-            if (out) say("Exported as " + path);
+            // (Through the engine's host files: a path, or what Android's picker gives, a content:// address.)
+            if (gt3r::write_host_file(path, image)) say("Exported as " + path);
             else say("The file could not be written: " + path, true);
             return;
         }
-        std::ifstream in(path, std::ios::binary);
-        const Bytes image((std::istreambuf_iterator<char>(in)), {});
+        const Bytes image = gt3r::read_host_file(path).value_or(Bytes{});
         const std::string card = library_->new_card();
         const save::CardImageResult r = save::import_card(image, card, library_->product());
         if (r.ok) say("Imported: it is in the list.");
