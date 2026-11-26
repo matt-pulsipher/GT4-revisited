@@ -8,6 +8,7 @@
 #include "app/ui.h"
 #include "audio/audio_engine.h"
 #include "base/config.h"
+#include "gt4r/app/pipeline_warm.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
@@ -276,6 +277,7 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
     std::unique_ptr<gt3r::render::GpuContext> gpu_;
+    PipelineWarmer gt4_pipelines_; // GT4's pipelines the engine's warm-up leaves out (stopped before gpu_ goes)
     std::unique_ptr<Ui> ui_;
     std::unique_ptr<gt3r::InputManager> input_;
     std::unique_ptr<gt3r::AudioEngine> audio_;

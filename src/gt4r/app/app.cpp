@@ -230,6 +230,7 @@ bool App::init(int argc, char** argv) {
     if (gpu_) {
         renderer_ = gpu_->renderer2d();
         gpu_->warm_pipelines();
+        gt4_pipelines_.start(*gpu_);
         if (!run_.windowless) gt3r::platform::keep_composited(window_); // (macOS: no switching between the display's two ways of showing a full screen)
     } else {
         if (use_gpu) LOG_WARN("3D drawing is not available; continuing with the 2D screens only");
@@ -840,6 +841,7 @@ void App::shutdown() {
 #if GT3R_XR
     xr_.reset(); // (its canvases and swapchains before the renderer and the device)
 #endif
+    gt4_pipelines_.stop();
     if (gpu_) gpu_.reset(); // (its renderer goes with it)
     else if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);
