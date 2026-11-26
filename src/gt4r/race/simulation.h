@@ -82,6 +82,9 @@ struct CarState {
     // |j|, N s) and against another car (its strength |j| / 15,000).
     float wall_hit = 0, car_hit = 0;
     bool landed = false;
+    // The position is the drawn body's own place (the simulation placed the wheels from the body's frame, as the game
+    // draws them): race::body_matrix draws the body there, without seating it on its wheels.
+    bool body_placed = false;
     bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };
 

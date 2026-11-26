@@ -975,7 +975,7 @@ The program's own results back to the cars (0x3F4C18) keep, per car at cond + 0x
 flag (+0x24) and, with the switch byte 0x6202BA (1 in every race state seen), the change of velocity the step made in the
 car's frame (its two horizontal axes) when its size is past 0x6202E8 (2.78 m/s), scaled by the words 0x6202EC .. 0x6202F8
 (+0x1C / +0x20; the flag 1 for that step). Its one reader is the in-car view (CameraSys::CameraOnBoard::vf10 through 0x34A8B0):
-a jolt of the view with random draws (0x578598) after a hit. Ours has no such jolt (race/drive_camera.*) ❓ its shape.
+a jolt of the view with random draws (0x578598) after a hit: [camera.md, "A hit's jolt"](../formats/camera.md).
 
 **The collision step** (0x45BB60 on the manager at conductor + 0xDA6C: +0 the conductor, +4 the count, +8 the
 course object, +0xC the bodies, 0x4F0 bytes each) follows Gran Turismo 3's (physics §5.3) step for step, with
@@ -1047,14 +1047,19 @@ packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives 
 - The constructor's hold steps run every car as a pad's: F +0x633 runs out for a computer's car too (the program leaves it
   at 30; only the steering force reads it).
 - The flaps' random stream starts from 0 (the program's 0x874D50 has run before the race).
-- The drawn car is ours. The program draws the body at 0x344040's point (the center of gravity less P +0x50 along the
-  forward axis) with the body's axes. Ours (`Session::publish`, `race::body_matrix`) draws each wheel on the road under it
-  (its height + the tire's radius, the bump left out) while its tire is loaded, else hanging at its rest place under the body,
-  and raises the body by the mean of the four wheels' misfit against their suspension travel. On a loose surface (bumps of
-  14 .. 20 mm, waves of 4 .. 5 m, 0x620CD8) the tires lose and regain load every step or two, so the drawn wheels jump
-  2 .. 5 cm between the two places and the body's raise jitters (an Impreza WRC at Grand Canyon: 8 mm rms, 11 mm from one
-  step to the next; at Tsukuba 3 mm and 2 mm) while the simulated car rides exactly as the program's. ❓ how the program
-  places the drawn wheels.
+- The drawn car (`Session::publish`, race::CarState::body_placed) as the game draws it (RaceCarParamSponsor: virtual 7 the
+  body's angles, virtual 8 its point, virtual 10 a wheel's place): the body at 0x344040's point (the center of gravity less
+  P +0x50 along the forward axis) with the body's axes; each wheel of the layout in the body's frame at that point (0x344AA8,
+  0x344B40, 0x344C08): across, the wheel's half track at its travel (wheel +0x08); up, its axle's suspension offset (the
+  suspension block +0x0C, P +0x308 + 0x58 x the layout's byte +0x14 + w) less its suspension travel (wheel +0x94), the road's
+  bump in it, its tire loaded or not; along, half the wheelbase (P +0x18), ahead for a wheel the layout's byte +0x3C + w puts
+  ahead of the center of gravity, behind for one behind, none for one at it. The program blends each of these between the last
+  step's (car +0x8A4 .., +0x8D0 + 4 w, +0x900 + 4 w) and this step's by the frame's place; ours blends the places. Ours draws
+  the model's origin a constant (the mean ride height less the center of gravity's height) along the up axis below the point.
+  ✔ the Impreza WRC at Grand Canyon: its loaded wheels on their bumped road (3 mm), the body exactly at the simulated pose,
+  the wheels' height on the body 9 mm rms from step to step (the suspension's own travel; ours drew 17 mm before, two
+  places for loaded and unloaded wheels, and raised the body by their misfit: 8 mm rms, 11 mm a step), at Tsukuba 1 mm
+  (test `drawn_car_rides_its_suspension`). Prologue's disc and the engine's rules still draw by the earlier rule.
 
 | Distance along the course (F +0x4A4 at each step's end: the conductor's virtual +0x108, 0x3585F0 → 0x358558 → 0x3955E8 → 0x3E6858 / 0x3E6610: the point (F +0, F +8, -F +4) in the checkpoints' quads (left, middle) and (middle, right) of the cluster under the hint F +0x4A8, the nearest in height; v_i + (v_j - v_i, + a lap) x u, less a lap past one; 0 outside every quad) and its rate F +0x650 | `ground.*` `RoadGround::course_distance`, `session.cpp` `publish` | Gran Turismo 4: equal at every step (§9); the laps the race view counts are ours (`distance_along`) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
