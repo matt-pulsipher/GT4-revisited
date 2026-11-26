@@ -200,7 +200,7 @@ std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::st
 
 // ---- game_controllers.cpp
 // MOption's controller settings, and their part of the options' reset (`before`: both ports' text as it was).
-void install_controllers(GameNatives& n, Object& option);
+void install_controllers(GameState& s, Object& option);
 void reset_controllers(GameState& s, const std::array<std::string, 2>& before);
 
 // The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).
@@ -222,6 +222,10 @@ struct GameNatives {
     std::shared_ptr<Object> make_music(const std::string& object);
     script::Value make_sound();
     script::Value make_option();
+    // MGame.getOption: a copy of the options; setOption: a copy made the game's options and applied.
+    script::Value copy_option();
+    void commit_option(const script::Value& from);
+    std::shared_ptr<Object> build_option(GameState& held, std::shared_ptr<GameState> copy);
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
     std::shared_ptr<save::GameSave> card_save, card2_save;

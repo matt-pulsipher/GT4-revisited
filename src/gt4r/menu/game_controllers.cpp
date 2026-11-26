@@ -37,8 +37,8 @@ Target named_target(Args a, int skip_numbers) {
 
 } // namespace
 
-void install_controllers(GameNatives& n, Object& option) {
-    GameState* s = &n.state();
+void install_controllers(GameState& held, Object& option) {
+    GameState* s = &held;
     for (int port = 0; port < 2; ++port) {
         const std::string who = port == 0 ? "_1p" : "_2p";
         for (const auto& [name, key] : {std::pair<const char*, const char*>{"vibration", "VIBRATION"}, {"steering_forcefeedback", "WHEEL FEEDBACK"}})

@@ -370,10 +370,40 @@ Value GameNatives::make_sound() {
 }
 
 // ---- MOption
+// The game's options (MGame.option, 0x161CB0: the game's own block, Status +0x38CB0) and copies of them (MGame.getOption,
+// 0x161B88: the block copied into the object, 0x18FEE8). A copy's changes and its apply (0x4365B8 on the copy's block) are
+// the copy's alone until MGame.setOption (0x161C38) copies it back into the game's (0x43A970) and applies it.
+struct OptionObject : Object {
+    std::shared_ptr<GameState> copy; // the copy's options (null: the game's own)
+    using Object::Object;
+};
+
 Value GameNatives::make_option() {
-    if (option) return object_value(option);
-    option = std::make_shared<Object>("MOption");
-    GameState* s = &state();
+    if (!option) option = build_option(state(), nullptr);
+    return object_value(option);
+}
+
+Value GameNatives::copy_option() {
+    const GameState& g = state();
+    auto copy = std::make_shared<GameState>();
+    copy->options = g.options, copy->bgm_playlist = g.bgm_playlist, copy->slide_playlist = g.slide_playlist, copy->monitor_params = g.monitor_params;
+    return object_value(build_option(*copy, copy));
+}
+
+void GameNatives::commit_option(const Value& from) {
+    const auto* o = dynamic_cast<const OptionObject*>(from.p.get());
+    if (!o || !o->copy) return; // (the game's own: nothing to copy)
+    GameState& g = state();
+    g.options = o->copy->options, g.bgm_playlist = o->copy->bgm_playlist, g.slide_playlist = o->copy->slide_playlist;
+    apply_monitor(*this);
+    rt.save_options();
+    rt.options_changed();
+}
+
+std::shared_ptr<Object> GameNatives::build_option(GameState& held, std::shared_ptr<GameState> copy) {
+    auto option = std::make_shared<OptionObject>("MOption");
+    option->copy = copy;
+    GameState* s = &held;
     for (const auto& [name, value] : s->options) {
         const std::string n = name;
         option->property(n, [s, n] { return option_value(s->options[n]); }, [s, n](const Value& v) {
@@ -406,23 +436,34 @@ Value GameNatives::make_option() {
     }
     Runtime* r = &rt;
     // apply(), save(): the settings take effect (Runtime::on_options) and are kept (under the
-    // data folder).
+    // data folder). A copy's take effect as the copy has them (the option pages' preview) and
+    // are not kept: the game's options stay as they were.
     GameNatives* np = this;
-    auto save = [r, np](Vm&, const Value&, Args) {
+    const bool copied = copy != nullptr;
+    auto take_effect = [r, np, s, copied] {
+        if (copied) {
+            if (r->on_options) r->on_options(settings_of(*s));
+            return;
+        }
         apply_monitor(*np);
         r->save_options();
         r->options_changed();
+    };
+    auto save = [take_effect](Vm&, const Value&, Args) {
+        take_effect();
         return number(1);
     };
     option->method("apply", save);
     option->method("save", save);
     option->method("load", [](Vm&, const Value&, Args) { return number(1); });
-    option->method("setDefault", [s, r](Vm&, const Value&, Args) {
+    option->method("setDefault", [s, r, copied](Vm&, const Value&, Args) {
         const std::string zone = s->option_text("game_zone");
         const std::array<std::string, 2> controllers{s->option_text("controllers_1p"), s->option_text("controllers_2p")};
         s->option_defaults(zone.empty() ? r->region() : zone);
         reset_controllers(*s, controllers);
-        r->options_changed();
+        if (copied) {
+            if (r->on_options) r->on_options(settings_of(*s));
+        } else r->options_changed();
         return Value{};
     });
     // setGameZoneDefault (0x435D48): the zone by the program's region.
@@ -433,7 +474,7 @@ option->method("setGameZoneDefault", [s, r](Vm&, const Value&, Args) {
 });
 for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    install_controllers(*this, *option);
+    install_controllers(*s, *option);
     // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
     // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
     // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
@@ -441,7 +482,7 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
     // bgm/<region>/ads.inf, its third group; ❓ the slide show's list as long, as a saved game
     // has it). ❓ initShuffle is taken as the program's making of the order again: position 0,
     // every enabled row unplayed, "none" when no row is enabled.
-    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &state().bgm_playlist}, {"slide_playlist", &state().slide_playlist}}) {
+    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &s->bgm_playlist}, {"slide_playlist", &s->slide_playlist}}) {
         auto p = std::make_shared<Object>("MPlayList");
         GameState::PlayList* l = list;
         Runtime* r = &rt;
@@ -488,7 +529,7 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         p->property("shuffle", [l] { return number(l->shuffle); }, [l](const Value& v) { l->shuffle = v.truthy(); });
         option->set(list_name, object_value(p));
     }
-    return object_value(option);
+    return option;
 }
 
 // ---- The garage (GranTurismo4::GarageScratch; save.md "The garage") of a game's state: the game played's,
@@ -940,8 +981,11 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
                              number(o.view == "BONNET" ? 1 : o.view == "OVERLOOK" ? 2 : 0), number(o.display.map ? 1 : 0)});
     });
     g.property("option", [this] { return make_option(); });
-    g.method("getOption", [this](Vm&, const Value&, Args) { return make_option(); });
-    g.method("setOption", [](Vm&, const Value&, Args) { return Value{}; });
+    g.method("getOption", [this](Vm&, const Value&, Args) { return copy_option(); });
+    g.method("setOption", [this](Vm&, const Value&, Args a) {
+        if (!a.empty()) commit_option(a[0]);
+        return Value{};
+    });
 
     g.set("garage", object_value(make_garage(s)));
 

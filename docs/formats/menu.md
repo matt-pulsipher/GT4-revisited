@@ -752,6 +752,14 @@ Grand Canyon; Arcade's script takes a first character '1' as a rolling start.
 **The options and who reads them** (`game_settings.h`: `GameSettings settings_from(options)`).
 The scripts read and write MOption; `Runtime::on_options(GameSettings)` is called at the end of
 the start, when a game is loaded and when the scripts apply, save or reset the options.
+`main::game.option` (0x161CB0) is the game's own options, written at once. `main::game.getOption()` (0x161B88) is a
+copy (0x18FEE8 copies the block, 0x16B8 bytes, into the object): what is written into it and its `apply` (0x4365B8 on
+the copy's block) are the copy's alone, until `main::game.setOption(copy)` (0x161C38) copies it into the game's
+(0x43A970) and applies it. Prologue's option pages (project `option2`: the Screen, Race, Memory Card and Controller
+panes) and the memory card's autosave switch work on copies: the Screen pane's sliders preview a copy (applyOption),
+Cancel reads `getOption` again and applies it, Confirm is `setOption` (✔ test `disc_prologue_option_screen_cancel`).
+The US disc's option project writes `main::game.option` on OK and reads it again on Cancel. Here: a copy's apply
+hands its settings to `on_options` without keeping them; `setOption` keeps them (the data folder's options file).
 
 | Options | GameSettings | Read by | How |
 |---|---|---|---|
