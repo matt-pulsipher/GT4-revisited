@@ -3216,6 +3216,7 @@ private:
         if (m.vertical()) key(m.vertical() < 0 ? 0x26 : 0x28);
         if (m.horizontal()) key(m.horizontal() < 0 ? 0x25 : 0x27);
         if (m.pressed(PadButton::Cross)) key(0x20);
+        if (RaceHud::point_movie(app, *pit_)) touched = true;
         if (touched && !pit_touched_) world.pit_wait(0), pit_touched_ = true;
         return pit_open_;
     }
@@ -3380,6 +3381,7 @@ private:
                 if (m.vertical()) pause_->key(m.vertical() < 0 ? 0x26 : 0x28);
                 if (m.horizontal()) pause_->key(m.horizontal() < 0 ? 0x25 : 0x27);
                 if (m.pressed(PadButton::Cross)) pause_->key(0x20);
+                RaceHud::point_movie(app, *pause_); // (a tap or a click: GT3R's pause takes them too)
                 pause_->advance(float(dt));
             }
             if (!pause_result_.empty()) close_pause(pause_result_);

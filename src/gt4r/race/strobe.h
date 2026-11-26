@@ -155,6 +155,13 @@ public:
     void advance(float seconds);
     // A key (Flash's codes: 0x25 left, 0x26 up, 0x27 right, 0x28 down, 0x20 accept, 0x1B cancel).
     void key(int code);
+    // A mouse or a finger on the canvas (canvas units; not the program's, whose pad drives a virtual pointer):
+    // the button whose hit area is under it takes the focus (a hover, or a tap on a button not focused, its
+    // focus conditions run), a tap on the focused button presses it as accept does. True when one is under it.
+    bool point(float x, float y, bool tap);
+    // A button's hit area on the canvas (x0, y0, x1, y1) by its instance path ("DEFAULT"; empty: the focused
+    // one), for tests and tools. False when there is none.
+    bool button_box(const std::string& path, float box[4]) const;
     // Which directions move the focus (the scripts' NavigateAll / NavigateVertical).
     void navigate(bool vertical, bool horizontal) { nav_v_ = vertical, nav_h_ = horizontal; }
     // What to draw now.
