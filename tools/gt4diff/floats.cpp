@@ -32,9 +32,11 @@ constexpr Pa kStartCode{0x447F08};       // (course): its start code's text (the
 
 bool DemoScore::race_exact() const {
     if (laps.empty()) return false;
-    int total = 0, best = laps[0];
+    int total = 0, best = laps[0], within = 0, best_within = laps[0];
     for (const int ms : laps) total += ms, best = std::min(best, ms);
-    return recorded_ms == (race_laps > 0 && int(laps.size()) >= race_laps ? total : laps.back()) && (best_ms < 0 || best == best_ms);
+    for (int k = 0; k < laps_in_frames && k < int(laps.size()); ++k) within += laps[size_t(k)], best_within = std::min(best_within, laps[size_t(k)]);
+    if (recorded_ms == (race_laps > 0 && int(laps.size()) >= race_laps ? total : laps.back()) && (best_ms < 0 || best == best_ms)) return true;
+    return laps_in_frames > 0 && recorded_ms == within && (best_ms < 0 || best_within == best_ms);
 }
 
 std::vector<std::string> demonstration_labels(Disc& disc) {
@@ -128,7 +130,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         // its driver).
         if (!license) {
             o.mode = d->race_mode == 1 || d->race_mode == 3 ? 3 : 2;
-            ee.w32(ee.r32(o.info + 0x84) + 0xCC8, o.mode);
+            ee.w32(ee.r32(o.info + 0x84) + (japan() ? 0xCC0 : 0xCC8), o.mode); // (SCPS-17001 v1.05's race object: +0xCC0)
             if (d->race_class == "RaceArcadeSingle") ee.hle(pa(0x3BFD00), [](Ee& x) { x.set_v0(1); }, "is the race an arcade single race");
         }
         if (print && opt.verbose) {
@@ -197,14 +199,16 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     ee.probe(kRunFailed, [&end, player](Ee& x) {
         if (!end.done && x.g32(5) == player) end.done = true, end.fail = s32(x.g32(6));
     });
+    int step_now = 0; // (the step running, for the laps crossed within the recording)
     if (!license) {
         // A race: the player's line crossings as the conductor's virtual 21 gets them (a1 car index, a2 the laps done, t1 the
         // time in ms); the run ends at the race's laps (the race information's first word), or at the recording's end.
         const u32 vt = ee.r32(o.cond + kCondVtable), vf21 = ee.r32(vt + 8 * 21 + 4), laps = ee.r32(o.info);
         r.race_laps = int(laps);
-        ee.probe(vf21, [&end, &r, laps](Ee& x) {
+        ee.probe(vf21, [&end, &r, laps, &step_now](Ee& x) {
             if (x.g32(5) != 0) return;
             r.laps.push_back(s32(x.g32(9)));
+            if (step_now < r.frames) r.laps_in_frames = int(r.laps.size());
             if (!end.done && laps && x.g32(6) == laps) end.done = true, end.ms = s32(x.g32(9));
         });
     }
@@ -278,6 +282,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     }
     try {
         for (int i = 0; i < steps && !end.done; ++i) {
+            step_now = i;
             // The race's frame counts the start's hold down before the step.
             const u32 count = ee.r32(o.info + 0xBC);
             if (count > 0) ee.w32(o.info + 0xBC, count - 1);

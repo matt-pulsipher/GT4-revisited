@@ -71,9 +71,11 @@ struct DemoScore {
     int ended_step = -1;    // the step the run ended at (timed or failed)
     int fail_kind = -1;     // the judge's failure (0x3F8980's kind), -1 none
     std::vector<int> laps;  // a race's: the player's lap times (ms) as the conductor's virtual 21 gets them
+    int laps_in_frames = 0; // of them, those crossed while the recording's records last
     int race_laps = 0;      // its laps
     int best_ms = -1;       // the file's best lap (+0xC4)
-    // A race came out as recorded: the file's time is the race's when its laps were all run, else the last lap's, and its best lap.
+    // A race came out as recorded: the file's time is the race's when its laps were all run, else the last lap's (or the sum of
+    // the laps crossed within the recording: SCPS-17001 v1.05's demo races, laps 0 or more than they run), and its best lap.
     bool race_exact() const;
     int hold = 0;           // the start's hold the run was given (steps)
     bool exact() const { return ended_ms >= 0 && ended_ms == recorded_ms; }
