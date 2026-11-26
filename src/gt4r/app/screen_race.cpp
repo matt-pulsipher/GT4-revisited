@@ -1232,10 +1232,10 @@ public:
             for (size_t k = 0; k < splits_.size(); ++k) {
                 if (!(before < splits_[k] && splits_[k] <= v)) continue;
                 const s64 t = flow_.time_ms();
-                auto [it, first] = split_first_.try_emplace({counter, int(k)}, t);
+                auto [it, first] = split_first_.try_emplace({counter, int(k)}, std::pair<s64, size_t>{t, i});
                 if (i == display_car()) {
                     split_index_ = int(k), split_ms_ = flow_.lap_ms(i), split_steps_ = 0;
-                    split_gap_ms_ = first ? 0 : t - it->second;
+                    split_gap_ms_ = first ? 0 : t - it->second.first, split_gap_car_ = first ? -1 : int(it->second.second);
                 }
             }
         }
@@ -1662,13 +1662,14 @@ public:
                 h.status = hud.word(kPit[code - 7]);
                 h.status_opacity = 1;
             }
-        h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0;
+        h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0, h.event_gap_car = -1;
         if (!replaying_ && split_steps_ >= 0 && split_steps_ < 200 && (event_steps_ < 0 || event_steps_ >= 200)) {
             // "T1   0'27.247" for three seconds; the gap to the first car through that split this lap under it.
             h.event = (gt3_road_ ? std::string() : hud.word("WordOfSectionTime") + std::to_string(split_index_ + 1) + "   ") + race::format_lap_time(split_ms_); // (Prologue: the time alone, 0x38CB50)
             h.event_opacity = std::min(1.0f, float(split_steps_) / 9.0f) * window(split_steps_, 3.0f, 0.15f);
             if (split_gap_ms_ > 0) {
                 h.event_gap = "+" + race::format_lap_time(split_gap_ms_);
+                h.event_gap_car = split_gap_car_;
                 h.event_gap_opacity = h.event_opacity * window(split_steps_, 2.85f, 0.15f);
             }
         }
@@ -2229,9 +2230,10 @@ private:
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     int name_steps_ = -1; // B-spec's Select Car: steps since the display was set up for another car (its name on the strip)
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
-    std::map<std::pair<int, int>, s64> split_first_;  // (crossings, split) -> the race clock when the first car passed
+    std::map<std::pair<int, int>, std::pair<s64, size_t>> split_first_; // (crossings, split) -> the race clock when the first car passed, and that car
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
+    int split_gap_car_ = -1; // the car the gap is to (its picture beside it)
     int mount_ = race::DriveCamera::kChase;
     bool all_views_ = false;
     std::optional<int> own_view_; // the player's view before a B-spec run
@@ -2761,6 +2763,13 @@ public:
                     caption_for_.clear();
                 }
                 hud_->draw(ui, hud_state_);
+                // The gap's car picture beside a section time (RaceCarIconDisplay 0x2D14, set by 0x3A1098): the other car's
+                // icon, its picture's left 89 units left of the event line and its middle 22 below it, for 2.85 s with fades of
+                // 0.15 s (here with the gap's own fades).
+                if (float ex = 0, ey = 0; hud_state_.event_gap_car >= 0 && hud_state_.event_gap_opacity > 0 && hud_->event_line_at(hud_state_, ex, ey)) {
+                    const RaceWorld::Icon icon{size_t(hud_state_.event_gap_car), ex - 89 + 32, ey + 22, hud_state_.event_gap_opacity * hud_state_.opacity};
+                    race_->draw_icons(ui, RaceHud::canvas(), std::span<const RaceWorld::Icon>(&icon, 1));
+                }
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
                 hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;

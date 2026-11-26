@@ -331,6 +331,15 @@ void RaceHud::set_course_logo(ByteSpan set) {
 
 SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
 
+bool RaceHud::event_line_at(const HudState& s, float& x, float& y) const {
+    if (s.split) return false;
+    const race::DisplayLayout& l = s.bspec && !s.replay && impl_->mode1.valid() ? impl_->mode1 : impl_->layout;
+    const DisplayPlace* p = l.find(element::kEventLine);
+    if (!p) return false;
+    x = race::place_x(*p, true), y = float(p->y);
+    return true;
+}
+
 void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals) {
     Impl& m = *impl_;
     // A colour of the movie (0xAABBGGRR) through a draw's colour change. A shape without a picture is drawn in its

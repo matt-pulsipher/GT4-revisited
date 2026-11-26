@@ -43,6 +43,7 @@ struct HudState {
     float event_opacity = 0;
     std::string event_gap;            // a section time's gap to the car ahead at the split ("+0'05.800"), under the line
     float event_gap_opacity = 0;
+    int event_gap_car = -1;           // the car the gap is to: its picture beside the gap (-1 none)
     std::string card_title, card_line; // a replay's opening card: the car, its power, tires and the race
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
@@ -143,6 +144,8 @@ public:
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
     static SDL_FRect canvas();
+    // The event line's place on the canvas in the display `s` draws (false: none).
+    bool event_line_at(const HudState& s, float& x, float& y) const;
 
 private:
     std::set<const race::StrobeMovie::TextField*> fitted_fields_;

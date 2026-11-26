@@ -656,8 +656,14 @@ monitor's +0x64 = +0x60, +0x40 = 0). ✔ The original's B-spec race following ot
 `36-driver-sky/gtwc_race1_bspec_chaparral_pescarolo.mp4`): their place, lap clock, section time, the map's red dot on
 the followed car, no pace panel, no tire diagram, the name on the strip for about 5 s. Here: `screen_race.cpp`
 `display_car()` (B-spec live: the followed car; else the player's, a replay keeping its own), `fill`, `update_panel`;
-the name over the help line, the help line faded under it (❓ the two lines' blend judged). ❓ The gap's car picture
-beside a section time (RaceCarIconDisplay 0x2D14, the other car's icon: 0x3A0E40, 0x3A1098) is not drawn.
+the name over the help line, the help line faded under it (❓ the two lines' blend judged).
+
+**The gap's car picture** (RaceCarIconDisplay 0x2D14, set by 0x3A1098 for a time gap, 0x3A0E40 for a lap gap): the other car's
+icon (RaceDisplay::vf51 0x3A1030: in the race kinds 1, 2, 17, 18 the car in place 1 when the gap is behind, in place 2 when it
+is a lead; shown when that car's state is 3), its 64 x 32 picture's left 89 units (a lap gap 82) left of the event line and its
+middle 22 below it, 2.85 s with fades of 0.15 s. ✔ The original's section time following the Peugeot (the same reference). Here
+(`screen_race.cpp`, after the display): beside a section time's gap, the car first through that split on that lap, with the
+gap's own fades; ❓ the car's state test is not made.
 
 ## The two-player halves
 
