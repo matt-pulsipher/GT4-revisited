@@ -2763,9 +2763,14 @@ public:
             // next pit entry), R1 the Race Monitor.
             // The Race Monitor's view speed (0x3D95F0): L1 held, Left one slower, Right one faster, x1 .. x3 (0x3DA008, 0x3D9FB8);
             // the pace is not changed then.
-            if (monitor_ && m.held(PadButton::L1)) {
-                if (m.pressed(PadButton::Left) && monitor_speed_ >= 2) --monitor_speed_;
-                if (m.pressed(PadButton::Right) && monitor_speed_ < 3) ++monitor_speed_;
+            // While L1 is held the speed's "x N" blinks: the monitor's count +0x90 (60ths of a second, mod 32, from L1's press or the
+            // last change: 0x3D8EA8, 0x3D9668) shows it while its bit 4 is clear (0x3DBC14).
+            monitor_l1_ = monitor_ && m.held(PadButton::L1);
+            monitor_blink_ = std::fmod(monitor_blink_ + dt * 60.0, 32.0);
+            if (monitor_ && m.pressed(PadButton::L1)) monitor_blink_ = 0;
+            if (monitor_l1_) {
+                if (m.pressed(PadButton::Left) && monitor_speed_ >= 2) --monitor_speed_, monitor_blink_ = 0;
+                if (m.pressed(PadButton::Right) && monitor_speed_ < 3) ++monitor_speed_, monitor_blink_ = 0;
             } else if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
             if (m.pressed(PadButton::Cross)) race_->next_view();
@@ -3009,6 +3014,14 @@ public:
                     const size_t row = size_t(std::clamp(int(std::lround((e.y - 189) / 32)), 0, 5));
                     if (row < race_->flow().order().size()) hud_->draw_chip(e.x - 5, e.y - 16, 10, 32, race_->world().paint_chip(race_->flow().order()[row]));
                 }
+                if (e.name == "TIRE_PANEL") { // (the pit panel's cover, its 80 frames: the external "tire", the diagram and the gauge on it)
+                    for (const race::StrobeMovie::External& x : monitor_movie_->externals)
+                        if (x.name == "tire") {
+                            race_->fill(hud_state_, *hud_);
+                            hud_->draw_monitor_tires(e.x + x.x0 * e.scale, e.y + x.y0 * e.scale, e.opacity, hud_state_);
+                            break;
+                        }
+                }
                 if (e.name == "MAP_PANEL") {
                     // The course map in the panel with each car's grid letter, the followed car's lit.
                     std::vector<RaceHud::Letter> letters;
@@ -3156,7 +3169,7 @@ private:
         {
             char b[16];
             std::snprintf(b, sizeof b, "x %d", monitor_speed_); // (0x3DBBD0: the monitor's +0x74)
-            text("SPEED", b);
+            text("SPEED", monitor_l1_ && (int(monitor_blink_) >> 4 & 1) ? std::string() : std::string(b));
         }
         fill_pace(m);
         const std::vector<size_t>& order = f.order();
@@ -3204,7 +3217,7 @@ private:
                 text(p + "R", r ? tire(r->rear) : "-");
             }
             show("PITPANEL", true);
-            show("PITPANEL.TIRE_PANEL", false);
+            // (TIRE_PANEL plays on its own, 80 frames at 12 a second: a cover over the stops with the external "tire" on it)
         }
     }
 
@@ -4537,6 +4550,8 @@ private:
     bool pit_open_ = false, pit_touched_ = false;
     std::unique_ptr<race::StrobePlayer> monitor_; // B-spec's Race Monitor, while it is up
     int monitor_speed_ = 1;                       // its view speed (the monitor's +0x74): the race's steps a frame while it is up
+    bool monitor_l1_ = false;                     // L1 held over it (+0x5C): the speed's text blinks
+    double monitor_blink_ = 0;                    // the blink's count (+0x90, 60ths of a second mod 32)
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;

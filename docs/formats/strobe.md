@@ -416,6 +416,16 @@ as real time (✔ 21-gtmode-deep `bspec_race_monitor_speed_up.png` "x 3"; the ra
 (`screen_race.cpp`): L1 held with Left / Right while the monitor is up, its speed's steps for each 60th of a second (the pace is
 not changed then); drawn every frame.
 
+**The pit panel** (`PITPANEL`, 0x3DB7B8): shown while the followed car is the player's (0x3D8BD0: the monitor's +0x64 = +0x60);
+the three stops' rows; over them `TIRE_PANEL`, a sprite of 80 frames that plays on its own (12 a second, so every 6.7 s) and
+fades a black cover with the external `tire` in and out. The program draws on that external (0x3D7EAC, in the external's colour's
+alpha x 1/128): the tire diagram (its RaceTireWearDisplay, colours by 0x3D80A8) from (x0 + 12, y0 + 10) of the external's box and
+the fuel gauge (its RaceFuelMeter) from (x0 + 60, y0 + 44), the gauge at a quarter of the alpha when the car's tank is empty
+(0x354E38: a race that counts no fuel). ✔ 21-gtmode-deep `bspec_race_monitor_speed_up.png` (blue tires, the bar),
+26-endurance `practice_monitor_lap6_b_blank_tire_diagram.png` (black tires, a dim bar in a Practice without wear or fuel),
+`fc_race_monitor_lap2.png` (the stops' table between). Here `RaceHud::draw_monitor_tires` at the movie's `TIRE_PANEL` external.
+`MAP_PANEL` is shown while the monitor's +0x70 is set (Show Map, toggled by the monitor's keys 0xC00; 1 at the start).
+
 ## The PIT STOP menu (`menu/common/pitmenu.strb`)
 
 Opened (RaceBasic::vf74) in the step 0x35BC70 finds the player's car asked for its choice (F +0x4B8 bit 0, set by 0x35AF18 as the car

@@ -782,6 +782,17 @@ void RaceHud::Impl::draw_map(const HudState& s) {
     }
 }
 
+void RaceHud::draw_monitor_tires(float x0, float y0, float opacity, const HudState& s) {
+    if (!ready() || opacity <= 0) return;
+    HudState t = s;
+    t.opacity = opacity, t.tires_on = true;
+    if (!s.tires_on) t.tire_rgb[0] = t.tire_rgb[1] = t.tire_rgb[2] = t.tire_rgb[3] = 0;
+    impl_->draw_tires(t, {0, int(x0) + 12, int(y0) + 10, 40, 68, 0, 0});
+    t.fuel_on = true;
+    if (!s.fuel_on) t.opacity *= 0.25f, t.fuel = 0;
+    impl_->draw_fuel(t, {0, int(x0) + 60, int(y0) + 44, 86, 11, 0, 0});
+}
+
 void RaceHud::draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit) {
     Impl& m = *impl_;
     if (!m.map_texture) return;

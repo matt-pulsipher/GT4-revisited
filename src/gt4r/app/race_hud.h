@@ -149,6 +149,10 @@ public:
     // The help strip with its line (a movie's page).
     void draw_strip(const std::string& words);
     void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);
+    // The Race Monitor's tire panel (its movie's external "tire", 0x3D7EAC): the tire diagram at (x0 + 12, y0 + 10) of the
+    // external's box and the fuel gauge at (x0 + 60, y0 + 44), both from their top left, at the external's opacity; the
+    // diagram's tires black while the race wears none, the gauge at a quarter of it while no fuel is counted (0x354E38).
+    void draw_monitor_tires(float x0, float y0, float opacity, const HudState& s);
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
