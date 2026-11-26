@@ -706,6 +706,7 @@ public:
                     }
                 }
         for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
+        if (disc_ && disc_->info().game == Game::GT4) release_ = sim::Program::load(*disc_).release();
         {
             // (Gran Turismo 3's road, Prologue's: a goal distance inside the lap ends a license test there)
             const course::Runway& r = world_->course().road();
@@ -1890,7 +1891,7 @@ public:
         const race::CarState& c = world_->cars()[0];
         const race::LicenseRules& r = judge_.rules();
         if (gt3_road_ && flow_.steps_since_start() < 0) return;
-        if (const std::optional<float> share = (r.kind == 1 || !r.any()) && stop_area_ ? race::stopped_in_box(c) : std::nullopt) {
+        if (const std::optional<float> share = (r.kind == 1 || !r.any()) && stop_area_ ? race::stopped_in_box(c, release_) : std::nullopt) {
             flow_.finish_now(0, *share);
             license_failed_ = false;
             return;
@@ -2272,6 +2273,7 @@ private:
     int gear_shown_ = 1;
     float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
+    sim::Release release_ = sim::Release::Us;          // the disc's release (its own license rules)
     bool wrong_way_ = false;
     float wrong_prev_ = -1;
     bool run_ended_ = false, run_driven_ = false;     // Prologue's test is over (the end given to the car's driver)

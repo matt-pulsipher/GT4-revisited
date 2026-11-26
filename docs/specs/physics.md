@@ -961,14 +961,22 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
   - **Europe's own rule**: its spec builder raises the yaw, pitch and roll inertia bytes (spec +0x24 / +0x25 / +0x26) to
     the static block's +0x153 / +0x154 / +0x155 where those are not 0. The values are 0, 0, 4, so the roll's is at least
     4. v1.01 holds the same bytes, but no v1.01 code reads them. ✔ Ported (`sim/car_spec.cpp`).
+  - **Europe's converter** (0x361B10 there, with 0x360A60 and 0x360D28) scales the yaw, pitch and roll inertias (the
+    spec's bytes x 100) by static +0x14E / +0x14F / +0x150, each axle's spring (+0x14 of its block) by +0x151 and the
+    dampers' forces by +0x152, x 1/100, wherever the byte is neither 0 nor 100. Europe's bytes are all 100, so nothing
+    changes. ✔ Ported (`sim/convert.cpp` `europe_share`).
+  - **Europe's stopping box** (0x3F9560, a license test's end in the box): the car counts as stopped below 0.4167 m/s
+    (1.5 km/h; v1.01 0.2778, 1 km/h), timed by the same share. ✔ Ported (`race/license_rules.cpp`).
+  - Not rules: the camera's picture height (224 -> 256 lines) and its two aspect factors (1.905 -> 1.667, 1.429 ->
+    1.25) in 0x3E0FF8 are the PAL picture's. Our views keep their own (the window's shape).
 - **Japan** is an earlier build with its data moved (0x620AD8 there 0x618040). The address words in its tables are its
   own (11 of them, not counted as differences).
   - The engine condition's oil is old from **5,000 km** (static +0xD7 = 50; v1.01 60). ✔ Served.
   - Its static block lacks v1.01's +0x14E .. +0x155 (100 x 5, 0, 0, 4), 8 bytes: what follows is 8 bytes earlier there,
     and Japan's code reads it there (v1.01's 0x620E30 is Japan's 0x618390). Served as 0.
 - 🔎 **The code**: of the routines our simulation and race code port, Europe changes 81 and Japan 106 (`build_map`
-  classes). Europe's are the 50 Hz conversions above, field offsets and the inertia floor, with the converter
-  (0x361908) and 0x423BF8 still to read. Japan's are not read yet. Each one that changes a rule is listed here when it
+  classes). Europe's are read in full: the 50 Hz conversions (every changed constant or step count is v1.01's x 5/6 or
+  x 6/5, rounded), field offsets, and the rules above. Japan's are not read yet. Each one that changes a rule is listed here when it
   is ported.
 
 ## 6. The ground
