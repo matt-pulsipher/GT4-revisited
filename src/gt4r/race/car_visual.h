@@ -27,6 +27,8 @@ namespace render = gt3r::render;
 // A lamp's directional power: the record's (+0x60) x the course's factor (Env0 +0x17A0; 0 reads as 1), rounded as the EE does
 // (+ 0.5, toward zero), at most 32; a negative one is none (0x3B8460).
 int lamp_power(float power, float factor);
+// A wheel's level of detail in Prologue (0x412918): by its size on screen, 0 .. 3.
+int prologue_wheel_detail(float proj_x, float bound_radius, float depth);
 
 class CarVisual {
 public:

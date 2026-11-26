@@ -289,3 +289,12 @@ TEST(car_lamp_power) {
     CHECK_EQ(race::lamp_power(1, 0.5f), 1);
     CHECK_EQ(race::lamp_power(-3, 1), 0);
 }
+
+// Prologue's wheel level by its size on screen (0x412918): 0.09, 0.03 and 0.001.
+TEST(prologue_wheel_detail_levels) {
+    CHECK_EQ(race::prologue_wheel_detail(1, 0.1f, 1), 0);
+    CHECK_EQ(race::prologue_wheel_detail(1, 0.05f, 1), 1);
+    CHECK_EQ(race::prologue_wheel_detail(1, 0.02f, 1), 2);
+    CHECK_EQ(race::prologue_wheel_detail(1, 0.002f, 1), 2);
+    CHECK_EQ(race::prologue_wheel_detail(1, 0.0005f, 1), 3);
+}
