@@ -96,7 +96,11 @@ std::string user_data_dir() {
     std::string dir;
     if (const char* d = SDL_getenv("GT4R_DATA_DIR"); d && *d) {
         dir = d;
+#if defined(_WIN32)
+        if (dir.back() != '/' && dir.back() != '\\') dir += '\\'; // (the system's own separator, as SDL_GetPrefPath ends)
+#else
         if (dir.back() != '/' && dir.back() != '\\') dir += '/';
+#endif
         return dir;
     }
     const char* base = SDL_GetBasePath();

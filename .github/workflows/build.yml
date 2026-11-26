@@ -7,6 +7,17 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch: # also builds the release packages
+    inputs:
+      platforms:
+        description: "Which platforms' jobs run (all, or one: macos, linux, windows, android)"
+        default: all
+        type: choice
+        options: [all, macos, linux, windows, android]
+
+# A newer run of the same branch or tag cancels the one still running (Windows minutes count double).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Desktop: build the app, gt4tool and the unit tests on macOS, Linux and Windows and run the
 # tests that need no disc image (the tests that read game data skip without GT4R_DISC).
@@ -26,10 +37,11 @@ on:
 
 jobs:
   desktop:
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'android'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, macos-15]
+        os: ${{ fromJSON(inputs.platforms == 'windows' && '["windows-2022"]' || inputs.platforms == 'macos' && '["macos-15"]' || inputs.platforms == 'linux' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "windows-2022", "macos-15"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -48,12 +60,13 @@ jobs:
       - name: Build app, tools and tests
         run: cmake --build build --config Release --parallel 4 --target gt4r gt4tool gt4r_tests
       - name: Unit tests (no disc image)
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --verbose # (the tests run, skipped and failed, at the end)
 
   # Android (android/README.md): the debug APK (arm64-v8a + x86_64) with the pinned NDK, as an artifact. Gradle's downloads
   # are kept in GRADLE_USER_HOME=.gradle-home in the workspace, cached from master (Maven Central answers busy CI addresses
   # with HTTP 429).
   android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == 'android'
     runs-on: ubuntu-24.04
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-home
@@ -118,25 +131,23 @@ jobs:
         run: ./packaging/angle.ps1
 
   package:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'android')
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            name: macos-arm64
-          - os: windows-2022
-            name: windows-x64
-          - os: ubuntu-22.04 # older glibc: runs on more distributions
-            name: linux-x86_64
+        # macos-15 / macos-arm64, windows-2022 / windows-x64, ubuntu-22.04 / linux-x86_64 (older glibc: runs on more
+        # distributions); a manual run may take one of them.
+        include: ${{ fromJSON(inputs.platforms == 'windows' && '[{"os":"windows-2022","name":"windows-x64"}]' || inputs.platforms == 'macos' && '[{"os":"macos-15","name":"macos-arm64"}]' || inputs.platforms == 'linux' && '[{"os":"ubuntu-22.04","name":"linux-x86_64"}]' || '[{"os":"macos-15","name":"macos-arm64"},{"os":"windows-2022","name":"windows-x64"},{"os":"ubuntu-22.04","name":"linux-x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
       id-token: write     # sign this package's provenance attestation
       attestations: write
-    env:
-      PKG: gt4r-${{ github.ref_name }}-${{ matrix.name }}
     steps:
+      # gt4r-<tag>-<platform>; a branch's '/' made '-' (the name is a file's).
+      - name: Package name
+        shell: bash
+        run: echo "PKG=gt4r-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -182,7 +193,41 @@ jobs:
       - name: Archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "dist/$env:PKG" -DestinationPath "$env:PKG.zip"
+        run: |
+          Compress-Archive -Path "dist/$env:PKG" -DestinationPath "$env:PKG.zip"
+          Get-ChildItem -Recurse -File "dist/$env:PKG" | ForEach-Object { Write-Host "  $($_.FullName.Substring((Resolve-Path dist).Path.Length + 1)) $($_.Length)" }
+          Write-Host "$env:PKG.zip $((Get-Item "$env:PKG.zip").Length) bytes, SHA256 $((Get-FileHash "$env:PKG.zip" -Algorithm SHA256).Hash.ToLower())"
+      # The packaged game started from its archive with no disc, muted, with a data folder of its own: a scripted run
+      # (--shot) shows no window and saves a picture of the disc-choice page. Runners have no GPU with Vulkan: the
+      # 3D renderer is ANGLE's OpenGL ES on Direct3D 11's software adapter.
+      - name: Smoke run (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $d = "$env:RUNNER_TEMP\smoke"
+          New-Item -ItemType Directory -Force "$d\data" | Out-Null
+          Expand-Archive "$env:PKG.zip" $d
+          $env:GT4R_DATA_DIR = "$d\data"; $env:SDL_AUDIODRIVER = "dummy"
+          $p = Start-Process "$d\$env:PKG\gt4r.exe" -ArgumentList "--shot", "$d\no-disc.png", "--shot-frame", "60" -PassThru
+          $null = $p.Handle # (keeps the exit code readable)
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host "still running after 3 minutes" }
+          Write-Host "exit code: $($p.ExitCode)"
+          Get-ChildItem -Recurse "$d\data" | ForEach-Object { Write-Host "  $($_.FullName)" }
+          Get-ChildItem "$d\data\*.log" | ForEach-Object { Get-Content $_ }
+          if (-not (Test-Path "$d\no-disc.png")) { throw "no picture" }
+          Copy-Item "$d\no-disc.png" "smoke-$env:PKG.png"
+          # Manual runs: the picture in the log too (base64 between the marks), for when artifacts can't be stored.
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            Write-Host "---- smoke picture (base64) ----"
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes("$d\no-disc.png")) -split '(.{1,4000})' | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
+            Write-Host "---- end ----"
+          }
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        continue-on-error: true # (the picture alone)
+        with:
+          name: smoke-${{ env.PKG }}
+          path: smoke-${{ env.PKG }}.png
       - name: Archive (Linux)
         if: runner.os == 'Linux'
         run: tar -C dist -czf "$PKG.tar.gz" "$PKG"

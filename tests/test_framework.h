@@ -6,9 +6,17 @@
 #include "gt4r/disc/disc.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <string>
 #include <vector>
+
+// setenv / unsetenv for the tests that set a variable around a run: Windows' C library has
+// _putenv_s instead (an empty value removes the variable).
+#if defined(_WIN32)
+inline int setenv(const char* name, const char* value, int) { return _putenv_s(name, value); }
+inline int unsetenv(const char* name) { return _putenv_s(name, ""); }
+#endif
 
 namespace gt4r::test {
 
