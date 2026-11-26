@@ -30,6 +30,8 @@
 
 namespace gt4r::audio {
 
+class SoundDriver;
+
 class LayerPlayer {
 public:
     static constexpr int kMinRpm = 200;
@@ -61,8 +63,9 @@ public:
     Input& input() { return input_; }
     const Input& input() const { return input_; }
 
-    // One step: the slots, then their voices on `mixer` (none: the slots only).
-    void step(gt3r::VoiceMixer* mixer, bool mono = false);
+    // One step: the slots, then their voices on `mixer` (none: the slots only). With `driver` (the one on
+    // that mixer) a new voice is one of the driver's, found by the player's priority (0x558FD8 → 0x55D0B0).
+    void step(gt3r::VoiceMixer* mixer, bool mono = false, SoundDriver* driver = nullptr);
     void stop(gt3r::VoiceMixer& mixer);
     const std::array<Slot, 2>& slots() const { return slots_; }
 

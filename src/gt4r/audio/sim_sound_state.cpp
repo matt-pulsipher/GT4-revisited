@@ -60,7 +60,7 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     s.nitrous = session.gt4_rules() && session.gt4_record(i).drive.fuel.nitrous_power.host() != 0; // (F +0x4DC, 0x354EB0)
     // The gearbox's whine (0x34FED0): the clutch's torque (F +0x51C), the gear's ratio against the
     // first's (the driveline block's +0x40 + 4 gear), the driven axles' speed (0x350DA0, by the
-    // layout). Without Gran Turismo 4's routines running, the engine's record and the driven wheels.
+    // layout).
     s.drive_torque = c.clutch_torque.host();
     const int gear = std::clamp(int(c.gear), 0, 9);
     if (session.gt4_rules()) {
@@ -85,9 +85,32 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
             }
         }
     } else {
-        s.gear_ratio = c.p.d.ratio[size_t(std::min(gear, 7))].host(), s.low_ratio = c.p.d.ratio[1].host();
-        const size_t axle = c.p.d.driven_axle ? 2 : 0;
-        s.shaft_speed = 0.5f * (std::fabs(car.wheels[axle].spin_rate) + std::fabs(car.wheels[axle + 1].spin_rate));
+        // Prologue's (0x3B8E88) on its own record, the shared engine's layout four bytes on: the same rule with the
+        // driven axles' speed by the layout (0x3B99B8: the cases of Gran Turismo 4's 0x350DA0 over F +0x458 / +0x45C),
+        // and layout 7's motors (0x3BEE58) and a one-speed box (0x3CD378) as Gran Turismo 4's.
+        const gt3r::sim::exact::Driveline& d = c.p.d;
+        s.gear_ratio = d.ratio[size_t(std::min(gear, 7))].host(), s.low_ratio = d.ratio[1].host();
+        const float wf = c.axle_speed[0].host(), wr = c.axle_speed[1].host();
+        switch (d.layout) {
+        case 0: case 4: case 5: case 6: case 7: s.shaft_speed = wr; break;
+        case 1: case 2: case 9: s.shaft_speed = wf; break;
+        case 3: case 10: s.shaft_speed = (wf + wr) * 0.5f; break;
+        case 8: s.shaft_speed = wr + d.awd_k.host() * (wf - wr); break;
+        default: s.shaft_speed = 0; break;
+        }
+        if (d.layout == 7) {
+            s.whine_given = true;
+            s.whine_pitch = 0.5f * (std::fabs(c.w[0].rim_speed.host()) + std::fabs(c.w[1].rim_speed.host())) * 0.012f + 0.4f;
+            s.whine_level = c.clutch_torque.host() * 0.25f;
+        } else if (d.kind == 3) {
+            s.whine_given = true;
+            if (c.brake_pedal.host() != 0 && c.clutch_req.host() != 0) {
+                const sim::rules::WheelLayout& l = session.wheel_layout(i);
+                const size_t a = l.group_first[std::min<size_t>(d.driven_axle, 3)] & 3, b = l.partner[a] < 4 ? l.partner[a] : a;
+                s.whine_pitch = std::fabs(0.5f * (c.w[a].rim_speed.host() + c.w[b].rim_speed.host())) * 0.012f + 0.3f;
+                s.whine_level = (c.w[a].brake.host() + c.w[b].brake.host()) * 0.2f;
+            }
+        }
     }
     // An afterfire's moment (0x3F3368): the shift's end at full throttle; and the car's chance.
     s.shift_flame = c.shift_lockout == 11 && c.throttle.host() > 0.9f;

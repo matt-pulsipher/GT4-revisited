@@ -2108,8 +2108,11 @@ public:
         // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
         // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
         if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
-        // Gran Turismo 4's lenses are the program's angles.
-        if (posed && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+        // Gran Turismo 4's lenses are the program's angles; a camera other than a car's places moves its near plane by its angle.
+        if (posed && !gt3_road_) {
+            if (!pose.on_board) pose.near = race::lens_near(pose.fov);
+            pose.fov = race::shown_angle(pose.fov);
+        }
         if (!posed) {
             int mount = view == kTvView ? race::DriveCamera::kChase : view;
             const std::vector<race::CameraMount>& mounts = world_->visual(f).mounts();

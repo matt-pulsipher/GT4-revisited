@@ -12,7 +12,15 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_effects.h"
+#include "gt4r/sim/rules_input.h"
+#include "gt4r/sim/rules_phases.h"
 #include "gt4r/sim/rules_prologue.h"
+#include "gt4r/sim/rules_tires.h"
+#include "gt4r/sim/rules_wear.h"
+#include "gt4r/sim/rules_wheels.h"
+#include "gt4r/sim/rules_speeds.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/tick.h"
 
@@ -354,6 +362,44 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                   part.tires = x, part.layout = layout(c), part.chassis = ch;
                   sim::prologue::lateral_yaw(c.car, part, c.ee.a(1) != 0, t);
               }});
+    // Gran Turismo 4's routines where Prologue's is Gran Turismo 4's in its own layout, and Prologue's own in place of the
+    // engine's (docs/formats/prologue.md "What runs where"), each at every call.
+    taps.add({0x3B2480, "GT4's save previous", [=](PTapCall& c) { sim::rules::save_previous(c.car, layout(c)); }});
+    taps.add({0x3BA538, "GT4's tire curves", [=](PTapCall& c) { sim::rules::tire_curves(c.car, extra(c), layout(c)); }});
+    taps.add({0x3BA5E8, "GT4's tire long force", [=](PTapCall& c) { sim::rules::tire_long_force(c.car, layout(c), t.slip); }});
+    taps.add({0x3BBF18, "GT4's rolling resistance", [=](PTapCall& c) { sim::rules::rolling_resistance(c.car, layout(c), t.road); }});
+    taps.add({0x3BF598, "GT4's slip angles", [=](PTapCall& c) { sim::rules::slip_angles(c.car, layout(c)); }});
+    taps.add({0x3BB9F0, "Prologue's stop hold", [=](PTapCall& c) { sim::prologue::stop_hold(c.car, layout(c), c.ee.a(1) != 0); }});
+    taps.add({0x3B44B0, "GT4's hub offsets xy", [=](PTapCall& c) { sim::rules::hub_offsets_xy(c.car, layout(c)); }});
+    taps.add({0x3B4630, "GT4's speed ramp", [=](PTapCall& c) { sim::rules::speed_ramp(c.car, layout(c)); }});
+    taps.add({0x3B4600, "GT4's hub offsets", [=](PTapCall& c) { sim::rules::hub_offsets(c.car, layout(c)); }});
+    taps.add({0x3CA7B0, "GT4's effects reset", [=](PTapCall& c) {
+                  const u32 race = c.ee.r32(c.car_addr);
+                  const int mode = sim::prologue::draw_mode(c.car, c.ee.r32(race + 0x8C), c.ee.r32(c.ee.r32(race + 0x3C) + 0x13440));
+                  sim::rules::effects_reset(c.car, layout(c), mode);
+              }});
+    // The drive (phase 10): Gran Turismo 4's routines on the parameter block's drive in their form (drive_extra), the stepless
+    // ratio the record's.
+    auto drive = [=](PTapCall& c, const std::function<void(sim::rules::DriveExtra&)>& f) {
+        sim::rules::DriveExtra x = sim::prologue::drive_extra(c.car.p);
+        x.ratio_word = c.car.later.ratio;
+        f(x);
+        c.car.later.ratio = x.ratio_word;
+    };
+    taps.add({0x3B9E10, "GT4's brakes and clutch", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::brakes_and_clutch(c.car, x, layout(c)); }); }});
+    taps.add({0x3CE4D0, "GT4's wheel torques", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::wheel_torques(c.car, x, layout(c)); }); }});
+    taps.add({0x3CE5A8, "GT4's vectoring", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::vectoring(c.car, x, layout(c)); }); }});
+    taps.add({0x3CEAE0, "GT4's axle step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::axle_step(c.car, x, layout(c), t.drive); }); }});
+    taps.add({0x3CF740, "GT4's wheel speeds", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::wheel_speeds(c.car, x, layout(c)); }); }});
+    taps.add({0x3BA6C0, "GT4's engine speed", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::engine_speed(c.car, x, layout(c), &t.drive); }); }});
+    taps.add({0x3BAAD8, "GT4's gear step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::gear_step(c.car, x, layout(c), extra(c), t.drive); }); }});
+    taps.add({0x3B3810, "Prologue's brake heat", [=](PTapCall& c) { sim::prologue::brake_heat(c.car, layout(c), t.brake_heat); }});
+    taps.add({0x3B25F0, "GT4's wheel spin", [=](PTapCall& c) {
+                  static const sim::Program program = sim::Program::load(*g_disc);
+                  const sim::rules::SpeedTables k = sim::prologue::speed_tables(program, c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x33));
+                  std::array<gt3r::ee::F, 4> anim{};
+                  sim::rules::wheel_spin(c.car, anim, layout(c), k.special_x10, c.car.p.special, gt3r::ee::F(), k.throttle_share, k.brake_share);
+              }});
     static sim::prologue::AidTables aid_tables;
     aid_tables = sim::prologue::aid_tables(sim::Program::load(const_cast<Disc&>(disc)));
     taps.add({0x3E0838, "Prologue's aids", [=](PTapCall& c) {
@@ -558,11 +604,6 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       field("view.pitch_rate", ee.r32(b + 0x10), v.pitch_rate.bits);
                   }});
     }
-    taps.add({0x3BBF18, "rolling resistance, Prologue's curve", [=](PTapCall& c) {
-                  ex::Statics s = c.inputs.statics;
-                  sim::prologue::statics(s, t);
-                  ex::rolling_resistance(c.car, s);
-              }});
     taps.add({0x375D00, "Prologue's terrain", [=](PTapCall& c) { sim::prologue::terrain(c.car, image(c)); }});
     taps.add({0x376EC8, "Prologue's bump nudge", [=](PTapCall& c) { sim::prologue::bump_nudge(c.car, image(c)); }});
     taps.add({0x3765F8, "Prologue's attitude", [=](PTapCall& c) {

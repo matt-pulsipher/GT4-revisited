@@ -95,4 +95,14 @@ struct ConvertStats {
 ConvertStats convert_compare(Disc& disc, const std::string& course, const std::string& car, bool print);
 int convert_check(Disc& disc, const std::string& course, const std::string& car);
 
+// The values the race's start makes for the step (prologue_start_tables.cpp): the engine sound's scales, the tire wear's rules
+// and the rule block's class grips the program's conductor leaves against ours (rules_prologue.h), on a single race's and a
+// lesson's row, each also with made-up tire wear rules; whether each conductor had its wear on.
+struct StartTablesStats {
+    int checks = 0, equal = 0;
+    bool single_wear = false, license_wear = false;
+    std::string err;
+};
+StartTablesStats start_tables_check(Disc& disc, bool print);
+
 } // namespace gt4r::diff::prologue

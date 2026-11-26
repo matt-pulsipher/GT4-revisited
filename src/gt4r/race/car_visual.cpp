@@ -364,10 +364,15 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 r.pos = {f(o + 0x30), f(o + 0x34), f(o + 0x38)};
                 r.a = f(o + 0x40), r.b = f(o + 0x44);
                 r.test = {f(o + 0x48), f(o + 0x4C), f(o + 0x50)};
-                r.exponent = 1;
+                // The lamp's own color (+0x54: white ahead, red behind), which the course's lamp color and the list's strength
+                // multiply (0x3B8A7C); the power of its directional factor (+0x60, by the course's factor: set_lamp_type_factor).
+                r.rgb = {f(o + 0x54), f(o + 0x58), f(o + 0x5C)};
+                r.exponent = int(std::min(rd32(file, o + 0x60), 32u));
                 r.fade = (rd16(file, o + 0x64) & 1) != 0;
                 if ((rd16(file, o + 0x64) & 2) && spoiler != 0) continue; // a lamp of the stock spoiler, which a wing replaces
                 lists[l]->push_back(r);
+                lamp_colors_[l].push_back(r.rgb);
+                lamp_powers_[l].push_back(float(rd32(file, o + 0x60)));
             }
         }
     }
@@ -406,10 +411,27 @@ bool CarVisual::driver_shows(const CarState& s, const render::Vec3& eye, const L
 }
 
 void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
-    // The glow's color is the course's lamp color times the lamp's own: white ahead, red behind.
-    for (gt3r::race::CarLampRecord& r : lamps_.head) r.rgb = {head, head, head};
-    for (gt3r::race::CarLampRecord& r : lamps_.brake) r.rgb = {brake, brake * 0.12f, brake * 0.06f};
-    for (gt3r::race::CarLampRecord& r : lamps_.tail) r.rgb = {tail, tail * 0.12f, tail * 0.06f};
+    // The glow's color is the course's lamp color times the lamp's own (record +0x54) times the list's strength (RaceCarModel::vf36
+    // 0x3911D0: Env0 +0x1794 the lights, +0x1798 the brake lamps, +0x179C the tail lamps).
+    std::vector<gt3r::race::CarLampRecord>* const lists[3] = {&lamps_.head, &lamps_.tail, &lamps_.brake};
+    const float k[3] = {head, tail, brake};
+    for (size_t l = 0; l < 3; ++l)
+        for (size_t i = 0; i < lists[l]->size() && i < lamp_colors_[l].size(); ++i)
+            for (int c = 0; c < 3; ++c) (*lists[l])[i].rgb[size_t(c)] = lamp_colors_[l][i][size_t(c)] * k[l];
+}
+
+void CarVisual::set_lamp_type_factor(float factor) {
+    // The directional factor's power: the record's (+0x60) x the course's (Env0 +0x17A0, 0 read as 1: 0x397C38), rounded as the EE
+    // does (+ 0.5, toward zero), at most 32; a negative one is no directional factor (0x3B8460).
+    std::vector<gt3r::race::CarLampRecord>* const lists[3] = {&lamps_.head, &lamps_.tail, &lamps_.brake};
+    for (size_t l = 0; l < 3; ++l)
+        for (size_t i = 0; i < lists[l]->size() && i < lamp_powers_[l].size(); ++i) (*lists[l])[i].exponent = lamp_power(lamp_powers_[l][i], factor);
+}
+
+int lamp_power(float power, float factor) {
+    if (factor == 0) factor = 1;
+    const float e = power * factor;
+    return e < 0 ? 0 : std::min(int(e + 0.5f), 32);
 }
 
 CarVisual::~CarVisual() = default;

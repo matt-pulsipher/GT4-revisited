@@ -25,7 +25,7 @@ constexpr size_t kGt3Cars = 0x70, kGt3Wheels = 0x74; // the garage's cars and wh
 constexpr size_t kGt3Licenses = 0x170;   // the license records after the cars (0x204) and the wheels (0x44)
 constexpr size_t kGt3Car = 0x204, kGt3Wheel = 0x44, kGt3License = 0x154;
 constexpr size_t kGt3Tests = 16;         // B's 8, then A's 8
-constexpr size_t kPrologueUnits = 25, kPrologueUnit = 0x2E0, kPrologueMedal = 0x34; // (the Japanese layout; "uk" 0x54)
+constexpr size_t kPrologueUnits = 25, kPrologueUnit = 0x2E0;
 constexpr size_t kPrologueName = 0x20;
 
 bool ends_ci(const std::string& s, const char* suffix) {
@@ -62,9 +62,28 @@ std::string with_sep(std::string d) {
 const char* gt3_release(u16 minor) { return minor == 0 ? "Japanese" : minor == 2 ? "European" : "US"; }
 u16 gt3_minor(const std::string& region) { return region == "uk" ? 2 : region == "us" ? 1 : 0; }
 
-// The region's Gran Turismo 3 folder in a card's folders.
-std::optional<EarlierGame> from_card(const std::vector<gt3r::ps2::McDir>& dirs, const std::string& region, std::string* why) {
+// A Prologue release's folder (0x1D4500: Europe's, Korea's, Japan's) in a card's folders.
+std::optional<EarlierGame> prologue_from_card(const std::vector<gt3r::ps2::McDir>& dirs) {
+    for (const char* folder : {"BISCPS-15055GAMEDATA", "BESCES-52438GAMEDATA", "BKSCKA-20022GAMEDATA"})
+        for (const gt3r::ps2::McDir& d : dirs) {
+            if (d.name != folder) continue;
+            for (const gt3r::ps2::McFile& f : d.files)
+                if (f.name == folder)
+                    if (std::optional<EarlierGame> g = read_prologue_data_file(f.data, prologue_medals_at(folder))) {
+                        if (d.time) g->when = std::time_t(d.time);
+                        return g;
+                    }
+        }
+    return std::nullopt;
+}
+
+// The region's Gran Turismo 3 folder in a card's folders (with `prologue`, else a Prologue game's).
+std::optional<EarlierGame> from_card(const std::vector<gt3r::ps2::McDir>& dirs, const std::string& region, std::string* why, bool prologue = false) {
     const std::string folder = gt3_folder(region);
+    bool gt3_there = false;
+    for (const gt3r::ps2::McDir& d : dirs) gt3_there |= d.name == folder;
+    if (prologue && !gt3_there)
+        if (std::optional<EarlierGame> g = prologue_from_card(dirs)) return g;
     for (const gt3r::ps2::McDir& d : dirs) {
         if (d.name != folder) continue;
         for (const gt3r::ps2::McFile& f : d.files)
@@ -82,7 +101,7 @@ std::optional<EarlierGame> from_card(const std::vector<gt3r::ps2::McDir>& dirs, 
             if (d.name.find("97102") != std::string::npos || d.name.find("50294") != std::string::npos || d.name.find("15009") != std::string::npos)
                 others = d.name;
         }
-        *why = others.empty() ? "it holds no Gran Turismo 3 game (" + folder + ")"
+        *why = others.empty() ? std::string(prologue ? "it holds no Gran Turismo 3 or GT4 Prologue game (" : "it holds no Gran Turismo 3 game (") + folder + ")"
                               : "it holds another release's Gran Turismo 3 game (" + others + "); this disc reads " + folder;
     }
     return std::nullopt;
@@ -95,6 +114,8 @@ std::string gt3_folder(const std::string& region) {
     if (region == "us") return "BASCUS-97102GAMEDATA";
     return "BISCPS-15009GAMEDATA";
 }
+
+size_t prologue_medals_at(const std::string& folder) { return folder == "BESCES-52438GAMEDATA" ? 0x54 : 0x34; }
 
 std::string license_folder(const std::string& region) {
     if (region == "uk") return "BESCES-52438GAMEDATA";
@@ -113,13 +134,13 @@ std::optional<s64> transferred_credits(const EarlierGame& g, const std::string& 
 
 int transferred_licenses(const EarlierGame& g, const std::string& region) {
     bool b = true, a = true;
-    if (licenses_from_gt3(region)) {
+    if (g.kind == EarlierGame::Kind::Gt3) {
         // (Gran Turismo 3's medal words are kept inverted: a test with a medal has its stored byte's top bit set.)
-        if (g.kind != EarlierGame::Kind::Gt3 || g.medals.size() < kGt3Tests) return 0;
+        if (!licenses_from_gt3(region) || g.medals.size() < kGt3Tests) return 0;
         for (size_t k = 0; k < kGt3Tests; ++k)
             if (g.medals[k] >= 0x80) (k < 8 ? b : a) = false;
     } else {
-        if (g.kind != EarlierGame::Kind::Prologue || g.medals.size() < kPrologueUnits) return 0;
+        if (g.medals.size() < kPrologueUnits) return 0;
         for (size_t k = 0; k < kPrologueUnits; ++k) {
             const bool passed = s8(g.medals[k]) > 0;
             if (!passed && k < 6) b = false;
@@ -152,16 +173,16 @@ std::optional<EarlierGame> read_gt3_data_file(ByteSpan d, const std::string& reg
     return g;
 }
 
-std::optional<EarlierGame> read_prologue_data_file(ByteSpan d, std::string* why) {
-    if (d.size() < kPrologueMedal + kPrologueUnits * kPrologueUnit || le(d, 0, 4) != 0xFF60BAD0u) {
+std::optional<EarlierGame> read_prologue_data_file(ByteSpan d, size_t medals_at, std::string* why) {
+    if (d.size() < medals_at + kPrologueUnits * kPrologueUnit || le(d, 0, 4) != 0xFF60BAD0u) {
         if (why) *why = "it is no Gran Turismo 4 Prologue game data";
         return std::nullopt;
     }
     EarlierGame g;
     g.kind = EarlierGame::Kind::Prologue;
-    g.from = "Gran Turismo 4 Prologue";
+    g.from = "GT4 Prologue";
     g.name = text_at(d, kPrologueName, 0x10);
-    for (size_t k = 0; k < kPrologueUnits; ++k) g.medals.push_back(d[kPrologueMedal + k * kPrologueUnit]);
+    for (size_t k = 0; k < kPrologueUnits; ++k) g.medals.push_back(d[medals_at + k * kPrologueUnit]);
     return g;
 }
 
@@ -181,29 +202,32 @@ std::optional<EarlierGame> read_gt3r_save(ByteSpan file, std::string* why) {
     }
 }
 
-std::optional<EarlierGame> read_earlier_file(ByteSpan b, const std::string& name, const std::string& region, std::string* why) {
+std::optional<EarlierGame> read_earlier_file(ByteSpan b, const std::string& name, const std::string& region, std::string* why, bool prologue) {
     std::optional<EarlierGame> g;
     static const char kGt3r[] = "GT3R-GTMODE";
     if (b.size() >= sizeof kGt3r - 1 && std::memcmp(b.data(), kGt3r, sizeof kGt3r - 1) == 0) {
         g = read_gt3r_save(b, why);
     } else if (gt3r::ps2::is_card_image(b)) {
         try {
-            g = from_card(gt3r::ps2::read_card(b), region, why);
-            if (g) g->from = "PS2 memory card image";
+            g = from_card(gt3r::ps2::read_card(b), region, why, prologue);
+            if (g) g->from = g->kind == EarlierGame::Kind::Prologue ? "GT4 Prologue, PS2 memory card image" : "PS2 memory card image";
         } catch (const std::exception& e) {
             if (why) *why = std::string("its memory card cannot be read (") + e.what() + ")";
         }
     } else if (b.size() >= 4 && le(b, 0, 4) == kGt3Header) {
         g = read_gt3_data_file(b, region, why);
-    } else if (b.size() >= 0x400 && (ends_ci(name, ".psu") || std::memcmp(b.data() + 0x40, gt3_folder(region).c_str(), gt3_folder(region).size() + 1) == 0)) {
+    } else if (prologue && b.size() >= 4 && le(b, 0, 4) == 0xFF60BAD0u) {
+        g = read_prologue_data_file(b, 0x34, why); // (a data file alone: the Japanese release's, as our library keeps it)
+    } else if (b.size() >= 0x400 && (ends_ci(name, ".psu") || std::memcmp(b.data() + 0x40, "B", 1) == 0)) {
         try {
-            g = from_card({gt3r::ps2::read_psu(b)}, region, why);
-            if (g) g->from = "PS2 save (.psu)";
+            g = from_card({gt3r::ps2::read_psu(b)}, region, why, prologue);
+            if (g) g->from = g->kind == EarlierGame::Kind::Prologue ? "GT4 Prologue, PS2 save (.psu)" : "PS2 save (.psu)";
         } catch (const std::exception& e) {
             if (why) *why = std::string("its save cannot be read (") + e.what() + ")";
         }
     } else if (why) {
-        *why = "it is no GT3 Revisited save, memory card image or Gran Turismo 3 save";
+        *why = prologue ? "it is no GT3 Revisited save, memory card image, Gran Turismo 3 or GT4 Prologue save"
+                        : "it is no GT3 Revisited save, memory card image or Gran Turismo 3 save";
     }
     if (g) {
         g->where = name;
@@ -249,10 +273,20 @@ std::vector<EarlierGame> find_gt3r_games(const std::string& gt3r_dir, const std:
     return out;
 }
 
-std::vector<EarlierGame> find_card_games(const std::string& card, const std::string& region) {
+std::vector<EarlierGame> find_card_games(const std::string& card, const std::string& region, bool prologue) {
     std::vector<EarlierGame> out;
-    if (card.empty() || region == "kr") return out;
+    if (card.empty()) return out;
     const std::string dir = with_sep(card), folder = gt3_folder(region);
+    if (prologue)
+        for (const char* p : {"BISCPS-15055GAMEDATA", "BESCES-52438GAMEDATA", "BKSCKA-20022GAMEDATA"})
+            if (const std::optional<Bytes> b = gt3r::read_host_file(dir + p + "/" + p))
+                if (std::optional<EarlierGame> g = read_prologue_data_file(*b, prologue_medals_at(p))) {
+                    g->from = "GT4 Prologue, PS2 save folder", g->where = dir + p;
+                    g->when = std::time_t(gt3r::host_file_mtime(dir + p + "/" + p).value_or(0));
+                    if (g->name.empty()) g->name = p;
+                    out.push_back(std::move(*g));
+                }
+    if (region == "kr" && !prologue) return out;
     if (const std::optional<Bytes> b = gt3r::read_host_file(dir + folder + "/" + folder))
         if (std::optional<EarlierGame> g = read_gt3_data_file(*b, region)) {
             g->from = "PS2 save folder", g->where = dir + folder;
@@ -264,7 +298,7 @@ std::vector<EarlierGame> find_card_games(const std::string& card, const std::str
         if (e.dir || !(ends_ci(e.name, ".ps2") || ends_ci(e.name, ".mcd"))) continue;
         const std::optional<Bytes> b = gt3r::read_host_file(dir + e.name);
         if (!b || !gt3r::ps2::is_card_image(*b)) continue;
-        if (std::optional<EarlierGame> g = read_earlier_file(*b, dir + e.name, region)) {
+        if (std::optional<EarlierGame> g = read_earlier_file(*b, dir + e.name, region, nullptr, prologue)) {
             g->when = g->when ? g->when : std::time_t(e.mtime);
             out.push_back(std::move(*g));
         }
@@ -272,17 +306,17 @@ std::vector<EarlierGame> find_card_games(const std::string& card, const std::str
     return out;
 }
 
-std::vector<EarlierGame> find_prologue_games(const std::string& data_dir, const std::string& region) {
+std::vector<EarlierGame> find_prologue_games(const std::string& data_dir) {
     std::vector<EarlierGame> out;
-    if (data_dir.empty() || licenses_from_gt3(region) || license_folder(region) != "BISCPS-15055GAMEDATA") return out;
+    if (data_dir.empty()) return out;
     const SaveLibrary lib(data_dir, "BISCPS-15055");
     const std::string current = lib.current(), folder = "BISCPS-15055GAMEDATA";
     for (const std::string& card : lib.cards()) {
         const std::string path = with_sep(card) + folder + "/" + folder;
         const std::optional<Bytes> b = gt3r::read_host_file(path);
         if (!b) continue;
-        if (std::optional<EarlierGame> g = read_prologue_data_file(*b)) {
-            g->where = card, g->current = card == current, g->when = std::time_t(gt3r::host_file_mtime(path).value_or(0));
+        if (std::optional<EarlierGame> g = read_prologue_data_file(*b, 0x34)) {
+            g->from = "GT4 Prologue, saved in this app", g->where = card, g->current = card == current, g->when = std::time_t(gt3r::host_file_mtime(path).value_or(0));
             if (g->name.empty()) g->name = "(no name)";
             out.push_back(std::move(*g));
         }

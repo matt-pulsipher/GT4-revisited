@@ -181,7 +181,7 @@ void RaceSound::send(Held& h, float left, float right, float pitch) {
     }
     SoundParams p;
     p.left = left, p.right = right, p.pitch = pitch;
-    p.priority = std::min(255, int(std::min(std::max(std::fabs(left), std::fabs(right)), 1.0f) * 255.0f));
+    p.priority = level_priority(std::max(std::fabs(left), std::fabs(right)));
     if (h.id && driver_.note_playing(h.id))
         driver_.set_note(h.id, p);
     else
@@ -197,6 +197,9 @@ bool RaceSound::play_effect(const char* name, float level) {
     if (sound_log()) LOG_INFO("Sound: %s at %.4f", name, double(level));
     SoundParams p;
     p.left = p.right = level;
+    // The race's effects take a voice from anything (a race's saved state: its sequence at 0x7FFFFFFF 🔎); its
+    // single notes by their level.
+    p.priority = e->sequence ? 0x7FFFFFFF : level_priority(level);
     if (e->sequence) return driver_.play_effect(bank, e->index, e->key, p) != 0;
     return driver_.note_on(bank, e->index, p) != 0;
 }

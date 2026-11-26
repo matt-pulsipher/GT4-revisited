@@ -208,6 +208,10 @@ void reword_card_texts(Project& project, const std::string& language) {
         {"PhotoShootProject::ModeDialog", "TOOLTIP|Quality", "Set image quality when saving. Higher quality means larger file size."},
     };
     for (const auto& t : kTexts) project.reword(t[0], t[1], t[2]);
+    // The US disc's licenses come from GT3 or, here, Prologue too (earlier_saves.h); the European disc's say Prologue already.
+    const char* const kLicenses[2] = {"GTmodeProject::StatusRoot", "already withdrawn gt4p"};
+    if (const std::string* t = project.text().find(kLicenses[0], kLicenses[1]); t && t->find("GT3") != std::string::npos)
+        project.reword(kLicenses[0], kLicenses[1], "You have already transferred licenses from a GT3 or GT4 Prologue game save.");
 }
 
 bool load_saved_game(Runtime& rt) {

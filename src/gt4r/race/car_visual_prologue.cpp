@@ -156,6 +156,13 @@ void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::strin
         }
 }
 
+// A wheel's level of detail in Prologue (0x412918 over 0x412888): s = the projection's x scale x the wheel's bounding radius over
+// the hub's depth; 0 over 0.09, 1 over 0.03, 2 over 0.001, else 3.
+int prologue_wheel_detail(float proj_x, float bound_radius, float depth) {
+    const float s = depth > 0 ? proj_x * bound_radius / depth : 1e9f;
+    return s > 0.09f ? 0 : s > 0.03f ? 1 : s > 0.001f ? 2 : 3;
+}
+
 bool CarVisual::gt3_brakes_shown(const CarState& s, int w, const render::Vec3& eye, const LodView* view, bool& parts) const {
     // The wheel's level by its size on screen (0x412918: the projection's x scale x the wheel's bounding radius over
     // the hub's depth; 0 over 0.09, 1 over 0.03); the projection's x scale of the program's 4:3 picture is the view's
@@ -165,7 +172,7 @@ bool CarVisual::gt3_brakes_shown(const CarState& s, int w, const render::Vec3& e
     if (view && view->k > 0) {
         const render::Vec3 hub{s.wheels[w].center.x, s.wheels[w].center.y, s.wheels[w].center.z};
         const float r = spec_.tire_radius[axle], half = 0.5f * spec_.tire_width[axle];
-        if (gt3r::race::wheel_detail(view->k * (0.75f * 0.7f / 224.0f), std::sqrt(r * r + half * half), render::dot(hub - eye, view->forward)) >= 2)
+        if (prologue_wheel_detail(view->k * (0.75f * 0.7f / 224.0f), std::sqrt(r * r + half * half), render::dot(hub - eye, view->forward)) >= 2)
             return false;
     }
     const float x = render::inverse(frame).transform_point(eye).x;

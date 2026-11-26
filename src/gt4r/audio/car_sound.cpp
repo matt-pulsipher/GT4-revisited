@@ -148,8 +148,6 @@ race::Vec3 sub(const race::Vec3& a, const race::Vec3& b) { return {a.x - b.x, a.
 
 bool tarmac(int surface) { return surface == 0 || (surface >= 7 && surface <= 9) || surface == 12; }
 
-// The driver's 0..255 priority of a level: the louder, the longer it keeps its voice.
-int note_priority(float level) { return std::min(255, int(std::min(std::fabs(level), 1.0f) * 255.0f)); }
 
 } // namespace
 
@@ -175,8 +173,9 @@ SoundView sound_view(SoundListener::Kind kind, bool target) {
     }
 }
 
-Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z) {
+Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z, bool cue_moved) {
     Placement p;
+    const float z0 = z;
     float d = std::sqrt(x * x + z * z);
     if (d < 0.25f) { // (a sound at the camera is moved a quarter metre along its axis)
         z = z + 0.25f - d;
@@ -185,7 +184,9 @@ Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z) {
     p.gain = mic.slope > 0 ? 1.0f / (1.0f + mic.slope * std::max(d - mic.reach, 0.0f)) : 32.0f / d;
     const float angle = std::clamp((x / d + 1.0f) * (kPi / 4), 0.0f, kPi / 2);
     p.left = std::cos(angle), p.right = std::sin(angle);
-    p.x = x / d, p.z = z / d;
+    // The surround cue's side: Gran Turismo 4 (0x391AF0) takes the place before the quarter metre over the
+    // distance after it, Prologue (0x3A18A8) the moved place.
+    p.x = x / d, p.z = (cue_moved ? z : z0) / d;
     return p;
 }
 
@@ -341,7 +342,7 @@ void CarSound::send(Loop& loop, const Effect& e, float level, const Placement& a
     SoundParams p;
     p.left = l, p.right = r;
     p.pitch = pitch;
-    p.priority = note_priority(level);
+    p.priority = level_priority(level);
     if (loop.id && effects_->note_playing(loop.id))
         effects_->set_note(loop.id, p);
     else
@@ -354,7 +355,7 @@ void CarSound::play_once(const Effect& e, float strength, float gain, const Plac
     if (level == 0) return;
     SoundParams p;
     p.left = at.left * level, p.right = at.right * level;
-    p.priority = note_priority(level);
+    p.priority = level_priority(level);
     if (sound_log()) LOG_INFO("Sound: a car's single note of program %d at %.4f", e.program, double(level));
     if (effects_->note_on(e.bank, e.program, p)) ++report_.notes;
 }
@@ -394,9 +395,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int i = 0; i < 3; ++i) px[i] = x, pz[i] = z;
     }
     const OutputMode mode = mix.mode;
-    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
-    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
-    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
+    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0], t.prologue);
+    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1], t.prologue);
+    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2], t.prologue);
     const float master = mix.master;
     const auto held = [&](const Placement& p) {
         return t.prologue ? std::clamp(p.gain, -1.0f, 1.0f) * master : std::clamp(p.gain * master, -1.0f, 1.0f);
@@ -448,7 +449,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     feed(exhaust_, car.rpm, report_.exhaust_gain, at_exhaust, doppler);
     feed(wind_, wind_rpm, report_.wind_gain, at_engine, doppler);
     const bool mono = mode == OutputMode::Mono;
-    engine_.step(&mixer_, mono), exhaust_.step(&mixer_, mono), wind_.step(&mixer_, mono);
+    engine_.step(&mixer_, mono, effects_), exhaust_.step(&mixer_, mono, effects_), wind_.step(&mixer_, mono, effects_);
     if (!effects_) return;
 
     // The turbo's spool and the gearbox's whine, at the engine.
@@ -483,7 +484,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     for (size_t w = 0; w < 4; ++w) {
         const WheelSoundState& wheel = car.wheels[w];
         const race::Vec3 from = sub(wheel.position, listener.position);
-        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward), t.prologue);
         behind(wheel_cue_[w], at);
         const float g = t.prologue ? held(at) : held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];
@@ -574,8 +575,7 @@ void CarSound::feed(LayerPlayer& player, float rpm, float level, const Placement
         return s16(i >= 0x3FFF ? 0x3FFE : std::max(i, -0x3FFF));
     };
     in.left = side(at.left * level), in.right = side(at.right * level);
-    const float size = std::fabs(level);
-    in.priority = size >= 1.0f ? 0x7FFFFFFEu : u32(std::min(double(size) * 2147483520.0, double(0x7FFFFFFE)));
+    in.priority = u32(level_priority(level));
     in.doppler = std::clamp(int(doppler * 4096.0f), 0, 0x3FFF);
     in.rpm = int(s16(int(rpm)));
     in.adsr1 = mix_->tables.layer_adsr1;

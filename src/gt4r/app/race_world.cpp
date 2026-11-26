@@ -219,17 +219,20 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         entries.push_back({entry, key});
     }
     start_cars(gpu, jobs, 0); // (the first cars while the course is read)
-    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
+    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course, setup.section);
     if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
     for (const auto& [entry, key] : entries) {
         std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[key];
         if (!visual) {
             visual = take_car(gpu, jobs, job_of[key]);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
-            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
+            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A4) {
                 float v[3];
                 std::memcpy(v, e0.data() + 0x1794, 12);
                 visual->set_lamp_strengths(v[0], v[1], v[2]);
+                float power;
+                std::memcpy(&power, e0.data() + 0x17A0, 4);
+                visual->set_lamp_type_factor(power);
                 // The brake discs' glow: heat^2 x Env0 +0x4C / +0x38 (the race's sponsor, 0x3D75F0).
                 float gain, scale;
                 std::memcpy(&gain, e0.data() + 0x4C, 4), std::memcpy(&scale, e0.data() + 0x38, 4);
@@ -385,7 +388,8 @@ void RaceWorld::build_simulation() {
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)
                     for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(setup_.event_row[0x53 + k]);
-                session_->set_class_grip(setup_.event_grips ? grip : sim::rules::single_race_class_grip(grip));
+                // (Prologue's program has no rule that turns a 0 into 20, 0x3BC048: its single races' rows carry the 20)
+                session_->set_class_grip(setup_.event_grips || app_.db()->prologue() ? grip : sim::rules::single_race_class_grip(grip));
             }
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
@@ -1019,7 +1023,8 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     o.frustum_cull = true;
     o.sort_blended = true;
     o.far_clip = far;
-    o.guard_near = 0.07f;
+    // The guard band's near plane is the projection's: the screen's 0.1 m (render() sets the camera's own).
+    o.guard_near = race::kScreenNear;
     for (int i = 0; i < 3; ++i) o.clear[i] = 0;
     if (env.has_env) {
         // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
@@ -1036,7 +1041,14 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     const float* sky = course.sky_color();
     const float* ground = course.ground_color();
     for (int i = 0; i < 3; ++i) o.env_sky[i] = sky[i], o.env_horizon[i] = ground[i], o.env_ground[i] = ground[i];
+    // The cars' reflection passes: weighted C0 + C1 min(cos, 0) with the course's C0 = Env0 +0x34 and C1 = +0x34 x +0x30 (put on the
+    // passes' own rows: CarVisual's weigh_reflections); a pass without rows takes 1 + +0x30 min(cos, 0) here, at full strength.
     o.reflection_fresnel = 0.8f;
+    if (const ByteSpan e0 = course.section(course::kSlotEnv); e0.size() >= 0x38) {
+        float k;
+        std::memcpy(&k, e0.data() + 0x30, 4);
+        if (std::isfinite(k)) o.reflection_fresnel = std::clamp(k, 0.0f, 1.0f);
+    }
     o.reflection_strength = 1.0f;
     return o;
 }
@@ -1092,9 +1104,11 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     Impl::ViewState& v = m.views[first_view ? 0 : 1];
     if (!v.view) v.view = std::make_unique<render::View3D>(*app_.gpu());
     const float aspect = rect.w / std::max(rect.h, 1.0f);
-    const Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
-    // (The backdrop's far plane lies a hundred times as far as the scenery's.)
-    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, 0.1f, scene.far * 100.0f);
+    Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
+    // The camera's near plane, where the guard band clips too (docs/formats/camera.md "Near and far"). (The backdrop's far plane
+    // lies a hundred times as far as the scenery's.)
+    scene.options.guard_near = pose.near;
+    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, pose.near, scene.far * 100.0f);
     if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
     draw_view(ui, *v.view, rect, cars, pose, proj, render::Frustum::symmetric(pose.fovy(aspect), aspect), scene);
     if (v.frame == 5) {
@@ -1166,9 +1180,13 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
     course_->add_items(m.items, pose.eye, lists, &v.fade);
     if (m.sun_disc.active()) {
-        // The sun's disc right after the sky (the first item), before the backdrop.
+        // The sun's disc right after the sky (the first item), before the backdrop. GT4 draws it as the shared engine's routine does
+        // (fn_00398650 -> 0x4986D8: the sun's RGB x gain / 2, added at As / 128) into the frame that is then multiplied by the
+        // picture's scale (Env0 +0x38, docs/formats/course.md "The picture's scale"), which ours puts on the stored colors instead:
+        // the disc's passes once per unit of that scale (twice the shared engine's strength at 2.0).
         std::vector<render::DrawItem> disc;
-        m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
+        const int times = std::clamp(int(std::lround(course_->color_scale())), 1, 4);
+        for (int k = 0; k < times; ++k) m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
         for (render::DrawItem& it : disc) it.background = false, it.in_order = true, it.no_fog = true;
         m.items.insert(m.items.begin() + 1, disc.begin(), disc.end());
     }
@@ -1215,14 +1233,16 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         gt3r::race::TyreSmoke::View sv;
         sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
         sv.proj_x = 1.0f / (std::tan(pose.fovy(aspect) * 0.5f) * std::max(aspect, 1e-3f));
-        sv.near_m = 0.1f, sv.far_m = far;
+        sv.near_m = pose.near, sv.far_m = far;
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 
     render::DrawOptions& o = s.options;
     o = draw_options(*course_, far);
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
-    // at a time.
+    // at a time. GT4's map camera (DynamicEnvmapCamera, 0x44EEA8 / 0x44E660) is the shared engine's: 0.8 m above the car, tilted
+    // 15 degrees, three panels to 200 m warped at 0.9 into a sphere map, so the engine's lookup is GT4's; the map is 128 pixels
+    // across (race + 0xE330: 256 / 2) and 32 bits a pixel (its frame's format 0, PSMCT32), not GT3's 16: no 5-bit steps.
     {
         m.env_items.clear();
         const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
@@ -1232,7 +1252,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
             eo.fog = false;
-            eo.quantize_rgb5 = true;
+            eo.quantize_rgb5 = false;
             for (float& c : eo.clear) c = 0;
             eo.clear[3] = 1;
             // (Whole when it starts and after a jump: another car, a restart, a replay's start.)
