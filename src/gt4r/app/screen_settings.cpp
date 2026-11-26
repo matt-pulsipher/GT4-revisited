@@ -6,6 +6,7 @@
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
+#include "gt4r/app/settings_vr.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/presence.h"
 #include "gt4r/app/updates.h"
@@ -186,7 +187,7 @@ private:
     void build(App& app) {
         rows_.rows.clear();
         switch (page_) {
-        case kDisplay: return display(app);
+        case kDisplay: return display(app), vr_display_rows(app, rows_); // (a headset's build: its rows first)
         case kAudio: return audio(app);
         case kControls: return controls(app);
         case kViews: return views(app);

@@ -154,6 +154,12 @@ bool App::init(int argc, char** argv) {
 #endif
     run_ = settings::RunMode::of(std::vector<std::string>(argv + std::min(argc, 1), argv + argc), [](const char* name) { return SDL_getenv(name); });
     if (mobile) run_.windowless = false, run_.pace = 0; // (a phone's window is its screen, always shown and paced by it)
+#if GT3R_XR
+    // A headset's controllers' pad reaches the game without the window's focus, which the headset has (the Quest's window is
+    // never shown); and text is typed on the game's own keyboard. (A scripted run on a computer keeps its window hidden.)
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0");
+#endif
     if (run_.windowless) {
         // Nothing of the run reaches whoever is at the machine: no Dock icon and no activation, no sound (unless the environment
         // names a driver: what is set there comes first), the display may sleep.
@@ -210,7 +216,11 @@ bool App::init(int argc, char** argv) {
     bool use_gpu = video_.gpu != settings::Gpu::Off;
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--no-gpu") use_gpu = false;
+#if GT3R_XR
+    if (use_gpu) xr_start(gpu, argc, argv); // (the device for a headset when there is one: app_xr.cpp)
+#else
     if (use_gpu) gpu_ = gt3r::render::GpuContext::create(window_, gpu);
+#endif
     if (gpu_) {
         renderer_ = gpu_->renderer2d();
         gpu_->warm_pipelines();
@@ -241,6 +251,9 @@ bool App::init(int argc, char** argv) {
         touch_.load(config_);
         if (!mobile) touch_.controls().note_touch();
     }
+#if GT3R_XR
+    if (xr_) touch_ui_ = false; // (the controllers, never the on-screen ones)
+#endif
     audio_ = std::make_unique<gt3r::AudioEngine>(sound_settings_.device);
     apply_sound();
     dialog_mutex_ = SDL_CreateMutex();
@@ -494,6 +507,9 @@ gt3r::PadState App::scripted_keys() {
 }
 
 SDL_AppResult App::iterate() {
+#if GT3R_XR
+    if (const std::optional<SDL_AppResult> r = xr_begin_frame()) return *r; // (the headset's frame: app_xr.cpp)
+#endif
     const Uint64 now = SDL_GetTicksNS();
     const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame (since its wait, where the frames are held to a pace)
     double dt = std::min(wall_ms / 1e3, 0.1);
@@ -503,6 +519,9 @@ SDL_AppResult App::iterate() {
         if (wall_ms < 1000.0 / rate) SDL_DelayPrecise(Uint64((1000.0 / rate - wall_ms) * 1e6)), last_ticks_ = SDL_GetTicksNS();
         dt = std::min(wall_ms / 1e3 + double(last_ticks_ - now) / 1e9, 0.1);
     }
+#if GT3R_XR
+    if (xr_dt_ > 0) dt = std::min(xr_dt_, 0.1);
+#endif
     idle_cursor(now);
     if (fps_last_) ++fps_frames_, fps_time_ += double(now - fps_last_) / 1e9; // (a picture's frame: with the wait in it)
     fps_last_ = now;
@@ -573,6 +592,9 @@ SDL_AppResult App::iterate() {
         for (unsigned b = 0; b < 16; ++b)
             if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
     }
+#if GT3R_XR
+    if (xr_) xr_input(dt);
+#endif
     input_->update(dt);
     pointer_actions_ = pointer_.take();
     pointer_actions_.insert(pointer_actions_.end(), scripted_pointer_.begin(), scripted_pointer_.end());
@@ -608,6 +630,9 @@ SDL_AppResult App::iterate() {
                      display_insets_->bottom, display_insets_->corner_radius);
     }
     const bool game = !screens_.empty() && screens_.back()->follows_aspect();
+#if GT3R_XR
+    if (xr_) SDL_SetRenderTarget(renderer_, xr_->canvas()); // (the frame goes into the headset's canvas)
+#endif
     layout_ui(game);
     Ui::set_prompts(gt3r::button_prompts(*input_, touch_ui_ && touch_.controls().visible(), touch_ui_)); // "{Cross}" in the hints
     begin_gamma_frame();
@@ -619,6 +644,9 @@ SDL_AppResult App::iterate() {
         touch_.render(*ui_);
     }
     draw_fps(!game);
+#if GT3R_XR
+    xr_draw_pointer();
+#endif
     // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
     static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
     if (gamma_frame_ && shot_gamma) gamma_pass_->end(video_.gamma), gamma_frame_ = false;
@@ -661,6 +689,9 @@ SDL_AppResult App::iterate() {
         gpu_wait_ms_ = double(SDL_GetTicksNS() - before_present) / 1e6;
     }
     if (gpu_) gpu_->frame_presented();
+#if GT3R_XR
+    if (xr_) xr_->end_frame(); // (the canvases to the headset)
+#endif
     // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
     if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
         LOG_ERROR("The graphics device was lost: %s", SDL_GetError());
@@ -693,6 +724,9 @@ SDL_AppResult App::event(const SDL_Event& e) {
         else if (disc_ && !screens_.empty() && !screens_.back()->follows_aspect()) push_dropped_mod(path);
     }
     if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F12 && !e.key.repeat) screenshot_wanted_ = true;
+#if GT3R_XR
+    if (xr_ && e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F9 && !e.key.repeat) xr_->recenter(); // (Recenter view)
+#endif
     if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11 && !e.key.repeat) {
         settings::Video v = video_;
         v.fullscreen = !fullscreen();
@@ -712,6 +746,9 @@ SDL_AppResult App::event(const SDL_Event& e) {
         display_insets_.reset(), insets_retry_ = 0; // (asked again: a turn, a folding phone)
     SDL_Event local = e; // the pointer in UI units
     SDL_ConvertEventToRenderCoordinates(renderer_, &local);
+#if GT3R_XR
+    if (xr_) mirror_pointer(local);
+#endif
     if (touch_ui_ && touch_.event(local)) return SDL_APP_CONTINUE; // a finger on the on-screen controls
     if (!scripted_) pointer_.event(local); // (a scripted run's mouse is its script's)
     if (!screens_.empty()) screens_.back()->on_event(*this, local);
@@ -730,6 +767,9 @@ void App::save_screenshot(const std::string& path) {
     const Bytes png = gt3r::encode_png(u32(rgba->w), u32(rgba->h), px);
     SDL_DestroySurface(rgba);
     if (gt3r::write_host_file(path, png)) LOG_INFO("Screenshot saved: %s", path.c_str());
+#if GT3R_XR
+    save_eyes(path);
+#endif
 }
 
 // --stats: a line a second (60 frames): the frame, the seconds since launch, the frames' mean
@@ -763,6 +803,9 @@ void App::shutdown() {
     ui_.reset();
     input_.reset();
     if (dialog_mutex_) SDL_DestroyMutex(dialog_mutex_);
+#if GT3R_XR
+    xr_.reset(); // (its canvases and swapchains before the renderer and the device)
+#endif
     if (gpu_) gpu_.reset(); // (its renderer goes with it)
     else if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);

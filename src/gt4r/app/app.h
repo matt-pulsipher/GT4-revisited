@@ -27,6 +27,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -164,6 +165,11 @@ public:
     SDL_Renderer* renderer() { return renderer_; }
     // The 3D device; null when the system has none (the 2D screens still work).
     gt3r::render::GpuContext* gpu() { return gpu_.get(); }
+#if GT3R_XR
+    // A VR headset's session (app_xr.cpp; null on a screen): the frames go into its canvas, the race may draw its eyes.
+    gt3r::xr::Session* xr() { return xr_.get(); }
+    void set_xr_settings(const gt3r::xr::Settings& s); // [vr], applied at once and kept
+#endif
     const std::string& data_dir() const { return data_dir_; }
     std::string mods_dir() const { return data_dir_ + "mods"; }
     const std::string& last_error() const { return last_error_; }
@@ -205,6 +211,22 @@ private:
     bool pointer_token(const std::string& token); // --keys' mouse
     void push_dropped_mod(const std::string& path);
     SDL_FRect safe_area_window() const; // (app_settings.cpp) the window clear of a phone's cutout and rounded corners
+#if GT3R_XR
+    // A VR headset (app_xr.cpp, the engine's docs/dev/VR.md).
+    void xr_start(gt3r::render::GpuOptions& gpu, int argc, char** argv); // the 3D device, for the headset when there is one
+    std::optional<SDL_AppResult> xr_begin_frame();          // waits for the headset's frame; a result: this frame is not made
+    void xr_input(double dt);                               // the controllers into the virtual pad, the pointer into the page
+    void xr_pointer();
+    void xr_draw_pointer();
+    void canvas_to_ui(float u, float v, float& x, float& y);
+    void mirror_pointer(SDL_Event& e);                      // the desktop window's mouse, on the canvas it shows
+    void save_eyes(const std::string& path);                // a stereo frame's eyes beside a picture
+    std::unique_ptr<gt3r::xr::Session> xr_;
+    s64 xr_last_display_ = 0;
+    double xr_dt_ = 0; // this frame's step by the headset's display times (0: not known)
+    bool xr_pointer_on_ = false, xr_pointer_down_ = false;
+    float xr_pointer_x_ = 0, xr_pointer_y_ = 0;
+#endif
 
     settings::Video video_;
     settings::Gpu video_started_ = settings::Gpu::Automatic;

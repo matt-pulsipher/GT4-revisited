@@ -23,6 +23,7 @@
 #include "gt4r/app/race_hud_prologue.h"
 #include "gt4r/app/race_online_ui.h"
 #include "gt4r/app/race_world.h"
+#include "gt4r/app/race_vr.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/audio/race_playlist.h"
 #include "gt4r/audio/race_sound.h"
@@ -1764,7 +1765,8 @@ public:
         mount_ = kTvView;
     }
 
-    void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
+    // (`stereo`: the race's own picture, which a VR headset may draw in stereo: race_vr.h.)
+    void render(Ui& ui, const SDL_FRect& rect, bool look_back, bool stereo = false) {
         std::span<const race::CarState> cars = shown();
         const bool blend = blend_ < 1 && (!menu_scene_ || preview_) && prev_cars_.size() == cars.size() && !cars.empty();
         if (blend) {
@@ -1789,7 +1791,13 @@ public:
         race::EffectView fx;
         fx.replay = replaying_ || watched_ || demo_run_ || menu_scene_;
         world_->set_effects(fx, effect_settings_);
-        world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
+        vr::RaceEyes eyes;
+        if (stereo && stereo_seat() && vr::race_eyes(*app_, pose, *stereo_seat(), cars[std::min(focus(), cars.size() - 1)], look_back || setup_.look_back, driver_x(), eyes)) {
+            world_->render_eyes(ui, cars, eyes.head, eyes.reflection_view, eyes.eyes, focus(), pose.body_hidden && !eyes.own_car ? int(focus()) : -1);
+            vr::race_panel(*app_, ui); // (the display and the mirror below go on the panel in front)
+        } else {
+            world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
+        }
         if (net_) label_cars(cars, pose, rect);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
@@ -1800,6 +1808,22 @@ public:
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
         }
+    }
+
+    // Where the followed car's driver sits across it: its figure's seat (metres right of the centre line); none without a figure.
+    std::optional<float> driver_x() const {
+        const std::vector<race::posture::Cockpit>& seats = world_->visual(focus()).cockpits();
+        if (seats.empty()) return std::nullopt;
+        return seats[0].seat.x.host();
+    }
+
+    // How a VR headset's eyes sit in the race's view (race_vr.h): only the car's own views while the player drives; none for the
+    // opening shots, the trackside and pit cameras, replays, demonstrations, the menus' scene, B-spec and a test's end.
+    std::optional<vr::Seat> stereo_seat() {
+        race::ViewPose pit;
+        if (replaying_ || demo_run_ || menu_scene_ || watched_ || start_camera_.active() || opening_tv() || finish_view() || mount_ == kTvView || world_->pit_camera(focus(), pit))
+            return std::nullopt;
+        return race::DriveCamera::in_car(mount_) ? vr::Seat::InCar : race::DriveCamera::chase(mount_) ? vr::Seat::Chase : vr::Seat::OnCar;
     }
 
     // Where each car is in the picture (an online race's names): a point over its roof.
@@ -2688,7 +2712,7 @@ public:
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
         if (mine && !race_->viewing()) {
-            const bool free_stick = !app.input().wheel_steering(0) && !input::console_layout(app.input(), 0, controllers_.port[0]);
+            const bool free_stick = !app.input().wheel_steering(0) && !input::console_layout(app.input(), 0, controllers_.port[0]) && !vr::head_looks(app); // (a headset's head looks round)
             race_->set_look((player_input_.views & input::RaceInput::kLeftView) != 0, (player_input_.views & input::RaceInput::kRightView) != 0, free_stick ? player_input_.stick[2] : 0,
                             free_stick ? player_input_.stick[3] : 0);
         } else {
@@ -2725,6 +2749,13 @@ public:
     // Another window in front: the player's input stops coming, so the race he drives waits (with the motors and the wheel
     // still), unless his controllers are read in the background.
     void on_event(App& app, const SDL_Event& e) override {
+#if GT3R_XR
+        if (e.type == SDL_EVENT_DID_ENTER_BACKGROUND && app.xr() && playing() && !online_) { // (a headset's system menu came up: app_xr.cpp)
+            feedback_.stop(app.input(), 0);
+            open_pause(app);
+            return;
+        }
+#endif
         if (e.type != SDL_EVENT_WINDOW_FOCUS_LOST || !playing() || online_) return;
         SDL_Window* window = SDL_GetWindowFromID(e.window.windowID);
         if (window && (SDL_GetWindowFlags(window) & SDL_WINDOW_NOT_FOCUSABLE)) return; // (a scripted run's)
@@ -2779,7 +2810,7 @@ public:
             // (A license test's page before its first run has no scene behind it; Prologue's shows the recorded run.)
             ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 255});
         } else {
-            race_->render(ui, {0, 0, ui.width(), float(Ui::kHeight)}, look_back_);
+            race_->render(ui, {0, 0, ui.width(), float(Ui::kHeight)}, look_back_, !quick_);
             // (As the menus come up after a run, before they are drawn: the picture a saved replay shows.)
             if (menus_ && replay_picture_.empty() && quick_ && race_->has_run() && !race_->replaying())
                 replay_picture_ = replay_picture(app.renderer());

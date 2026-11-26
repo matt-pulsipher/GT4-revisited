@@ -54,6 +54,12 @@ if(GT3R_GLES)
   target_compile_definitions(gt3r_engine PUBLIC GT3R_GLES=1)
   target_include_directories(gt3r_engine SYSTEM PRIVATE ${GT3R_DIR}/third_party/khronos)
 endif()
+# VR headsets through OpenXR (the engine's src/xr; docs/VR.md): GT3R_XR (its option in the engine's Dependencies.cmake, which then
+# takes SDL's development branch with SDL_GPU's OpenXR support). Without it none of the VR code is compiled.
+if(GT3R_XR)
+  target_compile_definitions(gt3r_engine PUBLIC GT3R_XR=1)
+  target_include_directories(gt3r_engine SYSTEM PUBLIC ${GT3R_OPENXR_INCLUDE_DIR})
+endif()
 
 # gt3r_version.h, which the engine includes: the submodule's own version.
 file(STRINGS ${GT3R_DIR}/CMakeLists.txt _gt3r_project REGEX "^project\\(GT3Revisited VERSION ")
@@ -110,6 +116,11 @@ else()
 endif()
 target_link_libraries(gt4r PRIVATE gt4r_engine gt3r_ui_fonts)
 target_include_directories(gt4r SYSTEM PRIVATE ${GT3R_DIR}/third_party/stb)
+# Windows VR builds: the OpenXR loader next to gt4r.exe (the engine's Dependencies.cmake downloads it).
+if(GT3R_OPENXR_LOADER)
+  add_custom_command(TARGET gt4r POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GT3R_OPENXR_LOADER} $<TARGET_FILE_DIR:gt4r>)
+endif()
 
 if(GT4R_BUILD_TOOLS)
   file(GLOB GT4TOOL_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/gt4tool/*.cpp)
