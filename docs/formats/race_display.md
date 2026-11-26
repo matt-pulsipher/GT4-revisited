@@ -276,7 +276,9 @@ So on a 4:3 screen the plate covers x 152-488, y 350-452; the speedometer's face
 y 352-452 (left); the rev counter's x 358-488 (right); the boost gauge x 495-549, y 377-431.
 The panel also draws its bars with its own code (0x3A8968), from the speedometer's corner (x, y) =
 (C - 168, B - 100): the brake (panel +0x28, red 0x800000F0) at x + 121 and the throttle (+0x24, light blue
-0x80E3B896) at x + 195, `pedal_bar` 20 x 58 lit from y + 79.5 up by the pedal (0 .. 1); with the panel's
+0x80E3B896) at x + 195, `pedal_bar` 20 x 58 lit from y + 79.5 up by the pedal (0 .. 1), the throttle's picture
+mirrored (its quad's u from the picture's width to 0, 0x3A8C04: the brake's arc bows toward the speedometer, the
+throttle's toward the rev counter; ✔ reference `03-race/incar_frames`); with the panel's
 flag +0x1B the fuel gauge `fuel_a0` 38 x 64 at (x - 22, y + 19) and over it `fuel_a1` lit from the bottom in
 ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 higher from the sixth),
 red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
