@@ -152,7 +152,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw), course_query_ = std::make_unique<ex::CourseQuery>(*road_->gtrw);
-        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
+        // (the rule block's class grips and wear: a single race's wear on; a lesson's conductor has it off, and no row of the disc has any)
+        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue::race_rules(race_, *prologue_, options ? options->rules.data() : nullptr, true),
+                       prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
                        prologue_slide_ = prologue::slide_tables(program), prologue_force_ = prologue::force_tables(program, prologue_->controls);
     }
     // What the aids read of the race: the course's category (0x34C998: dirt 1, snow 2), no speed caps, the lap.

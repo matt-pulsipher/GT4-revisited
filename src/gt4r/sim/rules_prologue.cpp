@@ -137,7 +137,37 @@ Tables tables(const Program& program) {
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     t.convert = convert_data(program);
     t.asm_keep = program.b(PrologueProgram::kAsmKeep);
+    t.gears = {program.b(PrologueProgram::kController + 8), program.b(PrologueProgram::kController + 9),
+               program.b(PrologueProgram::kController + 0xA), program.b(PrologueProgram::kController + 0xB)};
+    { // 0x3B8720
+        const u32 e = PrologueProgram::kEffects + 0x1E0;
+        const F hundred = F::raw(0x42C80000), ten = F::raw(0x41200000);
+        for (u32 k = 0; k < 3; ++k) t.sound_scales[k] = f_of(program.b(e + 0x1C + k)) / hundred;
+        t.sound_scales[3] = f_of(program.b(e + 0x1F)) / ten;
+    }
+    t.wear_slip_cap = program.b(s + 0x8E);
     return t;
+}
+
+void race_rules(ex::RaceInputs& r, const Tables& t, const u8* c, bool wear_on) {
+    if (!t.found) return;
+    for (size_t k = 0; k < r.class_grip.size(); ++k) r.class_grip[k] = c ? gt3r::s8(c[0x18 + k]) : 0;
+    ex::WearParams& w = r.prep.wear;
+    w = {};
+    if (!c || !wear_on || c[0x2C] == 0) return;
+    const u8 knee1 = 4, loss1 = 0; // (+0x31 / +0x32 as the copy writes them with +0x2C set)
+    if (!(c[0x33] < c[0x2C]) || !(c[0x34] < c[0x2D]) || !(knee1 < c[0x33]) || !(loss1 < c[0x34]) || !(c[0x2E] < c[0x2D])) return;
+    const F k1 = F::raw(0x461C4000), k2 = F::raw(0x3C23D70A);
+    w.max = f_of(c[0x2C]) * k1;
+    w.max_loss = f_of(c[0x2D]) * k2;
+    w.worn = gt3r::ee::int_to_f(s32(100 - u32(c[0x2E]))) * k2;
+    w.fresh = (-f_of(c[0x2F])) * k1;
+    w.fresh_loss = f_of(c[0x30]) * k2;
+    w.knee1 = f_of(knee1) * k1;
+    w.loss1 = f_of(loss1) * k2;
+    w.knee2 = f_of(c[0x33]) * k1;
+    w.loss2 = f_of(c[0x34]) * k2;
+    w.slip_cap = f_of(t.wear_slip_cap) / F::raw(0x42C80000);
 }
 
 void statics(ex::Statics& s, const Tables& t) {
@@ -151,6 +181,9 @@ void race_inputs(ex::RaceInputs& r, const Tables& t) {
     statics(r.statics, t);
     r.brake_heat = t.brake_heat;
     r.bumps.amp = t.bumps.amp, r.bumps.freq = t.bumps.freq, r.bumps.scaled = t.bumps.scaled, r.bumps.mode = t.bumps.mode;
+    r.gears = t.gears;
+    r.sound_scales = t.sound_scales;
+    race_rules(r, t, nullptr, false);
 }
 
 rules::WheelLayout wheel_layout(const Tables& t, u8 row) {

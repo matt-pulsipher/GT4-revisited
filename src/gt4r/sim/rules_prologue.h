@@ -117,6 +117,14 @@ struct Tables {
     rules::HybridTables hybrid; // the hybrid's box's (0x504560, 0x5045B0, 0x504638, 0x504648)
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
+    // The automatic gearbox's settings (the controller settings' +0x08 .. +0x0B, 0x504958 .., read by the automatic shift
+    // 0x3CD6B8): the mode (1: a held shift input holds the gear), the down-shift's rpm less 100 x +0x09 under throttle, plus
+    // 100 x +0x0A lifted and 100 x +0x0B braking.
+    ex::GearSettings gears;
+    // The engine sound's scales (the effects block's +0x1FC .. +0x1FF, 0x504B08: x 0.01, x 0.01, x 0.01, x 0.1 as the race's
+    // start makes them, 0x3B8720 into 0x714904 .. 0x714910).
+    std::array<F, 4> sound_scales{};
+    u8 wear_slip_cap = 0; // the static block's +0x8E (the tire wear's slip cap, 0x3CB8C8)
 };
 // The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
 // coefficients, 0x504438, are the engine's).
@@ -125,6 +133,13 @@ void statics(ex::Statics& s, const Tables& t);
 // made by 0x3B3740: 1 / (+0x7C x 9800 (0x46191FFF)), 1 / (+0x7D x 0.1 (0x3DCCCCCC) x 100), +0x7E / 3.6 (0x3E8E38E3), +0x7F
 // x 0.01 of the static block, +0x7C and +0x7D 1 when 0), the road's bumps.
 void race_inputs(ex::RaceInputs& r, const Tables& t);
+// What the race's rule block (the conductor + 0x10780, copied from the event's RACE row by 0x3C5978) gives the step:
+// the class grip of a car a computer drives (+0x18 .. +0x1B by the drive class, read by phase 10 at 0x3BC048; Prologue has
+// no rule that turns a 0 into 20: its single races' rows carry 20 themselves), and the tire wear's rules (0x3CB8C8 into the
+// conductor + 0x84 at the race's start, 0x3B650C): off unless +0x2C is set and the knees ascend; with +0x2C set the copy
+// writes +0x31 = 4 and +0x32 = 0 (0x3C5B10). `wear_on`: the conductor's (its virtual +0x50 and 0x3B63E0; ❓ which
+// conductors: +0x2C is 0 in every row of the disc).
+void race_rules(ex::RaceInputs& r, const Tables& t, const u8* rule_block, bool wear_on);
 Tables tables(const Program& program);
 
 // A tire record's kind bytes (Prologue's parameter block: the record's +0x1B4 .. +0x1B6; its spec: the tire block's +0x6C ..

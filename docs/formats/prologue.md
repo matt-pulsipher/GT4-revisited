@@ -183,7 +183,7 @@ Its own tables, at fixed places in the recognized build, each addressed by the r
 
 They replace Gran Turismo 3's in the shared engine's race core when a session runs on
 Prologue's disc (`exact_bridge`). The controller settings are at 0x504950 (Gran Turismo 4's 0x622110 layout ❓ checked only for the row; the input
-phase 0x3DEDE0 reads the steering prefilter row at +0x70); ❓ not located: the surface classes, the soft materials, the gear
+phase 0x3DEDE0 reads the steering prefilter row at +0x70, the automatic shift 0x3CD6B8 its +0x08 .. +0x0B); ❓ not located: the surface classes, the soft materials, the gear
 kinds, the stick curve, the tire effect kinds and scales (the engine's values serve), the race sound's gains and
 microphones.
 `gt4tool prologue <disc> program` prints the build's routines, these tables and, for each table
@@ -276,6 +276,24 @@ Prologue's tables these read, at fixed places (`PrologueProgram`): the static bl
 slip bytes +0x84, the direct speeds +0xE4 .. +0xE6, the steering offset's +0xB9 .. +0xC0), the camber force's reference and
 gain 0x504294 / 0x504298, the wheel layouts 0x503FA8 (Gran Turismo 4's 0x54-byte rows), the surfaces whose offset aims at 0
 0x504AC0, the controller settings 0x504950 (Gran Turismo 4's 0x622110; read by the input phase).
+
+**What the step reads of the race's start** (`prologue::Tables`, `prologue::race_rules`; `gt4r_diff <disc> prologue-start` and
+the test `disc_prologue_race_start_tables`: 72 of 72 values equal to what the program's conductor leaves on a single race's and
+a lesson's row, each also with made-up tire wear rules):
+
+- *The automatic gearbox* (0x3CD6B8): the controller settings' +0x08 .. +0x0B (0x504958: the mode 1, the down-shift's rpm
+  less 100 x 5 under a quarter throttle, plus 100 x 0 lifted, plus 100 x 0 braking). The values are Gran Turismo 3's; they
+  are read from Prologue's own block.
+- *The engine sound's scales* (0x3B8720 into 0x714904 .. 0x714910): the effects block's +0x1FC .. +0x1FE x 0.01 and +0x1FF x 0.1.
+- *The class grip* of a car a computer drives (phase 10, 0x3BC03C: control source 1 or 2, or a driver kind): 1 + 0.01 x the rule
+  block's signed byte +0x18 + the drive class (the conductor + 0x10798, copied from the RACE row's +0x39 .. +0x3C by 0x3C5978)
+  times each wheel's slip fade and friction circle, the wheels of its layout. No routine of Prologue turns a 0 into 20 (the
+  only instruction addressing the conductor + 0x10798 is the reader); its single races' rows carry 20 themselves (5 rows:
+  20, 20, 20, 20; the lessons' 0).
+- *The tire wear's rules* (0x3CB8C8 into the conductor + 0x84, Gran Turismo 3's arithmetic and the static block's +0x8E as the
+  slip cap): from the rule block's +0x2C .. +0x34, with +0x31 = 4 and +0x32 = 0 written by the copy whenever +0x2C is set. On
+  in a single race, off in a lesson (0x3B650C: the conductor's virtual +0x50 and 0x3B63E0). Every RACE row of the disc has
+  +0x2C = 0: no Prologue race wears its tires.
 
 **The hybrid** (the Prius, gearbox kind 3): the box's state is at car + 0x5DC (+0x8 the fuel used, +0xC the kilometers per
 liter), set up by 0x3CC0B8; its routines are Gran Turismo 4's (`rules_hybrid.*`, the HybridCar overload) on the tables 0x504560,

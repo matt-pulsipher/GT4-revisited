@@ -586,6 +586,22 @@ TEST(disc_prologue_whole_step_equal) {
     }
 }
 
+// What the race's start makes of Prologue's own tables for its step, against the program's conductor on a single race's and a
+// lesson's row (gt4r_diff prologue-start): the engine sound's scales, the tire wear's rules (with made-up ones too: no row has
+// any), the class grips; a single race has its wear rules on, a lesson not. The automatic gearbox's settings are the
+// controller settings' +0x08 .. +0x0B (0x3CD6B8 reads them there).
+TEST(disc_prologue_race_start_tables) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const auto st = diff::prologue::start_tables_check(*disc, true);
+    std::printf("  %d of %d values equal %s\n", st.equal, st.checks, st.err.c_str());
+    CHECK(st.err.empty());
+    CHECK(st.checks == 72 && st.equal == st.checks);
+    CHECK(st.single_wear && !st.license_wear);
+    const sim::prologue::Tables t = sim::prologue::tables(sim::Program::load(*disc));
+    CHECK(t.gears.mode == 1 && t.gears.down_throttle == 5 && t.gears.down_lift == 0 && t.gears.down_brake == 0);
+}
+
 // A license test's car is the first of its event's pool with that entry's parts and settings (the run's own: what the
 // demonstrations' files keep of their car 0).
 TEST(disc_license_car_is_the_pools) {

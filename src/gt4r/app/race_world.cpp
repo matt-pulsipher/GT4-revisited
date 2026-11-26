@@ -385,7 +385,8 @@ void RaceWorld::build_simulation() {
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)
                     for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(setup_.event_row[0x53 + k]);
-                session_->set_class_grip(setup_.event_grips ? grip : sim::rules::single_race_class_grip(grip));
+                // (Prologue's program has no rule that turns a 0 into 20, 0x3BC048: its single races' rows carry the 20)
+                session_->set_class_grip(setup_.event_grips || app_.db()->prologue() ? grip : sim::rules::single_race_class_grip(grip));
             }
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};

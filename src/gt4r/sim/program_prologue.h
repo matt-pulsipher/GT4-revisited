@@ -43,6 +43,8 @@ public:
     // The controller settings (Gran Turismo 4's 0x622110 layout; 0x3DEDE0, 0x3DE270) and the pedals' steps a frame (four
     // floats: the throttle's up and down, the brake's up and down; 0x3DE270).
     static constexpr u32 kController = 0x504950, kPedalSteps = 0x504AA8;
+    // The tire effect and engine sound block (0x210 bytes, Gran Turismo 3's layout; 0x3CAE00, 0x3B8720).
+    static constexpr u32 kEffects = 0x504B08;
     // The in-line wheel layout's roll terms (six floats; the attitude 0x3765F8).
     static constexpr u32 kInLine = 0x50429C;
     // The converter's (0x3C74B8): the special cars' bodies and tires (0x78 bytes a row, three rows; 0x3C1F60), the
