@@ -641,8 +641,9 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   15, note 15, no time) and the mission's page comes back as before the run with `canReplay` 1 (Replay and Save
   added). ✔ The original's mission 1 exited (reference 21-gtmode-deep `mission1_page_after_exit.png`); ours the
   same, and a finished run's Results.
-- **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
+- **A license test** (0x1105A8) keeps a graded run's result (gold 9, silver 10, bronze 11) in its unit and its ranking
+  (time, result, the real date, the pass code); a run without a grade (the run's +0x88 not 2, 3 or 4) is kept nowhere
+  (ours writes it into the unit: RULES_AUDIT.md). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
   original's calendar shows. **A course visit** is one day of the diary, put when its sequence ends whatever its

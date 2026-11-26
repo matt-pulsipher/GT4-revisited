@@ -38,6 +38,25 @@ Header read_header(ByteSpan data);
 // Offsets of the model sets inside a file (a car, a course): "MDLS" at 16-byte steps whose header
 // fits the file.
 std::vector<size_t> find_model_sets(ByteSpan file);
+// Operand bytes of a draw-program command (-1: a branch, read by its own layout; -2: no such command).
+int command_operand_bytes(u8 op);
+
+// What a model's draw program reads of its script's registers to place and blend its shapes: each matrix command by a
+// register (0x44 .. 0x4B but 0x47, once per register: the first on any path) with the program's matrix just before it (row
+// vectors, as the shapes are decoded: Scene::turned splits off the shapes under it), and the registers its morph weights
+// come from (0x4C). Throws FormatError.
+struct RegisterTurn {
+    u8 op = 0;
+    u16 cell = 0;
+    std::array<float, 16> pivot{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+};
+struct RegisterReads {
+    std::vector<RegisterTurn> turns;
+    std::vector<u16> weights;
+};
+RegisterReads register_reads(ByteSpan mdls, u32 model);
+// The matrix command 0x48 makes of its four registers (an angle in degrees, then the axis), in row vectors (v' = v M).
+std::array<float, 16> register_turn(float degrees, float ax, float ay, float az);
 
 struct ConvertStats {
     size_t shapes = 0, packets = 0;
@@ -85,6 +104,10 @@ struct Scene {
     // set's script has been run for this draw: a 0x4D switch takes its register's case (none: it
     // goes on after the table). Empty: every register reads 0.
     std::vector<u32> registers;
+    // The draws under a turn or move by a register (0x44 .. 0x4B: a car's flywheel, from the command to where the stack
+    // level it changes is popped; the innermost such): -2 all kept, -1 only those under none, >= 0 only those under the
+    // one by this register.
+    int turned = -2;
 };
 // A wheel file's sets: [0, 1] the rim band, [2] an empty set, [3 ..] face pictures, still and
 // turning by turns (its symbols "NRM" and "ROT" number them 0 .. 3). A still wheel's face:

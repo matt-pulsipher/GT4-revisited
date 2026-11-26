@@ -175,6 +175,8 @@ public:
     // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
     // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
     void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
+    // SCPS-17001 v1.05's program: its own rules where they differ from v1.01's.
+    bool japan() const { return japan_; }
     bool gt4_rules() const { return gt4_rules_; }
     // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
     bool prologue_rules() const { return prologue_.has_value(); }
@@ -402,6 +404,7 @@ private:
     u32 countdown_ = 0;               // the race's countdown (the race information's +0xBC)
     bool holding_ = false;            // (hold_once's step)
     bool gt4_ready_ = false, gt4_rules_ = false;
+    bool japan_ = false; // SCPS-17001 v1.05's program: its own rules where they differ (docs/specs/physics.md "Japan's rules")
     // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;

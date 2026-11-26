@@ -94,6 +94,7 @@ struct AidTables {
     u8 e_quiet = 0;                 // 0x6224A8 channel E neither counts as acting nor as on
     std::array<F, 5> tcs_class;     // 0x6220E0 the TCS target's factor by a computer driver's class: (s8 at 0x6220A0 + k,
                                     // + 100) / 100, made by 0x3F1790 at the race's configuration
+    bool japan = false;             // SCPS-17001 v1.05's rules (its TCS 0x3F2970: below 100 km/h the follower is left as it is)
 };
 constexpr u32 kAidStatic = 0x620CD8, kAscc = 0x6202A0, kAsccSwitches = 0x6224A6, kTcsClass = 0x6220E0, kTcsClassBytes = 0x6220A0;
 AidTables aid_tables(const Program& program);
@@ -193,7 +194,8 @@ void brakes(ex::Car& c, AidExtra& x, const TireExtra& t, const WheelLayout& l, c
 // driving slip target (with tcs_mode 1 at least curve D's rising side at curve A's value; else x the lateral fade),
 // x the block's scale, x the class factor for control source 1 / driver kind 0, raised with speed (tcs_speed_*);
 // the throttle x (1 + (slip - target) x gain x slip gain), 0 .. 1, directly below 100 km/h, through a follower
-// (x 1.1, 500 / 50 at 1/60 s, at most the throttle) at and above it; status 2 when it limits.
+// (x 1.1, 500 / 50 at 1/60 s, at most the throttle) at and above it; status 2 when it limits. Below 100 km/h the
+// follower is set to the throttle, at rest (SCPS-17001 v1.05: left as it is).
 void tcs(ex::Car& c, AidExtra& x, const TireExtra& t, const DriveExtra& d, const WheelLayout& l, const AidTables& g, const ex::Aids& a);
 // 0x3F77B8: the car's own aids: TCS and the brakes with ASCC while the handbrake is under 0.1.
 void own_aids(ex::Car& c, AidExtra& x, const TireExtra& t, const DriveExtra& d, const WheelLayout& l, const AidTables& g, const AidRace& r);
