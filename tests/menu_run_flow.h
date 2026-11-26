@@ -221,7 +221,7 @@ struct Sequence {
     }
 };
 
-Disc* gt4_disc() {
+[[maybe_unused]] Disc* gt4_disc() {
     for (const auto& disc : test::discs())
         if (disc->info().game == Game::GT4) return disc.get();
     return nullptr;

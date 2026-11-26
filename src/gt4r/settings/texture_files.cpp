@@ -37,7 +37,7 @@ void parts(const std::string& path, ByteSpan data, const FileReader& read, const
     for (u32 at : {c.info, c.collision, c.body_paint, c.wheel, c.wheel_paint, c.wing, c.tire[0], c.tire[1], c.driver})
         if (at > c.body) end = std::min(end, size_t(at));
     for (u32 p = 0; p < paints; ++p) {
-        char name[16];
+        char name[24];
         std::snprintf(name, sizeof name, "/paint%02u", p);
         try {
             const Bytes painted = car::apply_paint(data.subspan(c.body, end - c.body), pat, p);

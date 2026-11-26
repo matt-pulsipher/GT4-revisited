@@ -54,6 +54,8 @@ namespace tool { int cmd_ai(Disc& disc, const std::vector<std::string>& args); }
 namespace tool { int cmd_sweep(Disc& disc, const std::vector<std::string>& args); } // cmd_sweep.cpp
 namespace tool { int cmd_textures(Disc& disc, const std::vector<std::string>& args); } // cmd_textures.cpp
 namespace tool { int cmd_photo(Disc& disc, const std::vector<std::string>& args); } // cmd_photo.cpp
+namespace tool { int cmd_state_hash(Disc& disc, const std::vector<std::string>& args); } // cmd_platform.cpp
+namespace tool { int cmd_car_digests(Disc& disc, const std::vector<std::string>& args); } // cmd_platform.cpp
 }
 using namespace gt4r;
 
@@ -616,6 +618,8 @@ const Command kCommands[] = {
     {"sweep", "<disc> courses [filter] [cars=4] [laps=1] | cars [filter] [course=tsukuba] [seconds=40] (cmd_sweep.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_sweep(d, a); }},
     {"textures", "<disc> <outdir | -> [prefix] (cmd_textures.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_textures(d, a); }},
     {"photo", "<disc> locations | location <course> | card <card folder> [outdir] | check <card folder> (cmd_photo.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_photo(d, a); }},
+    {"state-hash", "<disc> <course> [cars] [seconds=60] [every=10] (cmd_platform.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_state_hash(d, a); }},
+    {"car-digests", "<disc> [all] (cmd_platform.cpp)", 0, [](Disc& d, const Args& a) { return gt4r::tool::cmd_car_digests(d, a); }},
 };
 
 } // namespace
