@@ -351,7 +351,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Not yet: the
   engine's Settings page for the touch controls (layout editor, tilt steering, opacity), the race display moved clear of the
   pedals (the speed and gear can sit under them on a 16:9 screen), phone vibration, tilt steering.
-  Meta Quest: android/README.md "Meta Quest" says what a VR app needs; none is built.
+  Meta Quest: the `-Pquest` app, as an immersive OpenXR app ([VR.md](VR.md)).
+- VR headsets ([VR.md](VR.md)): the OpenXR session, its canvas and eyes, the controllers' virtual pad and pointer are the shared
+  engine's (`src/xr`); the frame loop's use of them is ours (`app_xr.cpp`), and so is the race in stereo (`race_vr.cpp`,
+  `RaceWorld::render_eyes`): GT4's own draw, from the head's place, per eye. Not on a headset yet.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).
