@@ -97,6 +97,13 @@ private:
         float x = 0, v = 0, u = 0;
         void step(float input); // 0x384B70
     } shake_pitch_, shake_yaw_;
+    // A hit's jolt of the in-car view (0x37A8E4 ..): three turns and three shifts, each a spring (0x3853A0) kicked for the
+    // hit's step: pitch, yaw, roll (degrees), then across, up, along (metres).
+    struct Spring {
+        float x = 0, v = 0;
+        void step(float input);
+    };
+    Spring jolt_[6];
     float shake_speed_ = 0;
     bool shake_on_ = true;
     u32 seed_ = 0x87654321u;

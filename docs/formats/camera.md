@@ -170,10 +170,25 @@ eye):
    250 (the yaw shaker draws first), else 0. A shaker with input u: v += ((u - u_before) -
    12 v) / 60, x += v / 60, output x clamped to -1..1. The view pitches by 8 S x and yaws by
    2 S x degrees. (No cap on A was seen.)
-2. **Impact kick**: when the car's record flags an impact, three turns (clamped to 90 degrees)
-   and three shifts (clamped to 0.6, 0.1 and 0.3 m) are driven through springs
-   x'' = 750 (u - x) - 17 x' from the impact's two components, scaled by random draws.
-   🔎 The exact inputs.
+2. **A hit's jolt** (the in-car view only; mount 0 and 25): the collision step's results back to the cars (0x3F4C18), with the
+   switch byte 0x6202BA on (1 on the disc), keep per car at cond + 0xCAB8 + 0x30 i the change of velocity the step made (the
+   body's after it less the record's F + 0x544) along the body (F + 0x0C) as a and across it to the right (F + 0x18) as b,
+   when its size s = sqrt(a^2 + b^2) is past the floor: held to the cap, scaled so that its size is base + gain (s - floor),
+   into +0x1C (a) and +0x20 (b), with +0x24 set for that step (a step after one with it set only clears it). The floor and
+   cap are the bytes 0x6202BB and 0x6202BC in km/h (10 and 200; the cap one more than the floor where they are equal), both
+   raised by 0x6202C0 (20) on a course of kind 2 and by 0x6202BF (0) on kind 3 (K + 0xCBDD); base 0x6202BD km/h (1), gain
+   (0x6202BE km/h (50) - base) / (cap - floor) (0x34A4B8 at the race's start). The in-car view (0x37A8E4 through 0x34A8B0)
+   kicks six springs for that frame, with A = a|a|, B = b|b|, m = sqrt(|A| + |B|) and the random draws (0x578598) r:
+   pitch -(A's sign) x 10 (|A| (0.4 + 0.4 r) + |B| (0.1 + 0.4 r')) (a head-on hit looks down); yaw -10 B; roll 5 m x
+   (0.1 .. 0.8); the shifts m x (0.4 .. 0.8), (0.05 .. 0.2), (0.03 .. 0.3) (each of the last four either way: 0x37A418).
+   Each spring every frame (0x3853A0): v += (750 (input - x) - 17 v) / 60, x += v / 60, the input 0 but for the hit's
+   frame: a bounce of about 4 Hz that dies in half a second. The turns (degrees, within 90) and shifts (metres, within
+   0.6, 0.1, 0.3) are applied as a camera place's are (0x37B13C: roll, pitch, yaw, then the shift). ✔ Against the
+   original's wall hit at Tsukuba's first corner (`03-race/incar_view_start_to_first_corner_runs_off.mp4`, 0'16.5: 44 to
+   3 mph, the view thrown down, back up past level, settled by 0'16.9; the original also blurs those frames, not built)
+   and ours (the Ka, `drive=pad`, the throttle held into the same wall): the same throw and swing. Not in replays here (a replay
+   keeps no record of the hits). Here
+   `sim::rules::view_jolt` keeps the record and `race::DriveCamera` the springs (our random generator for the draws).
 3. **Looking sideways** (not while the car's +0x546 is 6 ❓): an angle that eases towards -60, 0 or +60 degrees by 0.2 of the
    difference per frame while a look-left / look-right button is held (0x37AF94); yaw about
    the eye.
