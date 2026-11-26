@@ -7,6 +7,10 @@
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/race/race_display.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/pit_stops.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/session.h"
 
 #include <cmath>
 #include <cstdio>
@@ -137,4 +141,35 @@ TEST(endurance_qualify_places) {
     const std::vector<s64> none{-1, -1, -1};
     CHECK(race::qualify_places(none) == std::vector<int>({0, 1, 2}));
     CHECK(race::qualify_start_distance(0) == -300 && race::qualify_start_distance(5) == -420);
+}
+
+// The arcade's "Passing pit lane" penalty: F +0x62E is one byte for the hits' penalty and the pit flow; the session's mark is
+// the pit flow's pad visit (0x35FE18 sets it, 0x35B060 drives it), kept the same both ways.
+TEST(endurance_pit_lane_penalty_mark) {
+    Disc* disc = nullptr;
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::vector<std::string> labels{"s500_63", "ka_01"};
+    auto session = sim::Session::open(*disc, "tsukuba", labels);
+    std::vector<size_t> computer{0, 1};
+    auto field = sim::ai::Field::open(*disc, "tsukuba", *session, computer);
+    const sim::Program program = sim::Program::load(*disc);
+    sim::ai::PitStops pits(*field, program, 2, sim::ai::session_pit_hooks(*session));
+    std::vector<race::CarInput> in(2);
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->hold(in), session->hold_once(in);
+    auto step = [&] {
+        field->drive(in);
+        pits.before(*field, in);
+        session->step_once(in);
+        pits.after(*session, *field);
+    };
+    step();
+    CHECK(session->pit_mark(0) == 0 && pits.car(0).pad_state == 0);
+    session->set_pit_mark(0, 1); // (the penalty given)
+    step();
+    CHECK(pits.car(0).pad_state == 1 && session->pit_mark(0) == 1);
+    session->set_pit_mark(0, 0);
+    step();
+    CHECK(pits.car(0).pad_state == 0);
 }
