@@ -6,10 +6,13 @@ Prologue disc starts the same way.
 
 ## Starting
 
-1. Start `gt4r`. Without a disc it asks for one: press Enter (Cross) to choose your Gran Turismo
-   4 disc image (`.iso` or `.chd`), or drop the file on the window. Nothing is copied from the
-   disc; the game's files are read from the image as they are needed.
-   The disc images opened before are offered below it.
+1. Start `gt4r`. Without a disc it asks for one: *Choose a disc image* (Enter or Cross) opens a file window for
+   your Gran Turismo 4 or Gran Turismo 4 Prologue disc image (`.iso`, or `.chd` made from one), or drop the file
+   on the window. Nothing is copied from the disc; the game's files are read from the image as they are needed.
+   The disc images opened before that are still there are offered below it. A file that cannot be played says
+   why and what to do: a file that is not there any more (moved, renamed, a drive not connected), a file that
+   is not a disc image, another game's disc (a Gran Turismo 3 A-Spec or Gran Turismo Concept image says so), an
+   image cut short or damaged (make it again from your disc).
 2. With a disc chosen, the game starts as the console does, without its questions about a memory card: the
    Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
@@ -19,12 +22,13 @@ Prologue disc starts the same way.
    starts a new game (the name entry, then back to the title, as the game itself does; choose Gran Turismo mode again
    to go to the map); Arcade needs none. The game saves itself after every race and purchase (Options,
    Miscellaneous, Autosave) and the next launch goes on with it.
-   **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: load one, start a new one
-   beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2 memory card
-   image*.
-4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
-   pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, the *Save editor*, another disc, and
-   *Play* to start the game again. *Settings > Disc & saves > Starts in* opens the home screen first.
+   **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: play one, start a
+   new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
+   memory card image*.
+4. Select and Start together (on a keyboard Tab and P) leave the game for the home screen; the title says so beside
+   the picture. The home screen: *Play* (the game from the start), *Saved games*, *Controls*, *Settings*, *Mods*, the *Save
+   editor*, *Another disc*, *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a race
+   set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back); the game's pages a pad or the keyboard.
 5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
@@ -49,8 +53,9 @@ Triangle and Square go back). In races, unless you change it:
 | Nitrous | R1, direction buttons' Down | F | (bind it) |
 | Pause | Start | Escape, P | Start |
 
-Menus on a keyboard: arrows move, Enter is Cross, Escape and Backspace Triangle, P Start, Tab
-Select. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
+Menus on a keyboard: arrows move, Enter (or W) is Cross, Escape and Backspace Triangle, Space Circle, S Square,
+Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. The name entry's letters are chosen on its own keyboard
+with the arrows and Enter. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
 mouse's arrow goes after two seconds without it.
 
 **The game's own Options** work as the console's. *DUALSHOCK 2 button config 1P*: once you change it,
@@ -103,8 +108,12 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
   are kept in (a new one gets a copy of what it does not have; nothing is written over); the server of the races over the
   internet (none until you choose one); what opens at the start; the data
-  folder; the log of this session and of the one before (`gt3r.log`, `gt3r.prev.log` in the data folder: an uncaught error or
-  a crash is its last line; your name is taken out of the paths); the version.
+  folder; the log of this session and of the one before (`gt4r.log`, `gt4r.prev.log` in the data folder: an uncaught error or
+  a crash is its last line; your name is taken out of the paths); the version. *Updates*: *Check for updates* at startup
+  (the default) or only when asked; at startup it asks only the internet server you chose, and *Check now* asks that one or
+  else `gt3r.gameversions.com`. When a newer release exists, or online races need a newer one, a window over the home
+  screen or the title says so once per release, with *Download update*, *Later* and *Release notes*; playing on this
+  machine and over the local network is never blocked.
 - *Mods*: below.
 
 ```
@@ -153,44 +162,6 @@ cars, events and liveries are not read.
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
 stop on a pause, a replay, the menus and the end of a run.
-
-### To try with a real pad and wheel
-
-Nobody has driven this with a real device yet: the frames, the levels and the stops are tested with
-simulated ones. What to try, and what to look for:
-
-Pad (a DualSense and, if there is one, an Xbox pad):
-1. *Controls* with the pad plugged in: its name at the top right; the bars follow the stick and both
-   triggers from end to end; the stick at rest shows no steering.
-2. Unplug and plug it in on the home screen, in the menus, and in a race (the race pauses; plugged in
-   again it drives on).
-3. Arcade, a road car, automatic, aids on: at half trigger the car accelerates gently; the car stops
-   straight; a light touch of the stick steers finely. Then Transmission Manual: one press, one gear.
-4. Rumble, Automatic: still on a smooth straight; pulses on the kerbs; holds on grass; a thump on a wall
-   (both grips, the left stronger; on a DualSense closer together); light in a slide or wheelspin. Then
-   Gran Turismo 4 original: the left motor only, busy over bumps.
-5. Triggers on a DualSense: resistance on the brake from a fifth of its travel, a buzz with the ABS, a
-   buzz under the throttle near the grip's edge (aids off, a powerful car). Triggers: Free stops them.
-6. Each stops at once on Start (pause), at the finish, in the replay, on leaving the race, when another
-   window comes to the front; Options > Vibration off silences it (the triggers too).
-7. Options > DUALSHOCK 2 button config 1P: swap two controls, OK, race: the pad follows the page.
-   Default there, then OK: the Modern layout again.
-
-Wheel:
-1. *Controls*: it says the wheel's name; set "Wheel's rotation" to what its driver has; the steering bar
-   is full only at 450 degrees each way (Driving Force Pro) and moves from the first degree; the pedals
-   go from empty to full. Bind the steering axis, the pedals, paddles and buttons where the defaults
-   (axis 0; axes 1 and 2) are not your wheel's.
-2. A race with the force's strength low first (Strength 30 %). Straight on: no pull. Steering at speed:
-   the wheel pushes back toward the middle. **If it pulls into the turn instead**, "Force's direction:
-   The other way", and say so.
-3. The force grows with the corner and goes lighter as the front slides (Modern); at a stand it only
-   centers. Gran Turismo 4 original: the game's force alone over a plain spring.
-4. It keeps working for minutes, through a pause and back, and after a wall.
-5. Nothing is left pulling on the pause, at the finish, in the replay, in the menus, with another window
-   in front, or after quitting.
-6. Options > Steering: the feedback strength Weak and Strong differ; the steering type and active steering (Driving
-   Force) change how it feels. Wheel driven as Driving Force: 100 degrees is full lock.
 
 ## Racing others (Multi-LAN Race)
 
@@ -280,8 +251,12 @@ cameras to the race's views. On a pad whose right stick does nothing else it loo
 
 The ones a player meets first:
 
+- Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055) are the
+  tested releases. Another release opens with "not a tested release" on the home screen, and parts of it may not work.
+- Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
 - Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
   car reflects the sky more strongly than the original's.
+- Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
 
 ## Scripted play (for checks)
 
@@ -355,8 +330,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
-  `src/gt4r/settings/run_mode.h`); the home screen, the setup screen and the
-  asset browser are tools of this app, not pages of the game.
+  `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
+  title's line about the home screen (`screen_menu_viewer.cpp` `title_hint`) are this app's, not pages of the game. The
+  messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
 - The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,
   hot plug, bindings, the steering's dead zone and response); from its virtual pads on the race's frame is
   the game's own (the controller 0x43CF90, `src/gt4r/input`, equal to the program's), and so is what the

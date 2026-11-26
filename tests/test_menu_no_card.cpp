@@ -178,6 +178,40 @@ TEST(disc_menu_no_card_games) {
     fs::remove_all(dir);
 }
 
+// No save by itself while a championship runs (its page with no series and no menu stack would load into nothing); left
+// (kept) or closed, the next page saves again.
+TEST(disc_menu_no_card_no_autosave_in_a_championship) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const fs::path dir = fresh("gt4r-test-nocard6");
+    NoCard f(*disc, dir);
+    CHECK(f.title());
+    f.press({menu::Key::Down, menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.enter_name());
+    save::SaveLibrary lib(dir.string(), "BASCUS-97328");
+    const std::string game = lib.current();
+    menu::GameState& s = f.rt->game();
+    menu::autosave(*f.rt); // (the game as saved, known)
+    s.money += 100;
+    const u64 before = lib.change_mark(game);
+    menu::autosave(*f.rt);
+    CHECK(lib.change_mark(game) != before); // (a change saves)
+    s.series = {"tcgp", 1, 5, {}}; // (the Tuning Car Grand Prix after its first race)
+    const u64 mark = lib.change_mark(game);
+    s.money += 500;
+    menu::autosave(*f.rt);
+    CHECK(lib.change_mark(game) == mark);
+    s.suspend_series(true); // left with EXIT: kept, saved
+    menu::autosave(*f.rt);
+    CHECK(lib.change_mark(game) != mark);
+    s.suspend_series(false); // closed: no series left
+    CHECK(s.series.label.empty() && !s.suspended);
+    CHECK(f.clean());
+    fs::remove_all(dir);
+}
+
 // A folder that cannot be written: said once, with the folder; a game that cannot be read: said once at the boot, which goes on,
 // and stays as it is when a new one is made.
 TEST(disc_menu_no_card_failures) {

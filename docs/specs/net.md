@@ -110,9 +110,8 @@ frame and the steering command with its motion (control source 1 or 2).
 Every quantity a car's motion needs fits, for every car of the disc (three-wheelers, stepless and
 hybrid boxes, layout 7's motors: `net_state_round_trip`, 97 cars, back within the units above, the
 rest bit for bit). **What does not fit**: the frame's button bytes +0x10 .. +0x13 (a pit stop's
-answer: which tires, fuel) and the pit's tire change itself, so a remote car's prediction keeps
-the tires it started on. An engine field for it would be a reliable message of the game's own
-(bytes the session passes on, like `CarInfo`, in a race).
+answer: which tires, fuel) and what a pit stop does to the car outside its step. That travels as the
+car's *service* (below), in the car-info block, with no change to the engine.
 
 ### Posed cars
 
@@ -172,6 +171,102 @@ driver driving both cars, one lap of Tsukuba, contacts between them): 0.05 cm rm
 0.1 / 0.8 cm through a relay server here; the same finish times on both (72.718 s and 74.319 s). A step of a
 prediction costs what a step of the car costs (about 50 µs on a loaded M-series Mac, `net_race_prediction_cost`).
 
+### Service: what changes a car outside its state
+
+A pit stop changes the car between its steps: the stop's timing (0x35C0B8, in the step's preparation) holds it with its
+hold counter (F +0x4BA, which also lifts it on its jacks: the attitude's start hold 0x36AE20), fits the tires chosen
+(0x3F3B68 and 0x361570 at the counter's 645, the base grips 0x361798 at 644) and new tread (0x362E58 at 60); the pit pass
+(0x35B060) stands the car in its box (0x363560) and turns it; the refuelling (0x354D60) sets the fuel. None of it is in a
+state, and the prediction's own run cannot make it (the stop is its owner's race's). So the owner's machine logs each as
+it happens, by the race's clock, and the others put it into their prediction at the same moment of the car's run
+(`net/car_service.*`; `RaceWorld::take_service`, `NetRace::service`, `RemoteCar::add_service`).
+
+| Event | When | Value |
+|---|---|---|
+| Hold | before the car's step from the clock | the counter, and whether it stands (else counted down one a step, to 0); only a change of course is sent: about five a stop |
+| Tires | before (645) | the kinds chosen front and rear (0xFE: the kind fitted), the axles served |
+| Grips | before (644) | the axles |
+| NewTires | before (60) | the wheels |
+| Driver | before | a B-spec driver's pace (car +0x81, the TCS target's class) and shift factor (car +0x83), which the drivers set each step (0x3F19E0); sent when they change |
+| Box | after the step that ends at the clock | the box's heading (float bits) |
+| Face | after | the heading |
+| Fuel | after | the liters (float bits): the last of a refuelling, sent once a step passes without one |
+| Flags | after | the pit pass's flags F +0x4B1 (Session::set_pit_flags; bit 0, the line just crossed, pauses the active steering): sent when they change |
+
+The prediction applies an event *before* a step where it runs that step, one *after* a step before the state of its clock is
+put in (the owner's own order: the pit pass's work comes before its state is made, the stop's timing after); the tire change
+is the program's on the prediction's one-car session (`sim/ai/pit_tire_change.h`, `net::tire_change_on`). An event that
+comes after the state of its moment (the service goes reliably through the host, the states straight): the car is run again
+from the newest kept state before it through the states since (the last 180 states are kept, 3 s; 15 KB each), then the
+prediction on from there, its jump blended out as a new state's. `Session::Memory` keeps the car's parameter block for this
+(the tire change rewrites it; 0x361798 scales it in place).
+
+**On the wire.** The car-info block (`Session::set_car_info`, at most 1 KB, sent reliably to the host, which passes it on to
+everybody, in a race as in the lobby: `Event::Kind::CarInfo`, no check of the race's phase; checked here directly and
+through the relay server) is the lobby's record (`net/lobby.h`, unchanged: its reader ignores what follows) and then the
+section: u8 version 1, u16 the lobby's round (`OnlineRace::round`: a section left from an earlier race is not taken), u8 the
+count, the events oldest first (u8 the kind, u16 the steps since the one before, 0xFFFF then s32 the clock; the value: Hold
+u16 + u8, Tires 3 bytes, Grips / NewTires / Flags u8, Driver u16, the rest u32), then u16 the section's length and "G4SV". The
+block is sent when there is a new event, with the events of the last 5 s (the oldest left out to fit 1 KB): every block of
+a session arrives in order, but a race reads only the newest. About ten blocks a pit stop, two a lap (the flags).
+
+**Measured** (`net_race_pit_stop_service`; two machines in one process, `GT4R_NET_TABLE=1` for all): a Ford Ka (B-spec)
+sent into the pits at Tsukuba, the LAN battle's tire wear (setting 1) and fuel counted; it takes the softest kind the pit has
+for it (Sports 4 to 5) or the hardest (4 to 3), a full tank and new tread; an S500 weaving along the road on the other
+machine. The service through the host at twice the delay, a loss costing it the delay twice more. rms / worst in cm of the
+other machine's car against the owner's, without the service and with it; *in the stop* from the box to the hold's end, then
+30 s after it (no contact in these runs: *apart* is *all*).
+
+| One way | Lost | Tires | In the stop: without, with | 30 s after: without, with |
+|---|---|---|---|---|
+| 0 ms | 0 % | 4 to 5 | 0.21 / 0.7, 0.00 / 0.0 | 0.03 / 0.1, 0.04 / 0.1 |
+| 0 ms | 20 % | 4 to 5 | 1.01 / 22.2, 0.00 / 0.0 | 0.06 / 0.5, 0.06 / 0.5 |
+| 50 ms | 0 % | 4 to 5 | 2.61 / 33.3, 1.55 / 33.3 | 0.22 / 1.9, 0.22 / 2.0 |
+| 50 ms | 20 % | 4 to 5 | 3.95 / 55.5, 1.55 / 33.3 | 0.25 / 1.9, 0.26 / 2.0 |
+| 100 ms | 0 % | 4 to 5 | 7.71 / 66.6, 3.94 / 66.6 | 0.69 / 8.5, 0.70 / 8.8 |
+| 100 ms | 20 % | 4 to 5 | 9.25 / 88.8, 3.94 / 66.6 | 0.72 / 6.4, 0.72 / 6.7 |
+| 250 ms | 0 % | 4 to 5 | 32.97 / 166.5, 14.55 / 166.5 | 4.52 / 46.4, 4.62 / 48.2 |
+| 250 ms | 20 % | 4 to 5 | 34.63 / 188.7, 14.55 / 166.5 | 4.46 / 45.5, 4.54 / 45.5 |
+| 0 ms | 0 % | 4 to 3 | 0.21 / 0.7, 0.00 / 0.0 | 0.03 / 0.1, 0.03 / 0.1 |
+| 0 ms | 20 % | 4 to 3 | 1.01 / 22.2, 0.00 / 0.0 | 0.07 / 1.9, 0.07 / 1.8 |
+| 50 ms | 0 % | 4 to 3 | 2.61 / 33.3, 1.55 / 33.3 | 0.21 / 1.9, 0.19 / 1.8 |
+| 50 ms | 20 % | 4 to 3 | 3.95 / 55.5, 1.55 / 33.3 | 0.31 / 6.2, 0.29 / 5.8 |
+| 100 ms | 0 % | 4 to 3 | 7.71 / 66.6, 3.94 / 66.6 | 0.64 / 6.2, 0.59 / 5.8 |
+| 100 ms | 20 % | 4 to 3 | 9.25 / 88.8, 3.94 / 66.6 | 0.91 / 16.1, 0.85 / 15.1 |
+| 250 ms | 0 % | 4 to 3 | 32.97 / 166.5, 14.55 / 166.5 | 4.74 / 45.5, 4.46 / 42.8 |
+| 250 ms | 20 % | 4 to 3 | 34.63 / 188.7, 14.55 / 166.5 | 5.09 / 50.9, 4.82 / 48.4 |
+
+With the service the car stands in its box as its owner's (held, on its jacks, turned to the box), and its car as the owner
+last sent it is on the owner's tires, tread and fuel bit for bit at the stop's end (without it: the old kind, the worn tread,
+the fuel before the stop). After the stop the position error is the prediction's own run on the frame held: a softer tire
+answers a held steering more, so with the service the error is a little larger after a change to softer tires (up to 3 %)
+and smaller after one to harder ones (up to 9 %). The worst in the stop stays: it is the car braking into its box between
+two states. Two app copies on this machine (`pit=1` with B-spec driving, tire
+wear on, two laps of Tsukuba), directly and through a relay server here: ten events a stop (the default choice: no tires
+chosen), each with the state of its clock or before it but one (run again from a kept state, directly); the other's car
+stood held with the same counter (721, 661, 121, 61, 1), at the same height on its jacks (0.14 m above where it stopped),
+with the full tank (80.000 l) and the new tread (-10000) at the same clocks as its owner's.
+
+**What else the state lacks** (netcore's open list):
+
+- *Repairs*: none. The stop's service (0x35AF18) is tires (service 0x4, 0x40 / 0x80) and fuel (0x8, 0x100); nothing repairs a
+  car in a race. The condition block (odometer, engine wear, oil, dirt) runs in the step, so the prediction follows it.
+- *A driver change in the pit*: the pit menu's driving mode is offered only to a car a B-spec driver drives (`pit_offer`:
+  control source 1); the control source and the driver's kind travel in every state, the B-spec driver's pace and shift
+  factor in the service (above). A player's car in an online race is his own (control source 0).
+- *Boost (the lobby's)*: each machine's rubber band gives every car its time scale from its own view of the order and gaps
+  (`Field::rubber_band`, chained from the leader); the prediction takes the posed car's. The scale is continuous in the gap
+  (7 % over 180 m: a centimetre of disagreement is 4 x 10^-6 of it); only a place swapped a step apart on two machines gives
+  a step's different scale ❓ not measured (the boost is off by default).
+- *The surroundings of a step run again*: the slipstream, the driving line's heading and mode and the time scale given to
+  the prediction are the race's newest, also for the owner's steps run again from the state before; the owner's were his
+  own at each step. Exact while the cars are apart and the time scale is 1; ❓ not measured in a draft.
+- *Contacts*: the owner's car meets the others in his own race (phase 13) and takes the hits another machine reports
+  (`apply_impulse`); the prediction's one-car run does neither, so the owner's steps run again here miss the hit until the
+  next state puts the motion in (the *all* columns above against *apart*). Sending the hit as an event would need it
+  applied within the step (phase 13), which a step of the one-car session does not offer: an engine-free way would be a
+  velocity change after the step, ❓ not tried.
+
 ### Contacts
 
 The hit our machine's step meets goes to the other car's owner (the engine's Contact message: the
@@ -216,7 +311,7 @@ machines compare.
 `tests/net_machines.h` (machines in one process, states with delay, jitter and loss):
 `net_state_round_trip`, `net_race_remote_car_error`, `net_race_contact`, `net_race_posed_car`,
 `net_race_stalled_machine`, `net_race_six_cars`, `net_race_car_put`, `net_race_hostile_states`,
-`net_lan_rules`; over loopback sockets
+`net_lan_rules`, `net_service_section` (the section's layout, the log), `net_race_pit_stop_service` (a pit stop, above); over loopback sockets
 (`tests/test_net_session.cpp`): `net_session_race` (direct, with datagrams lost, through a relay
 server in the process; the clocks 5 s apart), `net_session_finish_and_loss` and `net_session_120hz`.
 
@@ -226,6 +321,7 @@ server in the process; the clocks 5 s apart), `net_session_finish_and_loss` and 
 |---|---|---|
 | Transport, lobby channel, hole punching, relay, clocks, plausibility checks | `engine/gt3r/src/net`, `race/net_race.h` `Plausibility` | the shared engine's, unchanged |
 | The car's state, posing, prediction, hits | `net/`, `sim/session.*` | ours, on Gran Turismo 4's step (nothing of Gran Turismo 3's runs in a car) |
+| A pit stop on the others' predictions (service) | `net/car_service.*`, `net/remote_car.*`; the tire change `sim/ai/pit_tire_change.h` | ours, carrying Gran Turismo 4's own stop (its routines run on the prediction) |
 | Wear, boost, start, grid | `net/lan_rules.*`, `race_world.*` | Gran Turismo 4's |
 
 ## The lobby
@@ -270,7 +366,8 @@ writes its own record and reads the others' through `main::network` (MNetwork, r
 ### The game's own pages here
 
 `menu/game_network.*` answers those natives from a `net::Lobby` (`net/lobby.*`): each player's record is one block (at most
-1 KB) in the session's car info (`Session::set_car_info`, which the host passes on, to players who join later too). Nothing
+1 KB) in the session's car info (`Session::set_car_info`, which the host passes on, to players who join later too). In a race
+the block carries the car's service after the record ("Service" above). Nothing
 is added to the shared engine's protocol. The pages are the disc's, unchanged; the record holds the natives' fields, the
 player's car, the barrier's round, and the host's settings.
 
@@ -299,9 +396,9 @@ player's car, the barrier's round, and the host's settings.
 
 The disc's id is `gt4` for the release as it shipped, `gt4:<the files' digest>` for any other Gran Turismo 4 disc
 (`net/identity.*`); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
-calls our disc "another game", whichever side hosts. The version sent is the shared engine's. A relay server that asks for a
-newer version is answered on the page by a text of ours with no other name and no download; the relay's version notices are
-not used.
+calls our disc "another game", whichever side hosts. The version in the relay's requests is the shared engine's (the relay
+holds it to its main game's oldest version). A relay server that asks for a newer one is answered on the page by a text of
+ours with no other name and no download; the relay's own update notices are not used.
 
 ### The car
 
@@ -329,6 +426,45 @@ server`. No server is set until the player chooses one on the page: the first th
 `gt3r.gameversions.com` or a name typed. A player's own (`gt3r-relay`) is typed there too. Tests use a server of their own on
 the loopback.
 
+### Versions and updates
+
+This game's version is its own (`project(GT4Revisited VERSION x.y.z)`, `gt4r_version.h`; `net::this_version()`), not the
+shared engine's. The update check (`net/version_check.*`, `app/updates.*`) asks the relay server which versions of **this
+game** it announces:
+
+- **The question**: the engine's VersionQuery (our version, the platform), then a game tag: the id `gt4r` and our version
+  again, padded to 199 bytes (the engine's `docs/dev/ONLINE.md` "Other games on one relay"). A relay that keeps versions
+  per game answers this game's latest release, oldest version for online play and release page, with our id after the
+  page. A relay that does not (the public relay until the change is deployed) answers its main game's versions without
+  the id: that answer is not taken, and nothing is shown, as when nobody answers.
+- **When**: at startup when Settings > Disc & saves > *Check for updates* is *At startup* (the default) **and a server has
+  been chosen** (`[online] server`; the online page promises that none is contacted before), and on *Check now*, which
+  asks the chosen server or else `gt3r.gameversions.com`. Scripted runs use only the kept answer unless
+  `GT4R_UPDATE_CHECK=1`.
+- **Kept** in `config.ini` `[online]`: `update_latest`, `update_min_online`, `update_url`, `update_checked`,
+  `update_dismissed`.
+- **The dialog**, drawn by the app over any screen, as the engine's: *Update available* ("GT4 Revisited x.y.z is
+  available. You have a.b.c.") or *Update required to play online* ("Online play needs GT4 Revisited x.y.z or newer. You
+  have a.b.c. Offline play is not affected."); *Download update* (this platform's package: `gt4r-macos-arm64.zip`,
+  `gt4r-windows-x64.zip`, `gt4r-linux-x86_64.tar.gz` in place of the page's `{asset}`), *Later*, *Release notes*. At
+  startup it shows once per release over the home screen or the game's title (Arcade's `TopRoot`); Later remembers the
+  release.
+- **Enforcement**: the relay holds our session requests to its main game's oldest version by the engine's version in
+  them. ❓ Holding them to this game's own versions needs the engine to add the game tag to the session's requests
+  (`Session::set_game_tag`, an engine change not in the shared engine yet); until then, each raise of the main game's
+  oldest version stops our races through the relay until the shared engine is brought up to it. The local network and
+  addresses are never affected.
+
+### Discord status
+
+Settings > Disc & saves > *Show what you're playing* (`[discord] status`, off by default; shown only on desktop builds and
+when a Discord application id is known: `kDiscordAppId` in `app/presence.h`, or `[discord] app_id`). The engine's own client
+(`platform/discord_presence.*`) talks to the Discord app on this computer only. The text (`net/presence_text.*`): the
+menus by the project running (the title, Arcade, Gran Turismo mode, Options, Car settings, the Replay Theater, Photo Travel,
+Photo Lab, Multi-LAN Race), a race by its kind and course, then the car, the lap and the place; the picture is the
+application's `logo` art asset (the app's icon). The clock is the session's. Scripted runs leave Discord alone unless
+`GT4R_DISCORD=1`.
+
 ### Scripted races
 
 `--screen online` with `GT4R_ONLINE` (the top of `app/screen_online.cpp`): two copies race without the menus, direct or
@@ -342,7 +478,8 @@ through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (
 | What the pages share (the natives) | `menu/game_network.*`, `net/lobby.*` | Gran Turismo 4's rules on the shared engine's session |
 | The connection's page, the panel, the rules that are ours | `app/screen_online.cpp`, `app/race_online_ui.*` | ours |
 | The transport, the codes, the relay | `engine/gt3r/src/net` | the shared engine's |
+| The update check's question, the update dialog, the Discord status's text | `net/version_check.*`, `app/updates.*`, `net/presence_text.*`, `app/presence.*` | ours (the engine's prompt rules, links and Discord client) |
 | The car's parameter block, the race's tires | `sim/convert.*`, `sim/race_tires.*` | Gran Turismo 4 |
 
-Tests: `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
+Tests: `updates_*`, `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
 `disc_net_lan_garage_car` (two games' menus in one process from the Multi-LAN Race to the race and back).

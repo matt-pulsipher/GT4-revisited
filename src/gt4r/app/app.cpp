@@ -1,5 +1,8 @@
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/app/updates.h"
 
 #include "gt4r/input/player_controls.h"
 
@@ -12,6 +15,7 @@
 #include "platform/crash_handlers.h"
 #include "platform/mac_layer.h"
 #include "vfs/mod_archive.h"
+#include "gt3r_version.h"
 #include "gt4r_version.h"
 
 #include <algorithm>
@@ -105,9 +109,10 @@ std::string user_data_dir() {
 }
 
 bool App::init(int argc, char** argv) {
-    SDL_SetAppMetadata("GT4 Revisited", GT4R_VERSION, "org.gt4revisited.gt4r");
-    // The log file first, so that it has everything after it: gt3r.log in the data folder (the shared engine's name for it), the
-    // session before in gt3r.prev.log, and why the game closed when it did not close by itself.
+    SDL_SetAppMetadata(kAppName, GT4R_VERSION, kAppId);
+    name_the_engine();
+    // The log file first, so that it has everything after it: gt4r.log in the data folder (app_identity.h), the session before
+    // in gt4r.prev.log, and why the game closed when it did not close by itself.
     {
         const std::string dir = user_data_dir();
         SDL_CreateDirectory(dir.c_str());
@@ -143,7 +148,7 @@ bool App::init(int argc, char** argv) {
     SDL_CreateDirectory(mods_dir().c_str());
     config_path_ = data_dir_ + "config.ini";
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
-    LOG_INFO("GT4 Revisited %s; user data: %s", GT4R_VERSION, data_dir_.c_str());
+    LOG_INFO("%s %s (engine %s); user data: %s", kAppName, GT4R_VERSION, GT3R_VERSION, data_dir_.c_str());
     load_settings();
 
     // A scripted run does not take the keyboard from whoever is at the machine: its window is never shown, or (--visible) opens
@@ -154,7 +159,7 @@ bool App::init(int argc, char** argv) {
     if (const char* size = SDL_getenv("GT4R_WINDOW"); size && std::sscanf(size, "%dx%d", &window_w, &window_h) != 2) window_w = 1280, window_h = 720;
     // macOS: in full screen the menu bar comes down at the screen's top as in other apps.
     SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_MENU_VISIBILITY, "1");
-    window_ = SDL_CreateWindow("GT4 Revisited", std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
+    window_ = SDL_CreateWindow(kAppName, std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                    (run_.windowless ? SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE
                                     : scripted_     ? SDL_WINDOW_NOT_FOCUSABLE
@@ -242,16 +247,28 @@ bool App::init(int argc, char** argv) {
         else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "saveeditor") push(make_save_editor(*this));
         else if (start_ == "settings") push(make_settings_screen(*this));
-        else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
-            const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
+        else if (start_ == "cars" || start_ == "courses") { // (Developer tools' first items: Cars, Courses)
+            push(make_hub_screen(true));
+            const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"cross"} : std::vector<std::string>{"down", "cross"};
             keys_.insert(keys_.begin(), to.begin(), to.end());
         }
         // A launch with a disc and nothing else asked for: the game from power on, the home
         // screen under it ([game] start = hub: the home screen).
         else if (start_ == "game" || (start_.empty() && config_.get("game", "start").value_or("game") != "hub")) push(make_game_screen(*this));
     } else push(make_setup_screen());
+    // The update check and the Discord status: scripted runs reach neither unless asked (GT4R_UPDATE_CHECK=1, GT4R_DISCORD=1).
+    const char* uc = SDL_getenv("GT4R_UPDATE_CHECK");
+    const char* dc = SDL_getenv("GT4R_DISCORD");
+    updates().startup(*this, !scripted_ || (uc && *uc == '1'));
+    discord_status().startup(*this, !scripted_ || (dc && *dc == '1'));
     last_ticks_ = start_ticks_ = SDL_GetTicksNS();
     return true;
+}
+
+bool App::screen_presence(net::PresenceText& t) {
+    for (auto it = screens_.rbegin(); it != screens_.rend(); ++it)
+        if ((*it)->presence(*this, t)) return true;
+    return false;
 }
 
 std::vector<std::string> App::parse_key_script(std::string_view text) {
@@ -481,6 +498,10 @@ SDL_AppResult App::iterate() {
     }
 
     apply_screen_changes();
+    updates().poll(*this);
+    discord_status().frame(*this);
+    updates().frame(*this, !screens_.empty() && screens_.back()->update_prompts());
+    const bool modal = updates().modal(); // the update dialog takes the menu input
     gt3r::PadState scripted = scripted_keys();
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
@@ -527,7 +548,8 @@ SDL_AppResult App::iterate() {
                 if (a.kind == gt3r::PointerInput::Action::Kind::Back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
         menu_.update(pad, dt);
     }
-    if (!screens_.empty()) screens_.back()->update(*this, dt);
+    if (modal) updates().dialog_update(*this);
+    else if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
 
@@ -537,6 +559,7 @@ SDL_AppResult App::iterate() {
     begin_gamma_frame();
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
+    updates().dialog_render(*ui_); // (centered on whatever width the screen below laid out)
     draw_fps(!game);
     // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
     static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
@@ -583,7 +606,7 @@ SDL_AppResult App::iterate() {
     // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
     if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
         LOG_ERROR("The graphics device was lost: %s", SDL_GetError());
-        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "GT4 Revisited", "The graphics driver stopped responding, so the game has to close.", window_);
+        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kAppName, "The graphics driver stopped responding, so the game has to close.", window_);
         return SDL_APP_FAILURE;
     }
     if (dynamic_on_)
@@ -666,6 +689,7 @@ void App::write_stats(double frame_ms) {
 }
 
 void App::shutdown() {
+    discord_status().shutdown(); // clears the Discord status
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
     sound_.reset();

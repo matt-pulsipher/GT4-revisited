@@ -24,7 +24,9 @@ the pause's "retry"; 5 a restart inside the run (free run only); 6 the time limi
 ## The start (`fn_003C0208`, every frame; reset by `fn_003C0190`)
 
 The start type is the race information's byte +0x40, its seconds byte +0x41: the event's `RACE` row's
-bytes +0x40 and +0x41 (0x4470E8 copies the row into the information; seconds 0: the type's own). ✔ On the
+bytes +0x40 and +0x41 (every sequence hands the race's label to 0x3BB440, and 0x4470E8 copies the row into the
+information; the start's reset 0x3C0190 reads both). The hold by type (0x3C0208, its table at 0x6A29C0): 1 sets the
+seconds to 8, 2 to 10, 3 and -1 to 0; 0 (and a type past 3) keeps the row's seconds; so only type 0 reads them. ✔ On the
 disc: type 2 on 585 events (the races, `sample_entry_1` among them), 1 on 60 (the license tests that stand), 3
 on 60 (the tests and missions that start moving), 0 with 7 s on 4 (the machine tests). The base conductor
 (vf10 0x34C1B0) keeps the row's type unless its configuration has a speed for car 0 (CFG +0x4E); `RaceBase::vf38` makes it -1 when the conductor has a rolling start with a
@@ -143,7 +145,7 @@ run at once. The movie and its callbacks: [strobe.md](strobe.md). The pause menu
    stand on the grid, only the camera runs, in mode 5: the scenic shots), the project
    `quick-arcade` run to its end, then the race reset.
 2. The command the scripts chose (MQuickWork `selectedCommand`):
-   - START: the quick tune applied, a driven run (mode 0); then a fade, and **the replay at once
+   - START: the quick tune applied (below), a driven run (mode 0); then a fade, and **the replay at once
      when the player's crossings are 2 or more**; `canReplay` = 1; the menus again.
    - SPECTATOR: the same in mode 1, no replay after; `canReplay` = 2.
    - REPLAY: mode 2 after a driven run, else 3. OPTION: the project `option`, then the menus.
@@ -305,6 +307,31 @@ race begins (0x39C33C a moving start: 0.2 s in, 2 s, fades 0.1 / 0.3 s; 0x39C18C
 orange, (320, 304). ✔ "250 pt. Race" at 0'00.7 of missions 1 and 21. ✔ The points of the original's two arcade races: the Ka '01 at Tsukuba
 (Beetle 1100, Z ACT, N360, Midget II D, S500) 9, at Grand Canyon (the Beetle 1100) 24, the same here.
 
+## Quick Tune (Arcade's race and time trial; `sim/quick_tune.*`)
+
+The page (`QuickTunePopup` of quick-arcade and quick-tt, its script ../quick-share/quick_tune_popup.ad) offers Power (a slider
+-20 .. +20 %), Weight (-10 .. +10 %), Top speed (the gearbox's slider x 10 km/h, insensitive when its least and greatest are both 0),
+Driving aids, Transmission, Tire type with Front and Rear (the tire lists only when `IsDryCourse`), Cancel and OK. OK writes the
+work's QuickTune* values from the page and sets `IsQuickTuned` 1; the Info lines are the player's grid row's power and weight
+(`getPower`, `getWeight`) x (100 + level) / 100.
+
+- **The fill** (once per sequence, before the first menus: 0x111B50 for the race, 0x112FE8 for the time trial): every entry's tire
+  kinds +0x160 / +0x161 the race's tire (12 on snow) with the flag +0x165; the work's power and weight levels (+0x3B0, +0x3AC) 0,
+  the front and rear tire (+0x3B8, +0x3BC) the race's tire, the transmission (+0x3C0) and aids (+0x3C4) from the options, and the
+  gearbox (0x443ED0 reads the player's `GEAR` row): with +0x25 set, +0x3B4 the equipment's slider (+0x12A), +0x3B5 / +0x3B6 the
+  row's least and greatest (+0x26, +0x27); else all three 0. `IsQuickTuned` (+0x488) 0, `IsDryCourse` (+0x48C) the course not
+  kind 2 or 3. After a run the work is not filled again: the page shows the choice made.
+- **The apply** (0x111DC0 / 0x113248, as START or SPECTATOR runs the race; after the transmission and aids): only when `IsQuickTuned`,
+  on the player's car alone (entry 0's equipment): +0x163 (the power percentage) = power level + 100, +0x162 (the weight
+  percentage) = weight level + 100, each a byte (a level below 0 wraps: -10 is 90); +0x160 / +0x161 the front and rear kinds;
+  a slider other than 0 into +0x12A and the gears made from it (0x443240); +0x165 = 1; `IsQuickTuned` 0. The race's reset
+  (RaceBase::vf38 → RaceArcade::vf92) fits the tires: dirt's 11 and snow's 12 on those courses whatever the page said, else the
+  kinds asked when they are not the car's own. The car keeps the change for the rest of the sequence (the race object lives
+  through it); the opponents are not touched. ✔ Here: the Ka '01 at Tsukuba, Power +20 %, Weight -10 % (the page's Info 72 HP,
+  868 kg; the original's page reads 60 HP, 965 kg untouched): at 8.900 s on the race clock 67 mph against 63 mph untuned; a
+  Front tire of SS gives kinds 5 / 4; the Falcon XR8 race car's Top speed 340 → 390 km gives slider 39; after a run the page
+  shows +20 % / -10 % again (`test_quick_tune`: 61.6 → 67.7 PS, 965 → 868 kg, 59.4 → 65.8 km/h after 8 s from the grid).
+
 ## MQuickWork (`race_natives.*`)
 
 One object of 0x4F8 bytes (`fn_00127E60` its defaults) current at 0x6187A8; every script object
@@ -444,7 +471,8 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
-| A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races the row's type 2 | a machine test's 7 s (the row's type 0: here 10 s) |
+| A standing start's hold, count, START | `race_flow.*` (`row_start`), `screen_race.cpp` `start`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208 with its table 0x6A29C0, 0x3C0190, 0x39D390, 0x39E9B0): the event's row's type and seconds (the machine tests' 7 s), a test's by its conductor (load_test); a run without a row (Gran Turismo mode's free run) 10 s ❓ | |
+| Arcade's Quick Tune | `sim/quick_tune.*`, `screen_race.cpp` `fill_quick_tune`, `apply_quick_tune` | GT4 (0x111B50 / 0x112FE8 the fill, 0x111DC0 / 0x113248 the apply, RaceArcade::vf92 the tires, 0x443240 the gears) | |
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620); none in a free run (its pace 0x3F7880 is 0) | |
 | The replay cameras (TV shots), their choice by distance, their lens | `replay_script.*`, `drive_camera.h` `shown_angle` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); ✔ the lens and the picture against 47 of the original's replay states (camera.md); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
@@ -470,9 +498,10 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The replay's card and logo | `screen_race.cpp` `fill` | GT4's times (0x39BEC8) | the black under it, the caption's and the small logo's times measured |
 | B-spec's views | `screen_race.cpp` `next_view` | GT4: the course's cameras, Cross the car's nose | the Race Monitor's own view keys |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks; a passed license test's page also the trophy (0x3E18D0 / 0x3E1A80, race/license_trophy.*), drawn once a frame (no averaged passes), the program's camera for its live picture judged (the course's TV cameras), the trophy's kind by the grade judged | ResultLicense's result kind (+0x88) and its camera |
+| When the results page goes up | `screen_race.cpp` `results_shown` | **judged**: at the player's finish, hiding the display, so FINISH and the finish's A-spec points are not seen; the original keeps the display with FINISH about 3-4 s first (its videos) | the caller of the race's vf19 (0x38AB40 → the result's vf7 0x3DFE20, result at race +0xE420) |
 | The race display's small parts | `race_hud.cpp` `draw_small_parts`, `draw_tires`, `draw_fuel` | GT4: the tire diagram (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires), the fuel gauge (0x3A57A8; drawn when fuel is counted), the pedals (0x3A54F8, 0x3AB570), the signs (0x3A6C28, lit as 0x39E280: the aids' status, the handbrake, the oil), the gear digit (0x3A6DE0, 0x3A6D60) | the other drivetrain kinds' tire mapping (0x359538) not read |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
-| The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
+| The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70); drawn each frame in the course's car light and reflection, where the program makes them once at set-up through a ShowRoomCar (0x393D20, 0x364760; 128 x 64 and 64 x 32) with no course light: at Fuji '90s ours are dull | the icons' own showroom light |
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner: GT4's rule under "2 Player Battle", the split screen's; judged in the single race | event 15 (0x359C10) and its display |
 | B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit), its cars' pictures at the movie's `CARPOS_` externals, the rows' paint chips at `chip` (the paint's words; the place judged by 1 unit), the followed car's picture (CarIconMaker's kind 0: 30 units a metre, turned by the car's size, at most 158 degrees) without the lens's 18 degrees; the help line `RaceMonitorToolTip1`; the gap column judged; the map's letters drawn by us | the pace-up marks (0x3FA508), the tire panel, the view's speed (L1 + Left / Right), Show Map (Cross), the `sector` externals |
 | The pit stops | `RaceWorld::pit_command` / `pit_offer` / `pit_stage`, `sim/ai/pit_stops.*`; `screen_race.cpp` `update_pit_menu`, `race_hud.cpp` (the messages, the refuel bar) | GT4: the pass (0x35B060), the command (0x3F19E0: not before the first crossing nor on the last lap, taken back by a second press), the PIT STOP menu (0x3DCC50, 0x3DCFB0, 0x3DD540, 0x3DD5D8; strobe.md), the messages (RaceDisplay::vf28), the refuel bar (0x3A59D8) and its stop (0x35BFC0), the driving mode's choice (0x3F19E0 command 10). ✔ The stages, messages, panel and menu beside the original's stop (`26-endurance/fc_pitwindow_*`) | |

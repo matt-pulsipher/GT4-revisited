@@ -157,7 +157,7 @@ std::optional<CardAnswer> card_answer(Runtime& rt, const std::string& message) {
         case Do::NoGame: a.shown = "There is no saved game yet."; break;
         case Do::NoOtherGame: a.shown = "There is no other saved game."; break;
         case Do::SaveFailed:
-            if (n && !n->save_failure_told) n->save_failure_told = true, a.shown = "The game could not be saved in\n" + folder;
+            if (n && !n->save_failure_told) n->save_failure_told = true, a.shown = "The game could not be saved in\n" + folder + "\nCheck that the folder can be written in.";
             break;
         case Do::LoadFailed:
             if (n && !n->load_failure_told) n->load_failure_told = true, a.shown = "The saved game could not be read:\n" + folder;
@@ -225,7 +225,7 @@ std::string save_game_now(Runtime& rt) {
     if (!n || rt.config().console_card || rt.data_dir().empty()) return "There is no folder to save in.";
     if (rt.is_prologue() ? !n->checked : !n->state().valid_game_data) return "No game has been started yet: Gran Turismo mode starts one.";
     const save::Result r = n->write_game("Game Data");
-    if (r != save::Result::Ok) return "The game could not be saved in " + n->card().folder();
+    if (r != save::Result::Ok) return "The game could not be saved in " + n->card().folder() + ". Check that the folder can be written in.";
     n->saved_print = print_of(*n);
     return {};
 }
@@ -243,6 +243,9 @@ void autosave(Runtime& rt) {
         const auto option = s.options.find("auto_save");
         if (!s.valid_game_data || n->card().exists() != 0 || (option != s.options.end() && std::holds_alternative<int>(option->second) && std::get<int>(option->second) == 0)) return;
     }
+    // Not while a championship runs (the original saves on the map only, which a running championship reaches only by leaving
+    // it: then it is kept, 0x119BD8): such a save would hold the series' page with no series and no menu stack.
+    if (!prologue && !s.series.label.empty() && !s.suspended) return;
     const u32 now = print_of(*n);
     if (!n->saved_print) { // the game as it was loaded (or a disc just started)
         n->saved_print = now;
@@ -257,7 +260,7 @@ void autosave(Runtime& rt) {
     if (r == save::Result::Ok) n->save_failure_told = false;
     else if (!n->save_failure_told) {
         n->save_failure_told = true;
-        tell(rt, "The game could not be saved in\n" + folded(n->card().folder()));
+        tell(rt, "The game could not be saved in\n" + folded(n->card().folder()) + "\nCheck that the folder can be written in.");
     }
 }
 

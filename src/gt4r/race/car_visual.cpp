@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "formats/course/course_model.h"
+#include "formats/model/brake_model.h"
 #include "gt4r/race/car_pose.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/formats/model/mdls_skin.h"
@@ -508,8 +509,22 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         // The brake parts in the wheel's frame; the tire and the wheel turned and scaled in it, with
         // their turning pictures when the wheel turns fast enough.
         if (lod >= kWheelLevels) break; // the far level draws its wheels itself
-        if (brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), lod});
-        if (const float glow = brake_glow(s.wheels[w].brake_heat); glow > 0 && glows_[size_t(w)]) {
+        if (gt3_file_) {
+            bool parts = false;
+            if (gt3_brakes_shown(s, w, eye, view, parts)) {
+                if (parts && brakes_[size_t(w)]) {
+                    render::DrawItem it{brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), 0};
+                    it.in_order = true;
+                    items.push_back(it);
+                }
+                if (const float fix = gt3r::brake_glow_fix(s.wheels[w].brake_heat, glow_gain_); fix > 0 && glows_[size_t(w)]) {
+                    render::DrawItem it{glows_[size_t(w)].get(), wheel_frame(s, spec_, w) * render::rotate_x(-s.wheels[w].spin), 0};
+                    it.tint = fix, it.no_fog = true;
+                    items.push_back(it);
+                }
+            }
+        } else if (brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), lod});
+        if (const float glow = brake_glow(s.wheels[w].brake_heat); !gt3_file_ && glow > 0 && glows_[size_t(w)]) {
             render::DrawItem it{glows_[size_t(w)].get(), wheel_frame(s, spec_, w), lod};
             it.alpha = glow;
             items.push_back(it);
