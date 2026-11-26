@@ -455,7 +455,8 @@ game** it announces:
 - **The dialog**, drawn by the app over any screen, as the engine's: *Update available* ("GT4 Revisited x.y.z is
   available. You have a.b.c.") or *Update required to play online* ("Online play needs GT4 Revisited x.y.z or newer. You
   have a.b.c. Offline play is not affected."); *Download update* (this platform's package: `gt4r-macos-arm64.zip`,
-  `gt4r-windows-x64.zip`, `gt4r-linux-x86_64.tar.gz` in place of the page's `{asset}`), *Later*, *Release notes*. At
+  `gt4r-windows-x64.zip`, `gt4r-linux-x86_64.tar.gz`, `gt4r-android.apk` in place of the page's `{asset}`; the VR builds
+  have none and open the release page), *Later*, *Release notes*. At
   startup it shows once per release over the home screen or the game's title (Arcade's `TopRoot`); Later remembers the
   release.
 - **Enforcement**: the relay holds our session requests to its main game's oldest version by the engine's version in
