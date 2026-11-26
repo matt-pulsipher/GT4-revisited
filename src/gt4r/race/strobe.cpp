@@ -63,6 +63,8 @@ void triangulate(std::vector<Point> p, std::vector<Point>& out) {
             for (size_t k : idx) {
                 const Point& q = p[k];
                 if (&q == &a || &q == &b || &q == &c) continue;
+                const auto same = [&q](const Point& o) { return std::fabs(q.x - o.x) < 1e-5f && std::fabs(q.y - o.y) < 1e-5f; };
+                if (same(a) || same(b) || same(c)) continue; // (a bridge's second copy of a corner)
                 if (cross(a, b, q) >= 0 && cross(b, c, q) >= 0 && cross(c, a, q) >= 0) {
                     inside = true;
                     break;
@@ -81,6 +83,100 @@ void triangulate(std::vector<Point> p, std::vector<Point>& out) {
         }
     }
     if (idx.size() == 3) out.push_back(p[idx[0]]), out.push_back(p[idx[1]]), out.push_back(p[idx[2]]);
+}
+
+
+// Whether p lies inside the closed polygon `poly` (crossings of a ray to the right).
+bool inside_polygon(const Point& p, const std::vector<Point>& poly) {
+    bool in = false;
+    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+        const Point &a = poly[i], &b = poly[j];
+        if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) in = !in;
+    }
+    return in;
+}
+
+bool segments_cross(const Point& a, const Point& b, const Point& c, const Point& d) {
+    const float d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b);
+    return ((d1 > 1e-6f && d2 < -1e-6f) || (d1 < -1e-6f && d2 > 1e-6f)) && ((d3 > 1e-6f && d4 < -1e-6f) || (d3 < -1e-6f && d4 > 1e-6f));
+}
+
+float signed_area(const std::vector<Point>& p) {
+    float a = 0;
+    for (size_t i = 0; i < p.size(); ++i) a += p[i].x * p[(i + 1) % p.size()].y - p[(i + 1) % p.size()].x * p[i].y;
+    return a;
+}
+
+// A shape group's paths filled together, as the program's tessellator takes all of a group's contours at once
+// (0x47EC98: every path into 0x607758, then 0x607850): a path inside an odd number of the others is a hole (the A's
+// counter in the license page's FAIL). Each outline gets its holes joined to it by a cut to a corner it can see,
+// and the joined outline is cut into ears.
+void triangulate_group(std::vector<std::vector<Point>> paths, std::vector<Point>& out) {
+    for (std::vector<Point>& p : paths)
+        if (p.size() > 1 && std::fabs(p.front().x - p.back().x) < 1e-4f && std::fabs(p.front().y - p.back().y) < 1e-4f) p.pop_back();
+    paths.erase(std::remove_if(paths.begin(), paths.end(), [](const std::vector<Point>& p) { return p.size() < 3; }), paths.end());
+    if (paths.size() <= 1) {
+        for (std::vector<Point>& p : paths) triangulate(std::move(p), out);
+        return;
+    }
+    const size_t n = paths.size();
+    std::vector<int> depth(n, 0), parent(n, -1);
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = 0; j < n; ++j)
+            if (i != j && inside_polygon(paths[i][0], paths[j])) {
+                ++depth[i];
+                // (the smallest that holds it: its nearest)
+                if (parent[i] < 0 || std::fabs(signed_area(paths[j])) < std::fabs(signed_area(paths[size_t(parent[i])]))) parent[i] = int(j);
+            }
+    for (size_t o = 0; o < n; ++o) {
+        if (depth[o] % 2) continue;
+        std::vector<Point> outline = paths[o];
+        if (signed_area(outline) < 0) std::reverse(outline.begin(), outline.end());
+        std::vector<std::vector<Point>> holes;
+        for (size_t h = 0; h < n; ++h)
+            if (depth[h] % 2 && parent[h] == int(o)) {
+                holes.push_back(paths[h]);
+                if (signed_area(holes.back()) > 0) std::reverse(holes.back().begin(), holes.back().end());
+            }
+        // The holes from the rightmost in, each joined at its rightmost corner to the nearest corner of the outline it
+        // can see (a cut that crosses no edge).
+        std::sort(holes.begin(), holes.end(), [](const std::vector<Point>& a, const std::vector<Point>& b) {
+            float ax = a[0].x, bx = b[0].x;
+            for (const Point& q : a) ax = std::max(ax, q.x);
+            for (const Point& q : b) bx = std::max(bx, q.x);
+            return ax > bx;
+        });
+        for (size_t k = 0; k < holes.size(); ++k) {
+            const std::vector<Point>& hole = holes[k];
+            size_t m = 0;
+            for (size_t i = 1; i < hole.size(); ++i)
+                if (hole[i].x > hole[m].x) m = i;
+            const Point& mp = hole[m];
+            auto clear = [&](const Point& v) {
+                const auto against = [&](const std::vector<Point>& poly) {
+                    for (size_t i = 0; i < poly.size(); ++i)
+                        if (segments_cross(mp, v, poly[i], poly[(i + 1) % poly.size()])) return false;
+                    return true;
+                };
+                if (!against(outline)) return false;
+                for (size_t j = k; j < holes.size(); ++j)
+                    if (!against(holes[j])) return false;
+                return true;
+            };
+            size_t best = outline.size();
+            float best_d = 0;
+            for (size_t i = 0; i < outline.size(); ++i) {
+                const float dx = outline[i].x - mp.x, dy = outline[i].y - mp.y, d = dx * dx + dy * dy;
+                if ((best == outline.size() || d < best_d) && clear(outline[i])) best = i, best_d = d;
+            }
+            if (best == outline.size()) continue; // (no corner in sight: the hole left unjoined)
+            std::vector<Point> joined(outline.begin(), outline.begin() + ptrdiff_t(best) + 1);
+            for (size_t i = 0; i <= hole.size(); ++i) joined.push_back(hole[(m + i) % hole.size()]);
+            joined.insert(joined.end(), outline.begin() + ptrdiff_t(best), outline.end());
+            outline = std::move(joined);
+        }
+        triangulate(std::move(outline), out);
+    }
 }
 
 } // namespace
@@ -178,6 +274,7 @@ StrobeMovie StrobeMovie::parse(ByteSpan d) {
                 Shape::Group gr;
                 gr.fill = rd16(d, q), gr.flags = rd16(d, q + 2);
                 const List paths = table(d, q + 4, 0x14);
+                std::vector<std::vector<Point>> polys;
                 for (u32 k = 0; k < paths.count; ++k) {
                     const size_t r = paths.at + 0x14 * size_t(k);
                     std::vector<Point> poly{{f32_at(d, r + 4), f32_at(d, r + 8)}};
@@ -195,8 +292,9 @@ StrobeMovie StrobeMovie::parse(ByteSpan d) {
                             }
                         poly.push_back(a);
                     }
-                    triangulate(std::move(poly), gr.triangles);
+                    polys.push_back(std::move(poly));
                 }
+                triangulate_group(std::move(polys), gr.triangles);
                 sh.groups.push_back(std::move(gr));
             }
         }
