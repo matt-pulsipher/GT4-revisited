@@ -126,7 +126,7 @@ TEST(disc_gtauto_mechanic_skinned_and_walking) {
             const gt3r::scene::Vertex& v0 = m.vertices[m.indices[p.first_index]];
             std::printf("  prim tex %d flags %x tris %u mean y %.2f uv %.2f %.2f col %08x\n", p.texture, p.flags, p.index_count / 3, double(k ? y / float(k) : 0), double(v0.uv[0]), double(v0.uv[1]), v0.color);
         }
-    for (const gt3r::scene::Texture& t : model.textures) { u64 r = 0, g = 0, b = 0; for (u32 c : t.rgba) r += c & 0xFF, g += (c >> 8) & 0xFF, b += (c >> 16) & 0xFF; const u64 n = t.rgba.size() ? t.rgba.size() : 1; std::printf("  tex %ux%u avg %llu %llu %llu\n", t.width, t.height, r / n, g / n, b / n); }
+    for (const gt3r::scene::Texture& t : model.textures) { u64 r = 0, g = 0, b = 0; for (u32 c : t.rgba) r += c & 0xFF, g += (c >> 8) & 0xFF, b += (c >> 16) & 0xFF; const u64 n = t.rgba.size() ? t.rgba.size() : 1; std::printf("  tex %ux%u avg %llu %llu %llu\n", t.width, t.height, (unsigned long long)(r / n), (unsigned long long)(g / n), (unsigned long long)(b / n)); }
     std::printf("  mechanic: %zu vertices, %zu skinned, height %.3f..%.3f, %zu textures\n", vertices, found, double(lo), double(hi), model.textures.size());
     CHECK(vertices > 1000 && found == vertices);
     CHECK(std::fabs(lo) < 0.02f && std::fabs(hi - 1.82f) < 0.03f);
