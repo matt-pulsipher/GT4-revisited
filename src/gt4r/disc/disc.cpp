@@ -1,6 +1,7 @@
 #include "gt4r/disc/disc.h"
 
 #include "base/config.h"
+#include "base/file.h"
 #include "base/log.h"
 #include "base/sha256.h"
 #include "disc/chd_image.h"
@@ -32,27 +33,51 @@ constexpr KnownDisc kKnownDiscs[] = {
 
 const char* game_name(Game g) { return g == Game::Prologue ? "Gran Turismo 4 Prologue" : "Gran Turismo 4"; }
 
-// An image whose files cannot be read because it is cut short says that.
+namespace {
+
+// The player's messages for a file that cannot be played: what it is and what to do.
+struct DiscMessage : FormatError {
+    using FormatError::FormatError;
+};
+std::string missing_file_message(const std::string& path) {
+    return gt3r::host_path_exists(path) ? "This file could not be read: " + path + ". Check that it can be opened, then choose it again."
+                                        : "This file is not there: " + path + ". It may have been moved or renamed, or be on a drive that is not connected.";
+}
+const char* const kNotADiscImage = "This file is not a disc image. Choose an .iso or .chd image made from your Gran Turismo 4 disc.";
+const char* const kOtherGame = "This is not a Gran Turismo 4 disc image. Choose an image made from your Gran Turismo 4 or Gran Turismo 4 Prologue disc.";
+const char* const kGt3Disc = "This is a Gran Turismo 3 A-Spec or Gran Turismo Concept disc image (GT3 Revisited plays those). Choose an image made from your Gran Turismo 4 or Gran Turismo 4 Prologue disc.";
+const char* const kUnreadable = "This Gran Turismo 4 disc image could not be read: it may be damaged. Make the image again from your disc.";
+
+} // namespace
+
+// An image whose files cannot be read because it is cut short says that; a file that is no disc
+// image, or another game's, says so in the player's words (the reason itself goes to the log).
 std::unique_ptr<Disc> Disc::open(const std::string& path) {
     std::string problem;
     try {
         return open_image(path, problem);
+    } catch (const DiscMessage&) {
+        throw;
     } catch (const std::exception& e) {
-        if (problem.empty()) throw;
         LOG_WARN("%s: %s", path.c_str(), e.what());
-        throw FormatError(problem);
+        throw FormatError(problem.empty() ? kUnreadable : problem);
     }
 }
 
 std::unique_ptr<Disc> Disc::open_image(const std::string& path, std::string& problem) {
     std::unique_ptr<Disc> disc(new Disc());
     auto file = gt3r::File::open(path);
-    if (!file) throw FormatError("Could not open file: " + path);
-    // By content: a picked file's path often has no extension.
-    if (gt3r::ChdImage::is_chd(*file)) disc->file_ = gt3r::ChdImage::open(std::move(file));
-    else disc->file_ = std::move(file);
+    if (!file) throw DiscMessage(missing_file_message(path));
+    try {
+        // By content: a picked file's path often has no extension.
+        if (gt3r::ChdImage::is_chd(*file)) disc->file_ = gt3r::ChdImage::open(std::move(file));
+        else disc->file_ = std::move(file);
+        disc->layers_ = gt3r::iso_layers(*disc->file_); // one file system, or one per layer
+    } catch (const std::exception& e) {
+        LOG_WARN("%s: %s", path.c_str(), e.what());
+        throw DiscMessage(kNotADiscImage);
+    }
     gt3r::Reader& image = *disc->file_;
-    disc->layers_ = gt3r::iso_layers(image); // one file system, or one per layer
 
     DiscInfo& info = disc->info_;
     info.volume_id = disc->layers_[0]->volume_id();
@@ -111,8 +136,10 @@ std::unique_ptr<Disc> Disc::open_image(const std::string& path, std::string& pro
             LOG_INFO("%s: %zu files (%s)", v.name.c_str(), v.files, v.paged ? "paged index" : "front table");
             disc->volumes_.push_back(std::move(v));
         }
-    if (!core || disc->volumes_.empty())
-        throw FormatError("This does not look like a Gran Turismo 4 disc image (CORE.GT4 / GT4.VOL missing).");
+    if (!core || disc->volumes_.empty()) {
+        LOG_WARN("%s: no CORE.GT4 and GT4.VOL (%s)", path.c_str(), info.serial.empty() ? "no SYSTEM.CNF" : info.serial.c_str());
+        throw DiscMessage(disc->find_file("CORE.GT3") ? kGt3Disc : kOtherGame);
+    }
     {
         const std::array<u8, 32> d = hash.finish();
         static constexpr char kHex[] = "0123456789abcdef";

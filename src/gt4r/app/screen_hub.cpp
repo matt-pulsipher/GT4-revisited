@@ -1,5 +1,5 @@
-// The home screen with a disc open: the cars and courses by name, the menu pages, and the asset
-// browser.
+// The home screen with a disc open, and its Developer tools: the cars and courses by name, the menu
+// pages, the asset browser.
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/screen_saves.h"
@@ -59,8 +59,13 @@ std::unique_ptr<Screen> make_courses_screen(App& app) {
     });
 }
 
+// The home screen (developer_ false): the game, its saves, the controls, the settings, the mods, the
+// save editor, another disc, Quit; Developer tools (developer_ true): the disc's cars, courses and
+// menu pages, the asset browser and a race set up by hand.
 class HubScreen : public Screen {
 public:
+    explicit HubScreen(bool developer) : developer_(developer) {}
+
     bool menu_input_any_device() const override { return true; } // (a way to Settings whatever the controllers are set to)
 
     void update(App& app, double) override {
@@ -69,6 +74,7 @@ public:
         sel_ = std::clamp(sel_ + m.vertical(), 0, int(items_.size()) - 1);
         bool press = m.pressed(PadButton::Cross);
         for (const RowPointer::Hit& h : mouse_.read(app)) sel_ = h.row, press = press || h.click;
+        if (developer_ && m.pressed(PadButton::Triangle)) return app.pop();
         if (press) {
             try {
                 switch (items_[size_t(sel_)].action) {
@@ -84,22 +90,24 @@ public:
                 case 22: app.push(make_save_editor(app)); break;
                 case 20: app.push(make_settings_screen(app)); break;
                 case 21: app.push(make_settings_screen(app, kModsPage)); break;
+                case 23: app.push(make_hub_screen(true)); break;
+                case 24: app.pop(); return;
                 default: app.quit(); break;
                 }
                 error_.clear();
                 items_.clear(); // (the notes as they are when this page is back)
             } catch (const std::exception& e) {
                 error_ = e.what();
-                LOG_WARN("Hub: %s", e.what());
+                LOG_WARN("Home screen: %s", e.what());
             }
         }
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header("GT4 REVISITED", GT4R_VERSION);
+        ui.header(developer_ ? "DEVELOPER TOOLS" : "GT4 REVISITED", GT4R_VERSION);
         const DiscInfo& d = app.disc()->info();
         ui.text(24, 34, d.description, colors::kAccent);
-        ui.text(24, 46, d.serial + "  version " + d.version + (d.verified ? "" : d.modified ? "  (a modified copy)" : "  (not a tested release)"), colors::kDim);
+        ui.text(24, 46, (d.serial.empty() ? std::string() : d.key + "  v" + d.version) + (d.verified ? "" : d.modified ? "  (a modified copy)" : "  (not a tested release: some things may not work)"), colors::kDim);
         const float row = items_.size() > 11 ? 20.0f : 22.0f;
         mouse_.begin();
         for (size_t i = 0; i < items_.size(); ++i) {
@@ -110,26 +118,41 @@ public:
             ui.text_right(312, y + 1, Ui::elide(items_[i].note, 190), colors::kDim);
         }
         mouse_.rows(0, 0, int(items_.size()), 20, 74, 300, row);
-        ui.text(340, 82, "Play: the game from power on (Select and Start together", colors::kDim);
-        ui.text(340, 94, "come back here). The rest: the disc's cars, courses, menu", colors::kDim);
-        ui.text(340, 106, "pages and files, and a race set up by hand.", colors::kDim);
-        ui.text(340, 124, "An early build: see docs/PLAYING.md for what works.", colors::kDim);
-        float y = 148;
+        float y = 82;
+        if (!items_.empty())
+            for (const std::string& line : Ui::wrap(items_[size_t(std::clamp(sel_, 0, int(items_.size()) - 1))].help, 280)) ui.text(340, y, line, colors::kText), y += 12;
+        y += 10;
+        if (!developer_)
+            for (const std::string& line : Ui::wrap("In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
+        y += 8;
         if (!d.problem.empty())
             for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;
         const std::string error = error_.empty() ? app.last_error() : error_; // (or the disc image that could not be opened)
         for (const std::string& line : Ui::wrap(error, 280)) ui.text(340, y + 8, line, colors::kBad), y += 12;
-        ui.footer("{Up/Down}: select  {Cross}: open");
+        ui.footer(developer_ ? "{Up/Down}: select  {Cross}: open  {Triangle}: back" : "{Up/Down}: select  {Cross}: open");
     }
 
 private:
     struct Item {
-        std::string label, note;
+        std::string label, note, help;
         int action;
     };
     void build(App& app) {
         items_.clear();
         disc_ = app.disc();
+        if (!developer_) {
+            const bool prologue = app.disc()->info().game == Game::Prologue;
+            items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
+            items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
+            items_.push_back({"Controls", app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
+            items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
+            items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), "Install mods and texture packs, and choose which are used.", 21});
+            items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});
+            items_.push_back({"Another disc", "", "Choose another disc image.", 3});
+            items_.push_back({"Developer tools", "", "Viewers for the disc's cars, courses, menu pages and files, and a race set up by hand.", 23});
+            items_.push_back({"Quit", "", "Leave GT4 Revisited.", 4});
+            return;
+        }
         size_t cars = 0, courses = 0;
         try {
             if (db::SpecDb* sdb = app.db()) {
@@ -139,21 +162,15 @@ private:
         } catch (const std::exception& e) {
             error_ = e.what();
         }
-        items_.push_back({"Play", app.disc()->info().description, 7});
-        if (cars) items_.push_back({"Cars", std::to_string(cars), 0});
-        if (courses) items_.push_back({"Courses", std::to_string(courses), 1});
-        if (cars && courses && app.gpu()) items_.push_back({"Drive", "", 6});
+        if (cars) items_.push_back({"Cars", std::to_string(cars), "Every car of the disc in 3D, with its paints.", 0});
+        if (courses) items_.push_back({"Courses", std::to_string(courses), "Every course of the disc in 3D.", 1});
+        if (cars && courses && app.gpu()) items_.push_back({"Drive", "", "A race set up by hand: any course, any car, the computer's cars, the view.", 6});
         if (const size_t menus = menu::list_projects([&app](const std::string& f) { return app.vfs()->list_dir(f); }).size())
-            items_.push_back({"Menu pages", std::to_string(menus) + " projects", 5});
-        items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", 2});
-        items_.push_back({"Saved games", "", 9});
-        items_.push_back({"Controls", app.input().device_name(0), 8});
-        items_.push_back({"Save editor", "", 22});
-        items_.push_back({"Settings", "", 20});
-        items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), 21});
-        items_.push_back({"Another disc", "", 3});
-        items_.push_back({"Quit", "", 4});
+            items_.push_back({"Menu pages", std::to_string(menus) + " projects", "The game's menu projects, one at a time, with what their scripts do.", 5});
+        items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", "The disc's files: pictures, models, sounds and tables.", 2});
+        items_.push_back({"Back", "", "Back to the home screen.", 24});
     }
+    bool developer_ = false;
     std::vector<Item> items_;
     const Disc* disc_ = nullptr;
     RowPointer mouse_;
@@ -163,6 +180,6 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_hub_screen() { return std::make_unique<HubScreen>(); }
+std::unique_ptr<Screen> make_hub_screen(bool developer) { return std::make_unique<HubScreen>(developer); }
 
 } // namespace gt4r
