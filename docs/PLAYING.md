@@ -241,6 +241,9 @@ ghost_ms = 150           ; contact up to this round trip; 0: always
   the data folder's `memorycard/` is offered too. On Android and iOS GT3 Revisited's folder is that app's own: choose its save
   with *Choose a file* (on Android the file picker shows GT3 Revisited's files; its saves are in `saves/`). The game then asks
   as it does with a card, naming the save; nothing is written to it. `GT4R_GT3R_DIR` names GT3 Revisited's folder.
+  GT4 Prologue games count too for the licenses (B after its first six lessons, B and A after its first 25, as the Japanese and
+  European games give them): the Prologue games saved in this app, or a Prologue card image, `.psu` or save file chosen. A
+  Prologue game has no credits: the credits are then asked for from a Gran Turismo 3 game.
 - **Races**: the courses drawn in full with the computer drivers racing, the three driving views,
   the race display (in the units the options set), the B-spec display and commands, the pause
   menu, the results, the replays through the course's cameras or the car's own.

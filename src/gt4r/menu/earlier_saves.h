@@ -3,8 +3,9 @@
 // Gran Turismo mode's transfer from an earlier game (the Status page's Start, "Transfer game data"): the card manager's
 // probes and transfers (isExistGT3Data / inheritGT3Data, isExistGT4pData / inheritGT4pData; 0x17A300 .. 0x17A6A8) over the
 // saves found here (save/earlier_game.h) instead of a card's slots, and the player's choice among them, which the app asks
-// for (screen_earlier_saves). The scripts' own flow (StatusRoot's inheritDataCheck) runs as it is: its questions, its
-// messages, the flags it sets. docs/formats/save.md "Earlier games' saves".
+// for (screen_earlier_saves). The licenses come from a Gran Turismo 3 game (the US program's path) or a Prologue game (the
+// other regions' path, offered on the US disc too). The scripts' own flow (StatusRoot's inheritDataCheck) runs as it is:
+// its questions, its messages, the flags it sets. docs/formats/save.md "Earlier games' saves".
 
 #include "gt4r/save/earlier_game.h"
 
@@ -18,13 +19,18 @@ class Runtime;
 struct GameNatives;
 struct Object;
 
+// The game's question (`disc`: its text, a card's slot in a sentence with %d) with that sentence replaced by `first`, the
+// save's line; with `prologue`, "from GT3" said of GT4 Prologue. "": a text with no slot.
+std::string question_naming_the_save(const std::string& disc, const std::string& first, bool prologue);
+
 // The card manager's four natives on a manager made for `slot` (MMemoryCardManager(mode, slot)).
 void install_earlier_saves(GameNatives& n, Object& manager, const std::string& mode, int slot, bool slot_given);
 
 // What the transfer asks the player to choose from.
 struct TransferChoice {
-    save::EarlierGame::Kind kind = save::EarlierGame::Kind::Gt3; // what the game asks for
-    std::string region;                                          // the program's
+    bool licenses = false;            // what the game asks for: the licenses, else the credits
+    bool gt3 = true, prologue = false; // which games can give it (a file chosen too)
+    std::string region;               // the program's
     std::vector<save::EarlierGame> found;
     std::string looked; // where GT3 Revisited's saves were looked for ("": nowhere, its folder is another app's here)
 };
