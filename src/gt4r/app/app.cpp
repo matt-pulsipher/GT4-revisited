@@ -218,6 +218,9 @@ bool App::init(int argc, char** argv) {
     gt3r::render::GpuOptions gpu;
     gpu.msaa = video_.msaa, gpu.anisotropy = video_.anisotropy, gpu.vsync = video_.vsync && !run_.windowless;
     gpu.gles = video_.gpu == settings::Gpu::Gles || video_.gpu == settings::Gpu::GlesDriver;
+    // The Vulkan pipelines built in one run, kept for the next (the Android build's SDL, android/fetch-sdl.sh; other builds' SDL
+    // ignores it).
+    gpu.pipeline_cache = user_data_dir() + "vulkan_pipelines.cache";
     gpu.angle = video_.gpu != settings::Gpu::GlesDriver;
     bool use_gpu = video_.gpu != settings::Gpu::Off;
     for (int i = 1; i < argc; ++i)
