@@ -46,8 +46,10 @@ What the app is made of:
    D-pad and face buttons over the game's menus, the driving controls in a race. They hide when
    a controller is used. The app's own pages (the home screen, Settings) are tapped.
 
-The Android back button is Triangle (back). Phones and tablets start with dynamic resolution on
-and 2x anti-aliasing (devices without 2x get 4x).
+The Android back button goes back (Triangle); in a race being driven it pauses (Start). The
+on-screen controls' settings (steering by drag, tilt or buttons, the pedals, opacity, size, a
+left-handed layout) and phone vibration are in **Settings › Controls**. Phones and tablets start
+with dynamic resolution on and 2x anti-aliasing (devices without 2x get 4x).
 
 The user data folder (settings, saves, mods, screenshots, `gt4r.log`) is the app's own storage;
 the Files app shows it as "GT4 Revisited".

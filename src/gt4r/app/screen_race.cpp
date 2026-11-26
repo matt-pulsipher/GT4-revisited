@@ -2509,6 +2509,7 @@ public:
     gt3r::TouchLayout touch_layout() const override {
         return !race_ ? gt3r::TouchLayout::None : playing() ? gt3r::TouchLayout::Driving : gt3r::TouchLayout::Menu;
     }
+    bool back_is_start() const override { return playing(); } // (Android's back while driving: the pause, never the reverse gear)
     // The Discord status (app/presence.h): the kind of run and the course, the car, the lap and the place.
     bool presence(App& app, net::PresenceText& t) override {
         if (!race_) return false;
@@ -2821,6 +2822,7 @@ public:
                 hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
                 hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
                 hud_state_.replay_paused = replay_paused_;
+                hud_state_.touch_controls = app.touch_control_bounds(); // (the meters clear of them)
                 // A license test: the targets (the page's gold, silver and bronze times).
                 hud_state_.license = is_license(sequence_);
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);

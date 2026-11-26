@@ -334,10 +334,47 @@ private:
         PageRow& xbox = rows_.choice("Xbox controllers", {"XInput", "Raw Input, with the triggers' motors"}, in.xbox_rawinput(), [&in, keep](size_t i) { in.set_xbox_rawinput(i == 1), keep(); });
         if (const char* started = SDL_GetHint(SDL_HINT_JOYSTICK_RAWINPUT); started && in.xbox_rawinput() != (*started == '1')) xbox.tag = "after a restart";
 #endif
+        if (app.touch_ui()) touch(app);
         rows_.heading("Connected");
         const std::vector<std::string> names = in.device_names();
         for (const std::string& n : names) rows_.info(n, "");
         if (names.empty()) rows_.info(app.touch_ui() ? "Only the touch screen" : "Only the keyboard", "");
+    }
+
+    // Phones and tablets: the on-screen controls (the shared engine's, input/touch_controls.h) and the phone's own vibration.
+    void touch(App& app) {
+        App* a = &app;
+        const gt3r::TouchConfig c = app.touch_config();
+        using TC = gt3r::TouchConfig;
+        const auto set = [a, c](const std::function<void(TC&)>& change) {
+            TC n = c;
+            change(n);
+            a->set_touch_config(n);
+        };
+        const auto percent = [](float v) { return std::to_string(int(std::lround(v * 100))) + " %"; };
+        rows_.heading("Touch screen");
+        rows_.choice("On-screen controls", {"Shown after a touch", "Always shown", "Never shown"}, size_t(c.mode), [set](size_t i) { set([&](TC& n) { n.mode = TC::Mode(i); }); });
+        rows_.choice("Steering", {"Drag on the left half", "Tilt the device", "Left and right buttons"}, size_t(c.steering),
+                     [set](size_t i) { set([&](TC& n) { n.steering = TC::Steering(i); }); });
+        rows_.choice("Pedals", {"Higher on the pedal, harder", "As hard as the screen is pressed", "Always all the way"}, size_t(c.pedals),
+                     [set](size_t i) { set([&](TC& n) { n.pedals = TC::Pedals(i); }); });
+        rows_.slider("Steering drag for full lock", c.steer_range, 0.03f, 0.5f, 0.01f, [percent](float v) { return percent(v) + " of the screen"; },
+                     [set](float v) { set([&](TC& n) { n.steer_range = v; }); });
+        rows_.slider("Tilt for full lock", c.tilt_range, 10, 90, 1, [](float v) { return std::to_string(int(std::lround(v))) + " degrees"; },
+                     [set](float v) { set([&](TC& n) { n.tilt_range = v; }); });
+        rows_.choice("Look around", {"Off", "Drag sideways on the open screen"}, c.look, [set](size_t i) { set([&](TC& n) { n.look = i == 1; }); });
+        rows_.slider("Controls' opacity", c.opacity, 0.05f, 1, 0.05f, percent, [set](float v) { set([&](TC& n) { n.opacity = v; }); });
+        rows_.slider("Controls' size", c.size, 0.6f, 1.6f, 0.05f, percent, [set](float v) { set([&](TC& n) { n.size = v; }); });
+        rows_.choice("Pedals on the", {"Right, steering on the left", "Left, steering on the right"}, c.left_handed,
+                     [set](size_t i) { set([&](TC& n) { n.left_handed = i == 1; }); });
+        if (gt3r::InputManager::phone_vibration_available()) {
+            gt3r::InputManager& in = app.input();
+            rows_.choice("Phone vibration", {"Off", "When the controls have no motor"}, in.phone_vibration(), [a, &in](size_t i) {
+                in.set_phone_vibration(i == 1);
+                input::save_config(a->input(), a->config());
+                a->save_config();
+            });
+        }
     }
 
     // --- Views & replays ---
