@@ -1000,6 +1000,25 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   than 50 m apart; others let go. `rules::proximity`, and the drivers' own (`Field::proximity`).
 - ✔ **The closing** (0x3ECFE0, v1.01 0x3F42D0): a car ahead counts only when it overlaps sideways at any gap (v1.01: within
   20 m). `rules::closing`, `Field::closing`.
+- ✔ **The drivers' lines** (0x462A00, v1.01 0x46A510): no stretch lengths, rises, pitches or crests are made (all 0). `CourseLines`.
+- ✔ **The arcs' speeds** (0x45FA50, v1.01 0x4674F0): no aero bonus (crest or not), and every driver's corner and alongside
+  multipliers (D +0xB8 / +0xC0), a pad car's driver's too (v1.01: 1 for control source 0). The driver's parameter block has
+  no aero bonus word: what follows it is 4 bytes earlier. `Field::corner_speed`.
+- ✔ **The drivers' spread** (0x35E050, v1.01 0x363B10): the car set-up neither asks the conductor's virtual 52 nor sets the
+  draws' switches (0x469468, Japan's 0x461980); the single race's preparation (its virtual 27, 0x341F60) sets them after every
+  car is set up. So in a single race the computer drivers differ both by their grid index (0x467148) and by draws; the free
+  run's preparation does not set them. `Field::setup`.
+- ✔ **The player's car after the test** (0x3F14A8, v1.01 0x3F8818): after a stop in the box, passed or failed, it coasts
+  down (v1.01: it brakes to a stop when passed). `race::license_end_mode`.
+- Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
+  splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
+  not run alone, and does not write F +0x5C1; the drivers' decision (0x45D668, v1.01 0x465078; reads D +0x1C where v1.01
+  reads D +0x52, drops a third of a count in a term, a check of the line offset D +0x54, field offsets 4 lower from the
+  parameter block's +0x78), the braking (0x45C558), driver kind (0x45D238), 0x462000, the skill (0x3EA6A8, 0x3EA8F0),
+  the engine condition (0x34AFD0), odometer (0x358330), converter (0x35BEC8), the attitude's layout-7 lift (0x365610), the
+  start (0x35E050's other calls), the pits (0x355708, 0x34D930, 0x3555C8, 0x356700), the recorder (0x354458), the
+  points (0x3BA528) and the rolling start (0x33FAA8: it no longer lets the car go at once, 0x345218, and changes line
+  without the blend).
 - Read, not used by our race: the race step (0x348288) leaves out the player's pit menu and refuelling step (0x35BE60) in both
   replay modes (2 and 3; v1.01 in mode 2), and runs the end countdown (0x35F658) only when the conductor's mode is 0 (v1.01:
   when the race object's replay mode is 0).
@@ -1112,6 +1131,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The driver's input (phase 5, 0x349FD0: the pad's controls 0x349418, the steering 0x348850 and its follower 0x3485D0, the clutches 0x3481D8 / 0x348368 / 0x348428, the pedal curves, the prefilter, a pit stop's answer and a B-spec command from the frame, the nitrous's trigger; the controls' tables 0x347A00 and the pace levels 0x3F1790) | `rules_input.*` through `session.cpp` | Gran Turismo 4 (§3.4): equal at every call for controller kinds 0, 2, 3, 4 and 6, digital and analog axes, pedal styles 0 .. 7, the back and third axes, wheel types, the one-speed, stepless and kind 4 boxes; a frame given (`race::PadRecord`: a recording's, or the player's, input.md) or one made from `race::CarInput`'s fields (an analog pad of kind 3: the sweeps and checks); the computer's paths are the session's (0x464F38's outputs, 0x3F3400); the active steering runs for a car whose caller gives its line's heading and mode each step (`set_line_heading`; the race world does, from `Field::line_heading_at` / `line_mode_at`); the course's kind and road byte from its COURSE row (`sim::course_row`; without a row dirt is guessed from the first start place) |
 | Proximity and slipstream (phase 14, 0x3F4638 and its pair routines), the part that changes with speed (phase 15, 0x3F28B8) | `rules_near.*` through `session.cpp` | Gran Turismo 4: equal at every call (six computer cars at Tsukuba and Grand Canyon, the nine cars with the part); the distance along the course and its rate (F +0x4A4, F +0x650) are ours (`distance_along`), the drivers' line 4 not known (a car on it is not left out) |
 | The start: the car's set-up (0x363B10 from the converter on: the pose 0x3630C0, the standing start 0x363560, the rolling hold 0x3452F0, the moving start 0x363868), the countdown's hold per car (0x34C210, cond + 0xCBFC + 4 i into F +0x4BC), the attitude's start hold (0x36AE20), the rolling start's release (0x345228 through the conductor's virtual 20) | `rules_start.*` through `session.cpp` (`setup`, `release_start`, `place_standing`, `set_pit_hold`, `set_countdown`) | Gran Turismo 4: equal at every call; the grid pose at Grand Canyon equal to the original's saved states; a rolling start's place on the road's middle, not the driving line (0x34C5E0 / 0x46ADE8); the session's countdown is its last 2 s (120 steps) before time 0 |
+| Japan's disc (SCPS-17001 v1.05) | the same files, `Program::release()` | Japan's own rules where its program differs and they are ported (§5 "Japan's rules"): TCS, the ground's normals, proximity and the closing, the drivers' lines, arc speeds and spread, the test's end; the other changed routines run v1.01's rules 🔎. Checked against Japan's program in the interpreter: our race ends on the program's time in all 76 timed license files |
 
 **What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` calls the shared engine's step
 routines only on its own rules (`GT4R_SIM_RULES=engine`) and Prologue's; its math
