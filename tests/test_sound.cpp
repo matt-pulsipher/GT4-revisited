@@ -999,8 +999,8 @@ TEST(sound_stream_voices_on_disc) {
     CHECK(audio::StreamVoices::voice_level(0.26953125f) == 4416 && audio::StreamVoices::voice_level(0.3f) == 4915);
     CHECK(audio::StreamVoices::voice_level(1.0f) == 0x3FFF && audio::StreamVoices::voice_level(-1.0f) == 0);
     Disc* gt4 = nullptr;
-    for (const auto& d : test::discs())
-        if (d->info().game == Game::GT4) gt4 = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4) gt4 = d;
     if (!gt4) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&gt4->volume());
     audio::OfflineSound s(false);
