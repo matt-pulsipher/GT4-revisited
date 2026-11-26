@@ -5,6 +5,7 @@
 #include "formats/ps2/vif.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -57,6 +58,10 @@ int operand_bytes(u8 op) {
     }
 }
 
+} // namespace
+int command_operand_bytes(u8 op) { return operand_bytes(op); }
+namespace {
+
 // Commands GTM1's reader does not have: no-ops there, a callback, the script and what reads its registers,
 // the outside texture sets, the colour scale and offset, the face and texture-coordinate modes.
 bool only_here(u8 op) { return op >= 0x38 && op != 0x4D && op != kDrawFactors && op != kPlainFactors; }
@@ -76,6 +81,11 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
     // brake lens under `gtala` while the brake is off; 0x52 the same from its floats), its draws not drawn.
     std::map<size_t, bool> hidden_at;
     const bool by_registers = !scene.registers.empty();
+    // Scene::turned: the stack's depth on a path, and the turn by a register its draws are under (the level it changed).
+    struct Turned {
+        int depth = 0, cell = -1, level = 0;
+    };
+    std::map<size_t, Turned> turned_at;
     std::vector<std::pair<size_t, size_t>> inside; // Scene::only_inside: the constructs kept
     std::vector<std::pair<size_t, size_t>> draws;  // the commands that draw: place, size
     const ByteSpan d(b);
@@ -87,6 +97,7 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
         work.pop_back();
         int weight = weight_at.count(pc) ? weight_at[pc] : -1; // the register of the last 0x4C on this path
         bool hidden = hidden_at.count(pc) ? hidden_at[pc] : false;
+        Turned turned = turned_at.count(pc) ? turned_at[pc] : Turned{};
         while (seen.insert(pc).second) {
             need(pc, 1);
             const u8 op = b[pc];
@@ -104,6 +115,7 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
                     work.push_back(size_t(s64(tab + 2 * k) + s16_at(d, tab + 2 * k)));
                     weight_at.emplace(work.back(), weight);
                     hidden_at.emplace(work.back(), hidden);
+                    turned_at.emplace(work.back(), turned);
                 }
                 if (op == 0x06 && scene.only_inside >= 0 && id == u32(scene.only_inside) && n) {
                     // The construct: from its first case to where the jump after the table leads.
@@ -139,7 +151,10 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
                 need(a, 17);
                 const u32 n = b[a + 16];
                 need(a + 17, 2 * size_t(n));
-                for (u32 k = 0; k < n; ++k) work.push_back(size_t(s64(a + 17 + 2 * k) + s16_at(d, a + 17 + 2 * k)));
+                for (u32 k = 0; k < n; ++k) {
+                    work.push_back(size_t(s64(a + 17 + 2 * k) + s16_at(d, a + 17 + 2 * k)));
+                    weight_at.emplace(work.back(), weight), hidden_at.emplace(work.back(), hidden), turned_at.emplace(work.back(), turned);
+                }
                 if (n) break;
                 pc = a + 17;
                 continue;
@@ -159,12 +174,23 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
                 const size_t skip = a + 1 + 12 * size_t(b[a]);
                 need(skip, 2);
                 work.push_back(size_t(s64(skip) + s16_at(d, skip)));
+                weight_at.emplace(work.back(), weight), hidden_at.emplace(work.back(), hidden), turned_at.emplace(work.back(), turned);
                 pc = skip + 2;
                 continue;
             }
             const int n = operand_bytes(op);
             if (n < 0) throw FormatError("MDLS draw program: unknown command");
             need(a, size_t(n));
+            if (op == 0x0C) ++turned.depth;
+            else if (op == 0x0D && turned.depth > 0 && --turned.depth < turned.level) turned.cell = -1;
+            else if (op >= 0x44 && op <= 0x4B && op != 0x47) turned.cell = int(rd16(d, a)), turned.level = turned.depth;
+            const bool is_draw = op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35;
+            if (is_draw && scene.turned != -2 && (scene.turned == -1 ? turned.cell >= 0 : turned.cell != scene.turned)) {
+                ++st.replaced_commands;
+                std::fill(b.begin() + ptrdiff_t(pc), b.begin() + ptrdiff_t(a) + n, kNop);
+                pc = a + size_t(n);
+                continue;
+            }
             if (op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35) draws.emplace_back(pc, size_t(n) + 1);
             if (by_registers && op == 0x54) {
                 const u32 r = rd16(d, a + 6);
@@ -714,6 +740,126 @@ gt3r::scene::Model build_model(ByteSpan mdls, const Options& opt, const std::str
     o.run.texture_lod = opt.texture_list;
     o.textures = opt.textures;
     return gt3r::gtm1::decode_gtm1(block, o, name);
+}
+
+namespace {
+using RowMatrix = std::array<float, 16>;
+constexpr RowMatrix kRowIdentity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+RowMatrix row_mul(const RowMatrix& a, const RowMatrix& b) {
+    RowMatrix r{};
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+            for (int k = 0; k < 4; ++k) r[size_t(i * 4 + j)] += a[size_t(i * 4 + k)] * b[size_t(k * 4 + j)];
+    return r;
+}
+// The row-vector turn by an angle about an axis, as the shared engine's GTM1 reader turns (command 0x13).
+RowMatrix row_rotation(float ax, float ay, float az, float radians) {
+    const float len = std::sqrt(ax * ax + ay * ay + az * az);
+    if (!(len > 0)) return kRowIdentity;
+    ax /= len, ay /= len, az /= len;
+    const float c = std::cos(radians), s = std::sin(radians), t = 1 - c;
+    return RowMatrix{t * ax * ax + c, t * ax * ay + s * az, t * ax * az - s * ay, 0, t * ax * ay - s * az, t * ay * ay + c, t * ay * az + s * ax, 0,
+                     t * ax * az + s * ay, t * ay * az - s * ax, t * az * az + c, 0, 0, 0, 0, 1};
+}
+} // namespace
+
+std::array<float, 16> register_turn(float degrees, float ax, float ay, float az) {
+    return row_rotation(ax, ay, az, degrees * 3.14159265f / 180.0f);
+}
+
+RegisterReads register_reads(ByteSpan set, u32 model) {
+    RegisterReads out;
+    const Header h = read_header(set);
+    if (model >= h.models) return out;
+    const u32 program = rd32(set, h.model_table + 0x28 * size_t(model) + 0x18);
+    if (!program || program >= h.size) return out;
+    const ByteSpan d = set.first(h.size);
+    auto need = [&](size_t o, size_t n) {
+        if (o > d.size() || d.size() - o < n) throw FormatError("MDLS draw program runs past the block");
+    };
+    auto f = [&](size_t o) {
+        float v;
+        std::memcpy(&v, d.data() + o, 4);
+        return v;
+    };
+    // Every path, each with its matrix stack (as the decoder places the shapes).
+    std::set<size_t> seen;
+    std::vector<std::pair<size_t, std::vector<RowMatrix>>> work{{program, {kRowIdentity}}};
+    while (!work.empty()) {
+        auto [pc, stack] = std::move(work.back());
+        work.pop_back();
+        while (seen.insert(pc).second) {
+            need(pc, 1);
+            const u8 op = d[pc];
+            const size_t a = pc + 1;
+            if (op == 0x00) break;
+            if (op == 0x06 || op == 0x4D) {
+                need(a, 3);
+                const u32 n = d[a + 2];
+                need(a + 3, 2 * size_t(n));
+                for (u32 k = 0; k < n; ++k) work.push_back({size_t(s64(a + 3 + 2 * k) + s16_at(d, a + 3 + 2 * k)), stack});
+                pc = a + 3 + 2 * size_t(n);
+                continue;
+            }
+            if (op == 0x07) {
+                need(a, 17);
+                const u32 n = d[a + 16];
+                need(a + 17, 2 * size_t(n));
+                for (u32 k = 0; k < n; ++k) work.push_back({size_t(s64(a + 17 + 2 * k) + s16_at(d, a + 17 + 2 * k)), stack});
+                if (n) break;
+                pc = a + 17;
+                continue;
+            }
+            if (op == 0x08) {
+                need(a, 1);
+                pc = size_t(s64(a) + std::int8_t(d[a]));
+                continue;
+            }
+            if (op == 0x09) {
+                need(a, 2);
+                pc = size_t(s64(a) + s16_at(d, a));
+                continue;
+            }
+            if (op == 0x0A) {
+                need(a, 1);
+                const size_t skip = a + 1 + 12 * size_t(d[a]);
+                need(skip, 2);
+                work.push_back({size_t(s64(skip) + s16_at(d, skip)), stack});
+                pc = skip + 2;
+                continue;
+            }
+            const int n = operand_bytes(op);
+            if (n < 0) throw FormatError("MDLS draw program: unknown command");
+            need(a, size_t(n));
+            RowMatrix& top = stack.back();
+            if (op == 0x0C) stack.push_back(top);
+            else if (op == 0x0D && stack.size() > 1) stack.pop_back();
+            else if (op == 0x0F || op == 0x10) {
+                RowMatrix m;
+                for (int k = 0; k < 16; ++k) m[size_t(k)] = f(a + 4 * size_t(k));
+                top = op == 0x0F ? m : row_mul(m, top);
+            } else if (op == 0x11) {
+                for (int j = 0; j < 4; ++j) top[size_t(12 + j)] += f(a) * top[size_t(j)] + f(a + 4) * top[size_t(4 + j)] + f(a + 8) * top[size_t(8 + j)];
+            } else if (op == 0x12) {
+                for (int r = 0; r < 3; ++r)
+                    for (int j = 0; j < 4; ++j) top[size_t(r * 4 + j)] *= f(a + 4 * size_t(r));
+            } else if (op == 0x13) {
+                top = row_mul(row_rotation(f(a), f(a + 4), f(a + 8), f(a + 12)), top);
+            } else if (op >= 0x14 && op <= 0x16) {
+                top = row_mul(row_rotation(op == 0x14, op == 0x15, op == 0x16, f(a) * 3.14159265f / 180.0f), top);
+            } else if (op >= 0x44 && op <= 0x4B && op != 0x47) {
+                const u16 cell = rd16(d, a);
+                bool known = false;
+                for (const RegisterTurn& t : out.turns) known |= t.cell == cell;
+                if (!known) out.turns.push_back({op, cell, top});
+            } else if (op == 0x4C) {
+                const u16 cell = rd16(d, a);
+                if (std::find(out.weights.begin(), out.weights.end(), cell) == out.weights.end()) out.weights.push_back(cell);
+            }
+            pc = a + size_t(n);
+        }
+    }
+    return out;
 }
 
 } // namespace gt4r::mdls

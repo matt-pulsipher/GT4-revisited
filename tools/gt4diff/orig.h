@@ -5,6 +5,7 @@
 // Routines are named by address (docs/specs/physics.md); nothing of the program is kept.
 
 #include "ee.h"
+#include "program_map.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
 
@@ -18,20 +19,21 @@ namespace gt4r::diff {
 using gt3r::diff::Arg;
 using gt3r::diff::Ee;
 
-// Gran Turismo 4 SCUS-97328 v1.01.
+// Gran Turismo 4 SCUS-97328 v1.01 (the running program's: segments(), and pa() for an address).
 constexpr u32 kTextEnd = 0x617A14, kBssStart = 0x6D5E00, kBssEnd = 0x8A215C, kGp = 0x6DDDF0;
-constexpr u32 kDatabase = 0x6235A8;  // the database object: a table's object at +0x134 + 4 x table id
-constexpr u32 kSetCar = 0x444480;    // (equipment, car)
-constexpr u32 kBuildSpec = 0x3F3B68; // (spec, equipment, -, course kind)
-constexpr u32 kStatics = 0x35F808;   // (conductor or 0): the per-surface tables and the air's globals from the static block
-constexpr u32 kConvert = 0x361908;   // (parameter block, spec, control source, 0, rule block, condition block)
+constexpr Pa kDatabase{0x6235A8};  // the database object: a table's object at +0x134 + 4 x table id
+constexpr Pa kSetCar{0x444480};    // (equipment, car)
+constexpr Pa kBuildSpec{0x3F3B68}; // (spec, equipment, -, course kind)
+constexpr Pa kStatics{0x35F808};   // (conductor or 0): the per-surface tables and the air's globals from the static block
+constexpr Pa kConvert{0x361908};   // (parameter block, spec, control source, 0, rule block, condition block)
 
 // The conductor's layout (docs/specs/physics.md "The race step").
 constexpr u32 kCondSize = 0x10400;
 constexpr u32 kCar0 = 0x6698, kCarSize = 0x10A0;    // car i
 constexpr u32 kParams0 = 0x98, kParamsSize = 0x1100; // car i's parameter block
 constexpr u32 kF = 0x104;                           // the car's state block
-constexpr u32 kCondVtable = 0x10140, kCondCars = 0x10000 - 0x760, kCondCourse = 0x10000 - 0x3428;
+constexpr Co kCondVtable{0x10140}; // (SCPS-17001 v1.05: +0x10128)
+constexpr u32 kCondCars = 0x10000 - 0x760, kCondCourse = 0x10000 - 0x3428;
 constexpr u32 kCondTimeScale = 0x10000 - 0x3408;
 
 db::SpecDb open_db(Disc& disc);
@@ -87,5 +89,10 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                 std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr,
                 const std::function<void()>& before_init = {}, u32 conductor = 0, u32 vtable = 0);
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
+// The road's own grid made as long as the field (GT4R_RACE_GRID's places, the rule block's layout kept) in the races set up
+// after this: a field longer than the road's list reads past its end in the program (0x3952C0, no bound), which on
+// SCPS-17001 v1.05's courses places the cars off the road (the computer drivers' check, ai.cpp); with it the rule block's layout is
+// none (+0x21 = -1), as GT4R_RACE_GRID has it.
+void set_extend_grid(bool on);
 
 } // namespace gt4r::diff

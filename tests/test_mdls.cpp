@@ -424,3 +424,72 @@ TEST(disc_brake_lamps_by_script) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
 }
+
+// The cars' moving parts (docs/formats/model.md "What a car's script reads"): the 1886 Benz's three turns by register (0x48)
+// with the program's matrix there, their shapes split off by Scene::turned; the pace car's blend weight (0x4C) by register.
+TEST(disc_car_moving_parts) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        auto body_of = [&](const char* path) {
+            const gt3r::Volume::Entry* e = disc->volume().find(path);
+            return e ? disc->volume().read(*e) : Bytes{};
+        };
+        const Bytes benz = body_of("car/lod/benz0001"), pace = body_of("car/lod/niss0088");
+        if (benz.empty() || pace.empty()) continue;
+        {
+            const ByteSpan body = ByteSpan(benz).subspan(mdls::find_model_sets(benz)[0]);
+            const mdls::RegisterReads reads = mdls::register_reads(body, 0);
+            CHECK((reads.turns.size()) == (size_t(3)));
+            CHECK(reads.weights.empty());
+            // The flywheel's pivot: the translation before its turn (0, 0.459, 1.076).
+            if (!reads.turns.empty()) {
+                CHECK((int(reads.turns[0].op)) == (0x48));
+                CHECK(std::fabs(reads.turns[0].pivot[13] - 0.459f) < 1e-3f && std::fabs(reads.turns[0].pivot[14] - 1.076f) < 1e-3f);
+            }
+            auto triangles = [&](int turned) {
+                mdls::Options o;
+                o.model = 0, o.textures = false;
+                o.scene.turned = turned;
+                size_t n = 0;
+                for (const auto& m : mdls::build_model(body, o).meshes) n += m.indices.size() / 3;
+                return n;
+            };
+            const size_t all = triangles(-2), rest = triangles(-1);
+            size_t parts = 0;
+            for (const mdls::RegisterTurn& t : reads.turns) {
+                const size_t n = triangles(t.cell);
+                CHECK(n > 0);
+                parts += n;
+            }
+            std::printf("  benz0001: %zu triangles, %zu outside the turns, %zu under them\n", all, rest, parts);
+            CHECK((rest + parts) == (all));
+        }
+        {
+            const ByteSpan body = ByteSpan(pace).subspan(mdls::find_model_sets(pace)[0]);
+            const mdls::RegisterReads reads = mdls::register_reads(body, 0);
+            CHECK(reads.turns.empty());
+            CHECK((reads.weights.size()) == (size_t(1)));
+            auto moved = [&](bool by_register) {
+                mdls::Options o;
+                o.model = 0, o.textures = false;
+                const auto a = mdls::build_model(body, o);
+                if (by_register && !reads.weights.empty()) o.scene.morph_weights[reads.weights[0]] = 1.0f;
+                else o.scene.morph_weight = 1.0f;
+                const auto b = mdls::build_model(body, o);
+                size_t n = 0;
+                for (size_t i = 0; i < a.meshes.size() && i < b.meshes.size(); ++i)
+                    for (size_t v = 0; v < a.meshes[i].vertices.size() && v < b.meshes[i].vertices.size(); ++v)
+                        n += std::memcmp(&a.meshes[i].vertices[v], &b.meshes[i].vertices[v], sizeof(gt3r::scene::Vertex)) != 0;
+                return n;
+            };
+            const size_t by_weight = moved(false), by_register = moved(true);
+            std::printf("  niss0088: %zu vertices moved by the weight, %zu by its register's\n", by_weight, by_register);
+            CHECK(by_weight > 0);
+            CHECK((by_register) == (by_weight));
+        }
+        ran = true;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}

@@ -63,7 +63,8 @@ void fill(ex::Ground& g, bool hit, const GroundHit& h, bool gt4) {
     g.flags = u8(h.flags & 1); // the pit lane; the wet variant is in the surface already
 }
 
-// 0x344458: a record whose normal is too steep (y below 0.5) reads as level (its plane kept).
+// 0x344458: a record whose normal is too steep (y below 0.5) reads as level (its plane kept). (SCPS-17001 v1.05's 0x33EC60
+// keeps every normal as the query gives it.)
 void level_steep(ex::Ground& g) {
     if (g.normal.y < F::raw(0x3F000000)) g.normal = {F(), F::raw(0x3F800000), F()};
 }
@@ -119,6 +120,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         throw std::runtime_error("session: " + program.issue() + "; this release is not supported yet");
     if (!program.known()) notes_.push_back(program.issue() + ": the shared engine's tables serve");
     data_ = std::make_shared<ex::ProgramData>(core_program(program));
+    japan_ = program.known() && program.release() == Release::Japan;
 
     // The start places that stand on the road, each at the road's height.
     std::vector<course::Runway::Place> places;
@@ -612,7 +614,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
         const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, wh);
         g.height = kNoGround;
         fill(g, hit, wh, gt4_rules_);
-        level_steep(g);
+        if (!japan_) level_steep(g);
         extra_[i].kinds[w] = hit ? wh.flags : 0;
         extra_[i].materials[w] = hit ? wh.material : 0;
         if (hit) {
@@ -693,7 +695,7 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
         const F at[3] = {g.x, g.h + F::raw(0x40A00000), g.z}; // (0x395760: from 5 m above)
         const bool hit = ground_->query(at, h);
         fill(g, hit, h, gt4_rules_);
-        level_steep(g);
+        if (!japan_) level_steep(g);
         if (!hit) {
             w.bump = k0;
             continue;
@@ -1116,7 +1118,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         // changes with speed.
         std::vector<rules::NearCar> near(cars_.size());
         for (size_t i = 0; i < cars_.size(); ++i) near[i] = {&cars_[i], &gx_[i].near};
-        rules::proximity(near, pairs_, F(road_->length), 0);
+        rules::proximity(near, pairs_, F(road_->length), 0, japan_);
         for (size_t i = 0; i < cars_.size(); ++i)
             if (!posed(i)) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
     } else if (prologue_)

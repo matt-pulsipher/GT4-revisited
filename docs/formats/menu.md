@@ -648,8 +648,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   diary gets that day (result, note 14, time), or a day with nothing in it when no run was graded: every visit to a
   test's page is a day, as the original's calendar shows. The page has no Replay after a demonstration (0x11CED8) nor
   after a run that ended under 2 s on the race clock (0x11CE3C; ❓ the test's settings then reloaded, 0x1100D0, not
-  done). **A course's run** (0x115A90) is a day of the diary;
-  Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
+  done). **A course's visit** is one day of the diary, put when its sequence ends whatever the runs
+  (0x42F448, place 15, note 14, no time: the machine test 0x115E90, the practice 0x1184DC, the photo drive 0x11B0D8; the free
+  run 0x1179F8 with the session's best time and note 13 when it beat the course's record, else 14; ours puts one per run:
+  RULES_AUDIT.md); Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 - **The course rankings**: a driven time trial run (0x112620 -> 0x113320) or free run (0x116E20 -> 0x117898, only
   when the run made a best-lap recording, race information +0x98; ❓ here: a lap timed) whose best lap (0x35E3F0) beats

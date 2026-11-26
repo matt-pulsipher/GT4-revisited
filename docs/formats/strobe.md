@@ -366,7 +366,10 @@ trophy (0x3E0FF8): `race/trophy.mdl` in its colour by the result's kind (table 0
 The colour is the paint (Tex1 +0x20, three variants): the model's one picture, a 64 x 64 sphere map, read through the gold, the
 grey or the copper palette; its material variations are all white. The reflection is that picture of its own, sphere
 mapped by the view's normals (light faces and dark sides as it turns), not the course's. Its lights are its own too (0x3E1780,
-light set 0x66: ambient 0.3, diffuse 0.5, specular 0.5, and its parameter 13 (0, 1, 0) ❓; ours are the course's lights; ✔ by picture against the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`:
+light set 0x66 alone, 0x65, 0x67 and 0x68 off: ambient 0.3, diffuse 0.5, specular 0.5 (parameters 0, 1, 4: the light record's
++0x10, +0x20, +0x40, 0x4ABEC0) and its parameter 13 (0, 1, 0): the direction towards the light, normalized and turned by the
+view matrix of the moment into the record's +0x60, the parameter the course's scene lights take from Env0 +0xAD0 (0x397F18):
+a light from above the trophy, whose camera sits at the origin); ✔ by picture against the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`:
 copper, light and dark faces), through a lens 50 degrees high (0x49AC00:
 0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
 passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
@@ -378,7 +381,17 @@ with its spin from 1000 (gain 1.2), kinds 4, 5 at 270 and turned over (about x f
 page (the original's pass pictures). Here: the trophy drawn once a frame (no averaged passes), the
 grade's kind gold 1, silver 3, bronze 4 (❓ the result's kind +0x88 is not read), the live picture
 the race's own view after a run with a time, until the license staff's cameras take it over (pit_scene.md "The license
-scene"), and the course's TV cameras after a run failed by the rules (❓ the program's camera for that is not read). ✔ The
+scene"), and after a run failed by the rules the camera circling the car (CameraSys::CameraFinishType1: 0x37CC58 starts it at 0
+degrees, 0x37CCA8 steps it half a degree a step; the view translate(0, 0, -4) x rotate X 30 degrees x rotate Y by its angle x
+translate(-the car's drawn point, 0x344798 ..), so 4 m off, 30 degrees above, from the course's +z at first; a lens of 65
+degrees; ✔ by picture against the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`: the car's
+front with the cone first, its left side about 2 s on, a turn in 12 s). It is put on by the results page: ResultLicense's
+event step (0x3E1E10) finds event 10, and with the conductor's result word not 0 (-1: the rule failure's end 0x3F8980; a slow
+finish leaves it 0) 0x3E1FB0 sets the camera manager's mode for screen 0 to 6 (0x3720A0: screen +0x144 = 6; mode 6 in the
+manager's switch, 0x3747B8, takes the camera at screen +0x160, CameraFinishType1, and starts it). What the original shows as
+the run fails is this camera at once, the race display going out and the picture shrinking from the whole frame into the
+page's inset (the movie's `screen` picture from 2.13; ✔ 18-round4-gt overshoot and 27-license-fails wall videos in 0.1 s
+frames, ours the same: there is no separate still). ✔ The
 page's timing against the original's pass (18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`, 0.1 s frames
 from the stop): the title 0.1 s after, the time 0.6 s, the trophy fading in from 1.2 s (the original's 0.1 .. 0.3, 0.5 .. 0.7,
 1.3 s). ❓ The original fades the race display out over about 0.3 s as the title comes; ours takes it away at once.
