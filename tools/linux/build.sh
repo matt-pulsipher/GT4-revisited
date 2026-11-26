@@ -9,7 +9,7 @@
 #
 # The tests (and --exec, a shell command run in the build folder after the build) read the discs named in
 # GT4R_DISC (";"-separated paths); in Docker each one is mounted read-only and GT4R_DISC names the mounted
-# copies. Both run headless (SDL's dummy video and audio drivers).
+# copies (GT4R_SIM_STATES, a folder of the original's saved states, likewise). Both run headless (SDL's dummy video and audio drivers).
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -127,6 +127,12 @@ if [[ $run_tests == 1 || -n $exec_cmd ]]; then
     done
   fi
   env+=(-e "GT4R_DISC=$discs")
+  # The original's saved states some tests read (GT4R_SIM_STATES, a folder), mounted read-only as well.
+  if [[ -n ${GT4R_SIM_STATES:-} ]]; then
+    [[ -d $GT4R_SIM_STATES ]] || die "GT4R_SIM_STATES names $GT4R_SIM_STATES, which is not a folder"
+    mounts+=(--mount "type=bind,source=$GT4R_SIM_STATES,target=/states,readonly")
+    env+=(-e GT4R_SIM_STATES=/states)
+  fi
 fi
 args+=(-- ${cmake_extra[@]+"${cmake_extra[@]}"})
 
