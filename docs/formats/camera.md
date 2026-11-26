@@ -268,7 +268,7 @@ view seen backward and mirrored, the course by its mirror lists, sky and fog, th
 deep. **Its lens** is the view's own zoomed 1.3 times (race + 0xE2F0, 0x33EFBC; RacePS2Base::vf120 0x341E50), as here. A
 picture check from the original's eye in `03-race/state_at_start` drew the start gantry behind 5 % smaller than its screenshot
 (98.5 against 103.5 pixels between the posts): the gantry is only about 18 m behind and the car covers 0.42 m a picture, so a
-screenshot a frame or two older than the state's camera accounts for it (the views' far scenery is not sensitive to that). the on-board camera publishes the view's turn (the sideways
+screenshot a frame or two older than the state's camera would account for it (🔎 not shown) (the views' far scenery is not sensitive to that). the on-board camera publishes the view's turn (the sideways
 angle, + 180 while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
