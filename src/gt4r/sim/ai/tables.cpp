@@ -35,6 +35,7 @@ Tables Tables::load(const Program& program) {
         return t;
     }
     t.known = true;
+    t.japan = program.release() == Release::Japan;
     const auto S = [&](u32 i) { return program.b(kTuningBytes + i); };
     // 0x468EE8 (and 0x469468 for the spreads' switches), in the program's arithmetic.
     const F tenth = F::raw(0x3DCCCCCC), hundredth = F::raw(0x3C23D70A), hundred = F::raw(0x42C80000);

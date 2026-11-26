@@ -104,6 +104,7 @@ TEST(race_license_end_modes) {
     // 0x3F8818 / 0x3F8980: how the player's car ends (1 coasts down, 2 brakes to a stop, 3 drives on).
     race::LicenseRules stop = rules(1, 0, 0, 0); // B-1: a stop in the box
     CHECK(race::license_end_mode(stop) == (2));
+    CHECK(race::license_end_mode(stop, false, true) == (1)); // (SCPS-17001 v1.05's 0x3F14A8: it coasts down)
     CHECK(race::license_fail_mode(stop, race::LicenseFail::Hit) == (1));       // past the box into a cone: it coasts down
     CHECK(race::license_fail_mode(stop, race::LicenseFail::OffCourse) == (1));
     CHECK(race::license_fail_mode(stop, race::LicenseFail::PitLane) == (2));

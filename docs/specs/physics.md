@@ -976,8 +976,37 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
     and Japan's code reads it there (v1.01's 0x620E30 is Japan's 0x618390). Served as 0.
 - 🔎 **The code**: of the routines our simulation and race code port, Europe changes 81 and Japan 106 (`build_map`
   classes). Europe's are read in full: the 50 Hz conversions (every changed constant or step count is v1.01's x 5/6 or
-  x 6/5, rounded), field offsets, and the rules above. Japan's are not read yet. Each one that changes a rule is listed here when it
-  is ported.
+  x 6/5, rounded), field offsets, and the rules above. Japan's are read routine by routine, checked through Japan's own program
+  (below), and listed under "Japan's rules" as they are ported.
+
+### Japan's rules (SCPS-17001 v1.05)
+
+Japan's program runs in the interpreter (`gt4r_diff <jp disc> floats ...`): the harness names every routine, call site and global by
+its v1.01 address, and `pa()` (`tools/gt4diff/program_map.*`) gives Japan's. The table is made outside the repository from the
+function map, the aligned instructions of each routine, and the data address pairs `gt4tool regions map` finds. Japan's layouts
+differ where the harness writes: the conductor is 0x18 bytes shorter from +0x10024 on (its table at +0x10128), the race object
+keeps the replay mode at +0xCC0 (v1.01 +0xCC8), and several v1.01 reads of that word read the conductor's mode (+0xCBDC) instead.
+Japan's program in the interpreter ends **70 of the 76 timed license files** (`replay/license/jp*`, the missions left out) on
+their recorded times. The misses: B-6, B-13 and B-14 (-34, -30, -151 ms; our race ends on the program's time), and the three
+coffee breaks with cones (C-2, C-3, C-5), for which the harness sets up no cones.
+
+Our race on Japan's disc takes these of Japan's rules where its program differs (`Program::release()`; v1.01's otherwise):
+
+- ✔ **TCS** (0x3F2970, v1.01 0x3F9D00): below 100 km/h the throttle is limited directly, as in v1.01, but the follower is left
+  as it is (v1.01 sets it to the throttle, at rest). `rules::tcs` (`AidTables::japan`).
+- ✔ **The road under each wheel** (0x33EC60, v1.01 0x344458): every normal is kept as the query gives it (v1.01 reads a normal
+  with y below 0.5 as level). `Session::ground_contact` and the start's placing.
+- ✔ **Which cars are near which** (0x3ED338, v1.01 0x3F4638): the contacts (closing, the threat, following) only of cars less
+  than 50 m apart; others let go. `rules::proximity`, and the drivers' own (`Field::proximity`).
+- ✔ **The closing** (0x3ECFE0, v1.01 0x3F42D0): a car ahead counts only when it overlaps sideways at any gap (v1.01: within
+  20 m). `rules::closing`, `Field::closing`.
+- Read, not used by our race: the race step (0x348288) leaves out the player's pit menu and refuelling step (0x35BE60) in both
+  replay modes (2 and 3; v1.01 in mode 2), and runs the end countdown (0x35F658) only when the conductor's mode is 0 (v1.01:
+  when the race object's replay mode is 0).
+
+With these, our race ends on the program's time in **all 76** timed files (73 on the recorded time), and its cars' places equal
+the program's in every bit to the end in 64. The other 12 are tests behind a pace car, whose pace car parts from the program's in
+the last steps, after the player's run is judged ❓.
 
 ## 6. The ground
 

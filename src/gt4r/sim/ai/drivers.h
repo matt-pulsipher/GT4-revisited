@@ -68,7 +68,8 @@ struct Pace {
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
     // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
     // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
-    // conductors) by their grid index (0x467148).
+    // conductors) by their grid index (0x467148). SCPS-17001 v1.05's: by their grid index always, and by draws too where its
+    // conductor's virtual 27 sets the switches (the single race's 0x341F60; not the free run's).
     bool random_spread = true;
     bool standing_start = true; // the long look ahead off the grid of a standing start
     // The race's rolling start's speed (km/h; 0 a standing start): Prologue's drivers look far ahead at a start under 30 km/h.

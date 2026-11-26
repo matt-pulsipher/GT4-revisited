@@ -264,8 +264,11 @@ void Field::setup(Driver& d) {
     int off = 0;
     if (tables_.driver_spread && d.control == 2) {
         const int idx = d.index;
-        if (!tables_.tuning.brake_spread) brk -= (idx % 3) * 7;
-        if (!tables_.tuning.corner_spread) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
+        // (SCPS-17001 v1.05's car set-up 0x35E050 does not set the draws' switches, 0x469468: its single race's preparation,
+        // the conductor's virtual 27, does, after every car is set up. So its drivers differ by their grid index too.)
+        const bool japan = tables_.japan;
+        if (!tables_.tuning.brake_spread || japan) brk -= (idx % 3) * 7;
+        if (!tables_.tuning.corner_spread || japan) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
         d.p.yaw_gain = d.p.yaw_gain * (int_f(((idx + 1) % 3) * 3 + 97) * kHundredth);
     }
     if (thr != 100) d.p.throttle = int_f(thr) * kHundredth;
@@ -550,19 +553,21 @@ F Field::corner_speed(const Driver& d, int i) {
         a = a * (-r);
         if (zero < bank) a = a / (kOne - gt3r::ee::sin(bank));
     }
-    const F e = pt.crest ? zero : d.p.aero_bonus;
+    // (SCPS-17001 v1.05's 0x45FA50: no aero bonus, and every driver's own multipliers, a pad car's too)
+    const bool japan = session_->japan();
+    const F e = pt.crest || japan ? zero : d.p.aero_bonus;
     F q = e + kOne, v;
     for (int k = 0; k < 3; ++k) {
         v = gt3r::ee::sqrt(a * q);
         q = ((d.p.downforce * v) * v + kOne) + e;
     }
-    F m = d.control == 0 ? kOne : d.corner_mult;
+    F m = d.control == 0 && !japan ? kOne : d.corner_mult;
     const Tuning& t = tables_.tuning;
     if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
     F scale = d.p.corner_scale * m;
     if (d.control == 1 && d.kind == 0) scale = scale * d.pace_corner;
     if (const auto& zc = near_[d.car].zone; t.alongside_slow && (zc[kFrontLeft] || zc[kLeft] || zc[kRight] || zc[kFrontRight]))
-        scale = scale * (kOne - t.alongside_share * (d.control == 0 ? kOne : d.alongside_mult));
+        scale = scale * (kOne - t.alongside_share * (d.control == 0 && !japan ? kOne : d.alongside_mult));
     const F offset = d.p.corner_offset + int_f(pt.speed_adjust == -128 ? 0 : pt.speed_adjust) * kPerKmh;
     // (on the front's first tire record the scale takes T+0x158's factor of its paved grip: 1 throughout in this program)
     F out = scale * v + offset;

@@ -1951,8 +1951,9 @@ public:
     // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
     int license_end_mode() const {
         const race::LicenseRules& r = judge_.rules();
-        if (!license_failed_) return race::license_end_mode(r);
-        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6);
+        const bool japan = release_ == sim::Release::Japan;
+        if (!license_failed_) return race::license_end_mode(r, false, japan);
+        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6, japan);
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
     // A series' last race has its own jingles.
