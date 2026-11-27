@@ -46,6 +46,13 @@ StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs, StreamVoice
             audio.resume_music();
     };
     p.playing = [&audio, voices] { return (voices && voices->playing()) || audio.music_playing(); };
+    p.play_file = [&audio, voices](const std::string& path, float level, float trim) {
+        if (voices) voices->stop();
+        const bool ok = audio.play_music_file(path, false, stream_request(level), true, trim);
+        if (sound_log()) LOG_INFO("Sound: song %s at %.4f, gain %.3f%s", path.c_str(), double(level), double(trim), ok ? "" : ": not played");
+        return ok;
+    };
+    p.set_trim = [&audio](float trim) { audio.set_stream_trim(trim); };
     return p;
 }
 

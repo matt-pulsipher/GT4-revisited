@@ -38,6 +38,10 @@ struct StreamPlayer {
     std::function<void()> stop;
     std::function<void(bool paused)> pause;
     std::function<bool()> playing;
+    // Ours: one of the player's own songs (a host path: an MP3, FLAC, WAV or Ogg file, played once), its samples × `trim`
+    // (its loudness gain, your_music.h) at `level`; and the playing song's trim changed while it plays.
+    std::function<bool(const std::string& path, float level, float trim)> play_file;
+    std::function<void(float trim)> set_trim;
 };
 
 class MenuSound {
