@@ -137,8 +137,10 @@ and the icon come out the same bytes; a photo taken here lists, shows and checks
 
 The app's save files are no card: the photo pages' card manager always answers a card, formatted, with room (`free` 8,000), in
 either slot the one folder; the page that asks where to save (`DestinationDialog`) is answered without
-showing it (the photo, the save files); the photo pause's, which asks as what too (`SaveDialog`), is shown as the program's; a
-write that fails says so once. The other questions of the scripts about
+showing it (the photo, the save files); the photo pause's, which asks as what too (`SaveDialog`), is shown as the program's; before
+each photo or film written the scripts' Info, "Photo data (Film data) will now be created ... N KB of free space is required"
+(Cancel, OK), N the save's count (✔ the original's: 30 KB for its film, 77 KB for a photo of the photo drive); a write that fails
+says so once. The other questions of the scripts about
 a card are answered in the menus.
 
 The **slide show's list** is the folder `BASCUS-97328LSTSLIDE` (76 KB by the program's count): 400
