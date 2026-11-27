@@ -315,6 +315,7 @@ bool App::init(int argc, char** argv) {
         else if (start_ == "online") push(make_online_script_screen(*this));
         else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "saveeditor") push(make_save_editor(*this));
+        else if (start_ == "database") push(make_database_screen(*this));
         else if (start_ == "settings") push(make_settings_screen(*this));
         else if (start_ == "quickrace") push(make_quick_race_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (Developer tools' first items: Cars, Courses)
