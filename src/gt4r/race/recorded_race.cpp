@@ -151,6 +151,7 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         }
         sim::ai::PitRace pr;
         pr.laps = int(laps);
+        pr.mode = p.bspec ? 2 : 0; // (K +0xCBDC: a B-spec race's replay)
         p.pits = std::make_unique<sim::ai::PitStops>(field, program, entries.size(), hooks, pr);
         p.pits->set_recorded(0);
     }

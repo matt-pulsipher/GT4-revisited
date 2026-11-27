@@ -119,7 +119,7 @@ void PitStops::after(const Session& session, Field& field) {
         LapStateInputs ls;
         ls.finished = race_.finished && race_.finished(i);
         ls.clock_ms = u32(session.time() * 1000.0);
-        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L;
+        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L, ls.japan = japan_;
         const int lap_state = lap_state_[i] = sim::ai::lap_state(ls);
         // The wear and fuel phase's request (0x353218).
         PitNeed need;
@@ -136,10 +136,14 @@ void PitStops::after(const Session& session, Field& field) {
             need.burst = hooks_.tread ? hooks_.tread(i) : std::vector<F>{};
         }
         need.lap_state = lap_state, need.control = gt3r::s8(control);
+        // (SCPS-17001 v1.05's request 0x34D930: none once the race's time limit has passed, or with the race's laps crossed
+        // (its crossings less its backward ones, which ours does not keep here: 0); a B-spec car's request takes the stop too)
+        if (japan_) need.lap_state = (ls.limit_minutes != 0 && ls.clock_ms >= ls.limit_minutes * 60000u) || (ls.laps != 0 && crossings >= ls.laps) ? 1 : 0;
         pit_need(c, need);
         // The pass (0x359008 → 0x35B060).
         PitInputs in;
         in.d = d, in.d_prev = last_d_[i], in.lap = L;
+        in.japan = japan_, in.mode = race_.mode;
         in.speed = session.record(i).speed;
         in.side_speed = session.record(i).lat_speed;
         in.control = gt3r::s8(control), in.kind = u8(field.kind(i)), in.index = int(i);

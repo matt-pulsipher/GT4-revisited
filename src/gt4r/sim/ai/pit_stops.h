@@ -71,6 +71,7 @@ struct PitRace {
     bool pit_menu = true; // the race's pit menu (its virtual +0x120) for the player's and the B-spec car (Gran Turismo mode)
     std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
+    u8 mode = 0;         // the conductor's mode (K +0xCBDC): 0 a race, 1 a B-spec race, 2 a B-spec race's replay
 };
 
 class PitStops {

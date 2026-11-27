@@ -1053,6 +1053,15 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   dropped); its attitude takes no lift under the body, and its figure no grip from it. `BodyExtra` (`body_extras`), the
   converter, `pace_figure`, `rules::attitude` (`BodyGlobals::japan`). The parameter blocks of all 711 stock cars equal
   Japan's program's in every word either way (`gt4r_diff <jp> params`: none has kind 7).
+- ✔ **The pits** (0x33E440, v1.01 0x343C20; 0x34D930, v1.01 0x353218; 0x3555C8, v1.01 0x35AF18; 0x355708, v1.01 0x35B060;
+  0x3565A0, v1.01 0x35BF08): the car's race state is 0 or 1 (no state 2: its laps done before half the lap is racing), so
+  no service once the laps are done; the request is not made once the race's time limit has passed or its laps are crossed
+  (its crossings less its backward ones), and a B-spec car's request takes the stop as a computer car's does (no F +0x5C1);
+  the wait for the player's choice in the box (300 steps, F +0x64C) is every car's in a B-spec race (the conductor's mode
+  K +0xCBDC 1; v1.01: the B-spec car's in any race); the wait's end changes no driving mode (v1.01: the command 10), and the
+  pit menu (`menu/common/pitmenu.strb` on Japan's disc) has no Driving Mode item. `pit_flow` (`LapStateInputs::japan`,
+  `PitInputs::japan` / `mode`), `PitStops`, the pit menu's `PitChoice::mode`. Not checked against a recorded stop (no
+  file of Japan's has one) 🔎.
 - ✔ **The A-spec points** (0x3BA528, v1.01 0x3C1220): taken by the place alone (v1.01: none when the B-spec driver drove any
   of the race, car +0x7B0, which Japan's cars do not keep). `ScreenRace::aspec_taken`.
 - Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap

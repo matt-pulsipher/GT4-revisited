@@ -1471,6 +1471,7 @@ public:
         view_cut_ = true;
     }
     bool replaying() const { return replaying_ && !page_replay_; } // (not the replay behind a license test's page)
+    sim::Release release() const { return release_; } // the disc's release
     bool replay_done() const { return replay_done_; }
     void stop_replay() { replaying_ = page_replay_ = false, replay_done_ = true; }
 
@@ -3340,6 +3341,8 @@ private:
         }
         pit_choice_.feed = offer.fuel ? 1 : 0;
         pit_choice_.bspec = offer.bspec ? 1 : 0;
+        // (SCPS-17001 v1.05: no driving mode at the pit, its menu has no such item and its program no command to change it)
+        if (race_->release() == sim::Release::Japan) pit_choice_.mode = false;
         pit_open_ = true, pit_touched_ = false;
         LOG_INFO("Drive: the pit stop menu at %.1f s (tires %d, fuel %d)", double(race_->flow().time_ms()) / 1000, int(offer.tires), int(offer.fuel));
         if (!pit_movie_) return;
