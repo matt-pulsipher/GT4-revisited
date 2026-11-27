@@ -54,6 +54,8 @@ struct PitInputs {
     bool crossed = false; // 0x358608 counted a crossing of the line this step
     bool race_over = false; // the race's state byte (cond + 0xCBDE) is 2: no pit pass
     bool counting = false;  // the start's count runs (0x34C210): no pit pass
+    bool japan = false;     // SCPS-17001 v1.05's pass (0x355708)
+    u8 mode = 0;            // the conductor's mode (K +0xCBDC: 1 a B-spec race, 2 a B-spec race's replay)
 };
 
 // What the pass asks of the caller, in the order the program does it.
@@ -127,6 +129,7 @@ struct LapStateInputs {
     int laps = 0;            // the race's laps (the conductor's virtual +0x128; 0: no end)
     int lap = 0;             // F +0x4AC
     F d, lap_length;
+    bool japan = false;      // SCPS-17001 v1.05's (0x33E440): no state 2, its laps done before half the lap is racing
 };
 int lap_state(const LapStateInputs& in);
 

@@ -62,6 +62,7 @@ F engine_condition(const Program& program, F engine, F oil, bool no_wear);
 // kept at, 0x350808), the oil's loss from (+0x20).
 struct ConditionLimits {
     F new_engine, new_loss, run_in, worn, worn_loss, fresh_oil, oil_gain, old_oil, oil_from;
+    bool japan = false; // SCPS-17001 v1.05's factor (0x34AFD0): no loss for old oil
 };
 ConditionLimits condition_limits(const Program& program);
 

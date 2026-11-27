@@ -45,6 +45,7 @@ PitHooks session_pit_hooks(Session& session) {
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
     : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), lap_state_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars), took_default_(cars, false), recorded_(cars, false) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
+    japan_ = program.known() && program.release() == Release::Japan;
     for (const LinePoint& p : field.lines().line(CourseLines::kPitStop)) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
     // A car's box (0x363B10 by 0x46BDA0): the stop line's point 8 less its place on the grid (none without the line).
     for (size_t i = 0; i < cars; ++i) cars_[i].box = line_.dist.empty() ? 0 : gt3r::s8(8 - int(i));
@@ -124,7 +125,7 @@ void PitStops::after(const Session& session, Field& field) {
         LapStateInputs ls;
         ls.back = session.back_crossings(i); // (F +0x4B0)
         ls.clock_ms = u32(session.time() * 1000.0);
-        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L;
+        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L, ls.japan = japan_;
         const int lap_state = lap_state_[i] = sim::ai::lap_state(ls);
         // The wear and fuel phase's request (0x353218).
         PitNeed need;
@@ -141,10 +142,14 @@ void PitStops::after(const Session& session, Field& field) {
             need.burst = hooks_.tread ? hooks_.tread(i) : std::vector<F>{};
         }
         need.lap_state = lap_state, need.control = gt3r::s8(control);
+        // (SCPS-17001 v1.05's request 0x34D930: none once the race's time limit has passed, or with the race's laps crossed
+        // (its crossings less its backward ones, which ours does not keep here: 0); a B-spec car's request takes the stop too)
+        if (japan_) need.lap_state = (ls.limit_minutes != 0 && ls.clock_ms >= ls.limit_minutes * 60000u) || (ls.laps != 0 && crossings >= ls.laps) ? 1 : 0;
         pit_need(c, need);
         // The pass (0x359008 → 0x35B060).
         PitInputs in;
         in.d = d, in.d_prev = last_d_[i], in.lap = L;
+        in.japan = japan_, in.mode = race_.mode;
         in.speed = session.record(i).speed;
         in.side_speed = session.record(i).lat_speed;
         in.control = gt3r::s8(control), in.kind = u8(field.kind(i)), in.index = int(i);
