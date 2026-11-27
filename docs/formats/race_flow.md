@@ -363,7 +363,7 @@ Offered by a race (0x3C0FF8) with other cars: 250 in a mission (the race's virtu
 parameter blocks' +0xFE0): the others' mean + 0.03 (0.07 on a course of kind 2, COURSE +0x10, for a car whose DRIVETRAIN +0x10 is not
 2, four wheel drive) less the car's own; below 0 that x 10 + 1 and at least 0.1, else x 200 and at least 1; x 10, at most 200,
 rounded. Taken at the end (0x3C1220, the race's +0x96C, what the result pages read): the same when the car's place is 1 and the
-B-spec driver drove none of it (car +0x7B0 0), else 0. The display's two lines (RaceDisplay::vf43 0x39C570, vf44 0x39C6D0; its
+B-spec driver drove none of it (car +0x7B0 0), else 0. Japan's program (0x3BA528) keeps no B-spec distance and asks only the place. The display's two lines (RaceDisplay::vf43 0x39C570, vf44 0x39C6D0; its
 virtual 42 asks the race's kind: the single race, missions, Gran Turismo mode's events): `AspecRaceFormat1` / `AspecRaceFormat2` as the
 race begins (0x39C33C a moving start: 0.2 s in, 2 s, fades 0.1 / 0.3 s; 0x39C18C a hold: 0.5 s in, the hold less 3.5 s within
 2 .. 5 s, fades 0.5 / 1 s), `AspecPointGet` / `AspecPointFormat` at the finish (1 s in, 2.7 s); `hb_24#1` at (320, 264) and, a 130 % and

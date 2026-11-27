@@ -226,7 +226,7 @@ void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact:
     if (s.b(0x01) == 5) d.x13 = 4;
 }
 // The suspension's and body's part (0x361908, 0x360B60, 0x34BA30).
-void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::WheelLayout& l, rules::BodyExtra& b) {
+void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::WheelLayout& l, rules::BodyExtra& b, bool japan) {
     const F kQuarter = F::raw(0x3E800000), kMilli = F::raw(0x3A83126E), kInch = F::raw(0x3CD013A9), kHalfInch = F::raw(0x3C5013A9);
     const F kHalf = F::raw(0x3F000000), kTwentieth = F::raw(0x3D4CCCCC);
     for (u32 a = 0; a < 2; ++a) {
@@ -265,8 +265,9 @@ void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::
     // The part that changes with speed (0x361908): its damping row the spec's +0xA8, its kind +0x4C; kind 7's lift
     // +0x50 x 98 (N), dropped with the kind when the ride heights differ by more than 3 cm (❓ the other kinds' +0x1084:
     // +0x50 x 0.01 x the drag's area term, 0 here; no reader of it is ported).
+    // (SCPS-17001 v1.05's 0x35BEC8 has neither: kind 7 keeps its kind, and no routine of it reads a lift of kind 7)
     b.speed_part = s.b(0xA8), b.speed_part_kind = s.b(0x4C), b.speed_part_lift = F();
-    if (b.speed_part_kind == 7) {
+    if (b.speed_part_kind == 7 && !japan) {
         b.speed_part_lift = int_to_f(s.b(0x50)) * F::raw(0x42C3FFFF);
         F d = p.ride_height[0] - p.ride_height[1];
         if (d < F()) d = -d;
@@ -381,7 +382,7 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     t.direct_slip_scale = kOne / speed(0x119);
     r.x.chassis.mass = p.mass;
     drive_blocks(s, program, p, r.x.drive);
-    body_extras(s, p, r.layout, r.x.body);
+    body_extras(s, p, r.layout, r.x.body, program.known() && program.release() == Release::Japan);
     rules::aid_extras(s.bytes.data(), p.brake_torque, r.x.drive.d.tire_radius, r.x.aids);
     rules::steer_params(r.x.steer, s, r.car.p, r.x.body, r.layout);
 }
