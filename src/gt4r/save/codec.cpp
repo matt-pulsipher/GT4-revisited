@@ -1,5 +1,7 @@
 #include "gt4r/save/codec.h"
 
+#include "base/ee_float.h"
+
 #include <algorithm>
 #include <cstring>
 #include <utility>
@@ -11,6 +13,27 @@ namespace {
 
 u32 get32(const u8* p) { return u32(p[0]) | u32(p[1]) << 8 | u32(p[2]) << 16 | u32(p[3]) << 24; }
 void put32(u8* p, u32 v) { p[0] = u8(v), p[1] = u8(v >> 8), p[2] = u8(v >> 16), p[3] = u8(v >> 24); }
+
+// An unsigned word as the program makes it a float: cvt.s.w (chopped to 24 bits), a word with the top bit set halved first
+// (its low bit kept) and doubled after.
+u32 word_to_float(u32 v) {
+    namespace ee = gt3r::ee;
+    if (v < 0x80000000u) return ee::from_int(s32(v));
+    const u32 half = ee::from_int(s32(v >> 1 | (v & 1)));
+    return ee::add(half, half);
+}
+// trunc(f x float(n)) on the EE: mul.s with f first (its multiplier gives the chopped product or, now and then, one below it,
+// which depends on the operands' order), then cvt.w.s.
+u32 ee_times(u32 n, u32 f) { return u32(gt3r::ee::to_int(gt3r::ee::mul(f, word_to_float(n)))); }
+// The same on a chopping multiplier (the exact product, whole), as an emulator that does not model the EE's multiplier
+// computes it: files written there are read that way when the console's way fails their check.
+u32 exact_times(u32 n, u32 f) {
+    const u64 mantissa = (f & 0x7FFFFF) | 0x800000;
+    const int exponent = int((f >> 23) & 0xFF) - 150;
+    const u64 p = u64(gt3r::ee::to_int(word_to_float(n))) * mantissa;
+    return u32(exponent >= 0 ? p << exponent : p >> -exponent);
+}
+u32 times(u32 n, u32 f, Product how) { return how == Product::Console ? ee_times(n, f) : exact_times(n, f); }
 
 // The two places a file's head words are swapped to: the body's length times these single
 // precision constants (0.135790..., 0.654860...), whole.
@@ -37,19 +60,14 @@ u32 swap_random(FileKind k) {
 }
 bool shuffled(FileKind k) { return k == FileKind::Film || k == FileKind::Info; }
 // The bytes of a run shuffled (0x1D4BC8: the bit shuffle's order, over bytes) or put back (0x1D4C18).
-void shuffle_bytes(u8* data, size_t n, u32 seed, bool back) {
+void shuffle_bytes(u8* data, size_t n, u32 seed, bool back, Product how) {
     Mt19937 mt(seed);
     std::vector<std::pair<size_t, u32>> list;
-    for (size_t i = n; i-- > 1;) list.push_back({i, mt.below(u32(i + 1))});
+    for (size_t i = n; i-- > 1;) list.push_back({i, mt.below(u32(i + 1), how)});
     if (back) std::reverse(list.begin(), list.end());
     for (const auto& [i, j] : list) std::swap(data[i], data[j]);
 }
-u32 times_constant(u32 n, u32 bits) {
-    const u64 mantissa = (bits & 0x7FFFFF) | 0x800000;
-    const int exponent = int((bits >> 23) & 0xFF) - 150;
-    const u64 p = u64(n) * mantissa;
-    return u32(exponent >= 0 ? p << exponent : p >> -exponent);
-}
+u32 times_constant(u32 n, u32 bits, Product how) { return times(n, bits, how); }
 
 void swap4(u8* buf, size_t a, size_t b) {
     u8 t[4];
@@ -64,12 +82,12 @@ void cipher(u8* p, size_t n, Mt19937 mt, Lcg lcg, bool encipher) {
     }
 }
 
-std::vector<std::pair<u32, u32>> swaps(u32 n, u32 seed) {
+std::vector<std::pair<u32, u32>> swaps(u32 n, u32 seed, Product how) {
     Mt19937 mt(seed);
     std::vector<std::pair<u32, u32>> out;
     if (n < 2) return out;
     out.reserve(n - 1);
-    for (u32 i = n - 1; i >= 1; --i) out.emplace_back(i, mt.below(i + 1));
+    for (u32 i = n - 1; i >= 1; --i) out.emplace_back(i, mt.below(i + 1, how));
     return out;
 }
 
@@ -117,13 +135,9 @@ u32 Mt19937::next() {
     return y;
 }
 
-u32 Mt19937::below(u32 n) {
-    u32 v = next();
-    if (v == 0) return 0;
-    int bits = 32;
-    while (!(v >> (bits - 1))) --bits;
-    if (bits > 24) v = (v >> (bits - 24)) << (bits - 24);
-    return u32((u64(v) * n) >> 32);
+u32 Mt19937::below(u32 n, Product how) {
+    // 0x579548: the draw as a float times 2^-32; then times n (0x5D2818 and the byte shuffle's 0x5D2370).
+    return times(n, gt3r::ee::mul(word_to_float(next()), 0x2F800000u), how);
 }
 
 Bytes scramble(ByteSpan payload, u32 key, u32 random, FileKind kind) {
@@ -133,31 +147,33 @@ Bytes scramble(ByteSpan payload, u32 key, u32 random, FileKind kind) {
     const u32 check = crc32(ByteSpan(buf.data() + 8, size - 8)) ^ key;
     put32(buf.data(), random), put32(buf.data() + 4, check);
     cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), true);
-    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
-    if (shuffled(kind)) shuffle_bytes(buf.data() + 4, size - 4, random ^ key, false);
-    swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
+    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind), Product::Console));
+    if (shuffled(kind)) shuffle_bytes(buf.data() + 4, size - 4, random ^ key, false, Product::Console);
+    swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind), Product::Console));
     return buf;
 }
 
 std::optional<Bytes> unscramble(ByteSpan file, u32 key, FileKind kind) {
     const size_t size = file.size();
     if (size < 0x40 || size % 0x40) return std::nullopt;
-    Bytes buf(file.begin(), file.end());
-    swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
-    if (shuffled(kind)) shuffle_bytes(buf.data() + 4, size - 4, get32(buf.data()) ^ key, true);
-    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
-    const u32 random = get32(buf.data()), check = get32(buf.data() + 4);
-    cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), false);
-    if ((crc32(ByteSpan(buf.data() + 8, size - 8)) ^ key) != check) return std::nullopt;
-    return Bytes(buf.begin() + 8, buf.end());
+    for (const Product how : {Product::Console, Product::Exact}) {
+        Bytes buf(file.begin(), file.end());
+        swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind), how));
+        if (shuffled(kind)) shuffle_bytes(buf.data() + 4, size - 4, get32(buf.data()) ^ key, true, how);
+        swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind), how));
+        const u32 random = get32(buf.data()), check = get32(buf.data() + 4);
+        cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), false);
+        if ((crc32(ByteSpan(buf.data() + 8, size - 8)) ^ key) == check) return Bytes(buf.begin() + 8, buf.end());
+    }
+    return std::nullopt;
 }
 
-void shuffle_bits(u8* data, size_t bytes, u32 seed) {
-    for (const auto& [i, j] : swaps(u32(bytes * 8), seed)) swap_bits(data, i, j);
+void shuffle_bits(u8* data, size_t bytes, u32 seed, Product how) {
+    for (const auto& [i, j] : swaps(u32(bytes * 8), seed, how)) swap_bits(data, i, j);
 }
 
-void unshuffle_bits(u8* data, size_t bytes, u32 seed) {
-    const auto list = swaps(u32(bytes * 8), seed);
+void unshuffle_bits(u8* data, size_t bytes, u32 seed, Product how) {
+    const auto list = swaps(u32(bytes * 8), seed, how);
     for (auto it = list.rbegin(); it != list.rend(); ++it) swap_bits(data, it->first, it->second);
 }
 
@@ -171,13 +187,19 @@ void encode_header(u8* h, u32 key) {
 }
 
 void decode_header(u8* h, u32 key) {
-    Lcg lcg(key);
-    const u32 a = lcg.next(), b = lcg.next();
-    unshuffle_bits(h, 0x40, b);
-    const u32 stamp = get32(h + 0x3C) ^ a;
-    put32(h + 0x3C, stamp);
-    Mt19937 mt(key + stamp);
-    for (int i = 0; i < 0x3C; ++i) h[i] ^= u8(mt.next());
+    u8 coded[0x40];
+    std::memcpy(coded, h, 0x40);
+    for (const Product how : {Product::Console, Product::Exact}) {
+        std::memcpy(h, coded, 0x40);
+        Lcg lcg(key);
+        const u32 a = lcg.next(), b = lcg.next();
+        unshuffle_bits(h, 0x40, b, how);
+        const u32 stamp = get32(h + 0x3C) ^ a;
+        put32(h + 0x3C, stamp);
+        Mt19937 mt(key + stamp);
+        for (int i = 0; i < 0x3C; ++i) h[i] ^= u8(mt.next());
+        if (get32(h + 0x38) == key) return; // (the header holds its key: read right)
+    }
 }
 
 Bytes encode_slot(ByteSpan record, u32 key, u32 index, u32 stamp) {
@@ -192,12 +214,14 @@ Bytes encode_slot(ByteSpan record, u32 key, u32 index, u32 stamp) {
 
 std::optional<Bytes> decode_slot(ByteSpan slot, u32 key, u32 index) {
     if (slot.size() < kSlotSize) return std::nullopt;
-    Bytes buf(slot.begin(), slot.begin() + kSlotSize);
-    unshuffle_bits(buf.data(), kSlotSize, key + index);
-    const u32 stamp = get32(buf.data()), check = get32(buf.data() + 4);
-    cipher(buf.data() + 8, kSlotSize - 8, Mt19937(key ^ stamp), Lcg(check), false);
-    if (crc32(ByteSpan(buf.data() + 8, kSlotChecked)) != check) return std::nullopt;
-    return Bytes(buf.begin() + 8, buf.begin() + 8 + kSlotChecked);
+    for (const Product how : {Product::Console, Product::Exact}) {
+        Bytes buf(slot.begin(), slot.begin() + kSlotSize);
+        unshuffle_bits(buf.data(), kSlotSize, key + index, how);
+        const u32 stamp = get32(buf.data()), check = get32(buf.data() + 4);
+        cipher(buf.data() + 8, kSlotSize - 8, Mt19937(key ^ stamp), Lcg(check), false);
+        if (crc32(ByteSpan(buf.data() + 8, kSlotChecked)) == check) return Bytes(buf.begin() + 8, buf.begin() + 8 + kSlotChecked);
+    }
+    return std::nullopt;
 }
 
 void fill_new_garage(u8* body, size_t bytes, u32 key) {

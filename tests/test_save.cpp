@@ -81,6 +81,32 @@ TEST(save_codec_pieces) {
         const u64 top = bits > 24 ? (u64(v) >> (bits - 24)) << (bits - 24) : v;
         CHECK(b.below(1000) == u32(top * 1000 >> 32));
     }
+    // ... on the EE's multiplier: a product just above a whole number can come out one below it (the program's j of the bit
+    // shuffle, read from the program run in the interpreter, for the seed `key + slot` of a garage slot and the draw for bit i).
+    struct Draw {
+        u32 seed, i, j;
+    };
+    for (const Draw& d : {Draw{0xE9E064EBu + 422, 7158, 4280}, Draw{0xBFA8DE34u + 173, 5364, 4206}, Draw{0x0FA3A624u + 201, 6308, 3256}}) {
+        save::Mt19937 m(d.seed);
+        u32 j = 0;
+        for (u32 i = 0x500 * 8 - 1; i >= d.i; --i) j = m.below(i + 1);
+        CHECK(j == d.j);
+    }
+    // A slot shuffled on the exact product (as an emulator without the EE's multiplier writes it) still reads, the other way.
+    {
+        Bytes record(0x4B8);
+        for (size_t i = 0; i < record.size(); ++i) record[i] = u8(i * 13 + 1);
+        const u32 key = 0xE9E064EB, slot = 422;
+        Bytes coded = save::encode_slot(ByteSpan(record.data(), record.size()), key, slot, 0x751C9383);
+        Bytes other = coded;
+        save::unshuffle_bits(other.data(), other.size(), key + slot);
+        save::shuffle_bits(other.data(), other.size(), key + slot, save::Product::Exact);
+        CHECK(other != coded);
+        for (const Bytes* b : {&coded, &other}) {
+            const std::optional<Bytes> back = save::decode_slot(ByteSpan(b->data(), b->size()), key, slot);
+            CHECK(back && std::memcmp(back->data(), record.data(), record.size()) == 0);
+        }
+    }
     save::Lcg lcg(0);
     CHECK(lcg.next() == (17u ^ (17u << 16)));
     // A file of a payload and back; one bit changed fails the CRC.

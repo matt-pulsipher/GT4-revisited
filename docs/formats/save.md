@@ -309,8 +309,10 @@ A payload of N bytes is stored in `S = (N + 0x47) & ~0x3F` bytes:
 - Then two 4-byte swaps (0x1D4CA8; back 0x1D4C68 in the other order): the word at 4 with the
   word at `4 + trunc(0.135790... x (S - 8))`, then the word at 0 with the word at
   `trunc(0.654860... x (S - 4))`. The two factors are the single-precision constants
-  0x3E0B0C88 and 0x3F27A4E7; the products are whole numbers of the exact product (the
-  console's toward-zero rounding gives the same).
+  0x3E0B0C88 and 0x3F27A4E7; each product is the EE's `mul.s` (the constant first), whole
+  (`cvt.w.s`). Ours makes every such product (these, and the shuffles' below) on the EE's
+  multiplier when writing; reading tries that and then the exact product chopped (what an emulator
+  without the EE's multiplier writes) when the file's check, or the garage header's key, fails.
 
 Reading undoes the swaps, deciphers, and refuses a CRC that does not match (`INVALID_FILE`).
 
@@ -346,8 +348,10 @@ draw; the stamp XOR the generator's first draw (seeded with the key); then the 5
 shuffled by MT seeded with the generator's second draw. Back (0x1CB9B8) in the other order.
 
 **The bit shuffle** (0x5D2818, back 0x5D2900): for `i = n - 1` down to 1, `j = trunc(u x (i +
-1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero), and
-bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
+1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero: 0x579548),
+the product the EE's `mul.s` (u first; its multiplier gives the chopped product or, now and then, one
+below it, so a product just above a whole number can give one less: about one garage slot in 200
+has such a draw), and bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
 swapped from `i = 1` up.
 
 **A slot** (0x1CEAA8, read 0x1CEEC0): slot i at `0x40 + i x 0x500`: u32 T (a clock word), u32
