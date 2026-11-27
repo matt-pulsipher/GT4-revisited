@@ -3,6 +3,7 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
@@ -636,6 +637,7 @@ private:
         std::string out;
         const auto add = [&out](const std::string& s) { out += (out.empty() ? "" : ", ") + s; };
         if (!m.files.empty()) add(count_text(m.files.size(), "file", "files"));
+        if (!m.cars.empty()) add(count_text(m.cars.size(), "car", "cars"));
         if (!m.textures.empty()) add(count_text(m.textures.size(), "texture", "textures"));
         return out.empty() ? "nothing this game reads" : out;
     }
@@ -711,8 +713,30 @@ private:
         rows_.info("Holds", contents(*m));
         if (!m->author.empty()) rows_.info("By", m->author);
         for (const std::string& line : Ui::wrap(m->description, 560)) rows_.info(line, "");
-        if (!m->cars.empty() || !m->makers.empty() || !m->events.empty() || !m->liveries.empty()) rows_.info("Cars, events and liveries of mods are not read by this game yet", "");
+        mod_cars(app, *m);
+        if (!m->makers.empty() || !m->events.empty() || !m->liveries.empty()) rows_.info("Makers, events and liveries of mods are not read by this game yet", "");
     }
+    // A mod's cars (formats/db/mod_cars.h): each one's name, or why it is not in the game.
+    void mod_cars(App& app, const gt3r::ModInfo& m) {
+        if (m.cars.empty()) return;
+        rows_.heading("Its cars");
+        db::SpecDb* sdb = m.active() ? app.db() : nullptr;
+        if (!sdb) {
+            rows_.info(count_text(m.cars.size(), "car", "cars"), m.active() ? "the disc's car database is not read" : "not used");
+            return;
+        }
+        if (sdb->prologue()) {
+            rows_.info(count_text(m.cars.size(), "car", "cars"), "Gran Turismo 4 Prologue takes no mod cars");
+            return;
+        }
+        for (const db::ModCarStatus& c : sdb->mod_cars().statuses()) {
+            if (c.mod != m.id) continue;
+            rows_.info(c.name.empty() ? c.label : c.name, c.loaded() ? (c.warnings.empty() ? "in the game" : "in the game; " + c.warnings.front()) : c.error);
+            if (c.loaded())
+                for (size_t i = 1; i < c.warnings.size() && i < 4; ++i) rows_.info("", c.warnings[i]);
+        }
+    }
+
     std::string name_of(App& app, const std::string& id) const {
         const gt3r::ModInfo* m = find(app, id);
         return m ? m->name : id;

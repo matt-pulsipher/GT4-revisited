@@ -289,5 +289,7 @@ void apply_monitor(GameNatives& n);
 
 // The runtime's game natives (none before install_game_natives).
 std::shared_ptr<GameNatives> natives_of(Runtime& rt);
+// The mods' cars for sale onto the dealers' lists of a script file just run (mod_car_lists.cpp).
+void add_mod_cars_to_lists(GameNatives& n, const std::shared_ptr<script::Module>& into);
 
 } // namespace gt4r::menu

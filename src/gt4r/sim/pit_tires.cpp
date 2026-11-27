@@ -22,7 +22,8 @@ std::vector<FittingPart> fitting_parts(const FileReader& read, const db::SpecDb&
     if (!read || car == db::kNoPart) return out;
     char name[40];
     std::snprintf(name, sizeof name, "CARS/%016llX", static_cast<unsigned long long>(u64(car)));
-    const std::optional<Bytes> file = read(db.folder() + name);
+    std::optional<Bytes> file = db.mod_car_file(u64(car));
+    if (!file) file = read(db.folder() + name);
     if (!file || file->size() < 8) return out;
     const u64 n = r64(file->data());
     for (u64 i = 0; i < n && 8 + (i + 1) * 16 <= file->size(); ++i) {

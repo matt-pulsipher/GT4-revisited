@@ -5,6 +5,7 @@
 #include "gt4r/app/updates.h"
 
 #include "gt4r/input/player_controls.h"
+#include "gt4r/menu/program_tables.h"
 
 #include "app/button_prompts.h"
 #include "base/file.h"
@@ -400,6 +401,12 @@ db::SpecDb* App::db() {
         try {
             db_ = std::make_unique<db::SpecDb>([vfs](const std::string& path) { return vfs->read(path); },
                                                [vfs](const std::string& dir) { return vfs->list_dir(dir); });
+            if (disc_ && disc_->info().game == Game::GT4) try { // (a mod car's maker by its name: the program's makers)
+                    const std::shared_ptr<const gt3r::CoreImage> image = disc_->program_image();
+                    db_->set_makers(menu::ProgramTables::find(image->program, image->load_address).makers);
+                } catch (const std::exception& e) {
+                    LOG_WARN("Car makers: %s", e.what());
+                }
         } catch (const std::exception& e) {
             LOG_WARN("Car database: %s", e.what());
         }

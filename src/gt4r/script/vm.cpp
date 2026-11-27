@@ -477,6 +477,7 @@ void Vm::load_into(const std::shared_ptr<Module>& module, const std::string& nam
         if (!file) continue;
         Script s = Script::parse(*file);
         run(std::make_shared<const Code>(std::move(s.code)), module);
+        if (after_load) after_load(*this, name, module);
         return;
     }
     if (!stub_natives) throw ScriptError("no script \"" + name + "\" to load");
@@ -794,7 +795,8 @@ void Vm::require(const std::string& name, std::shared_ptr<Module> scope) {
         folders_.erase(std::remove(folders_.begin(), folders_.end(), folder), folders_.end());
         folders_.push_back(folder);
         Script s = Script::parse(*file);
-        run(std::make_shared<const Code>(std::move(s.code)), std::move(scope));
+        run(std::make_shared<const Code>(std::move(s.code)), scope);
+        if (after_load) after_load(*this, name, scope ? scope : root_);
         return;
     }
     if (!stub_natives) throw ScriptError("nothing provides \"" + name + "\"");

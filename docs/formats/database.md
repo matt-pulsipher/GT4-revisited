@@ -220,3 +220,32 @@ second word pair, the paint + 1 (-1: the race's choice ❓). ✔ 698 of the 709 
 Labels name the event's series and the car (`gt4tgs_rr_civic_sir2_91`). A car's
 `ARCADEINFO_NORMAL` row's entries 6 and 7 are `ENEMY_CARS` rows (table 0x26), not events (✔ the
 Ford Ka '01's: rows 3627 and 4164, its six event entries -1).
+
+## Mod cars
+
+Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `src/gt4r/menu/mod_car_lists.cpp`; online:
+`src/gt4r/net/mod_car_package.*`). Not the program's: what the database adds for the mods' cars, from the disc's rows.
+
+- The database reads the file layer's list of the mods' car files (`mods/.cars`) when its first table, label list or pool
+  is read, works the cars out from the disc's tables, and adds their rows to every table, list and pool from then on.
+- A car's rows have ids its label gives (FNV-1a over the label, the table and a number, in 0x40000000 .. 0x7FFFFFFF, above
+  every disc row), so a save keeps it by the same code whatever other mods are loaded.
+- The donor's rows the car names are its sets (the `DEFAULT_PARTS` row its `GENERIC_CAR` row names; `df_pt_`, `df_pt_sim_`,
+  `df_pt_d_`, `df_pt_s_<donor>`) and the parts that fit it (its `CARS/` file). Of `BRAKE`, `SUSPENSION`, `CHASSIS`,
+  `RACINGMODIFY`, `FRONTTIRE`, `REARTIRE` every one is cloned (the shop's parts take the car's weight, tires and treads too);
+  of `ENGINE`, `DRIVETRAIN`, `GEAR` the stock rows; the other tables' rows (the shop's parts by percent, the shared steering,
+  compounds and sizes) stay the donor's. Labels are the donor's with its label replaced by the car's (`ch_<car>_a`).
+- The values written: `CHASSIS` the dimensions and weight (+0x00 .. +0x0D), front weight, the yaw inertia scaled as
+  mass x (length² + width²), the center of gravity's term by the height, the widths across the tires and the wheels' tops
+  by the tires' change; `RACINGMODIFY` the treads (track + twice the wheel offset) and the drag coefficient; `SUSPENSION` the
+  spring rates by each axle's load, the ride heights; `BRAKE` the torques by the weight; `ENGINE` the curve (the donor's
+  scaled, or the file's), the catalog power and torque and their speeds' texts, the limits, idle, output factor, sound
+  number and texts; `DRIVETRAIN` the layout, a four wheel drive system the disc's four wheel drive cars have most when the
+  car becomes one, the front share; `GEAR` the ratios as written (a box of steps), reverse, the final drive; the tires'
+  `TIRESIZE` row (the disc's of that size, else a new one) and copies of the stock tires' compounds with the grip scaled.
+- Its own: a `GENERIC_CAR` row (the donor's with its set, price, year, maker and the maker's country, category, for sale),
+  new `DEFAULT_PARTS` sets, `CAR_NAME_<language>` rows (the name in each language's pool), `CAR_VARIATION_<language>` rows
+  naming a new paint group, which is the body car's `VARIATION<language>` rows with the box and frontal area scaled, under
+  the body car's label (so the car's model files are the body car's), the donor's `ARCADEINFO_NORMAL` row with its dirt and
+  snow `ENEMY_CARS` rows made the car's, the donor's `TUNER_LIST` row, and a `CARS/` file of the donor's parts (its clones
+  in their places).
