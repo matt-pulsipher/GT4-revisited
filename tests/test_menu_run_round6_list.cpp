@@ -131,6 +131,7 @@ TEST(disc_race_menus_work_at_the_start) {
 TEST(disc_replay_theater_demo_list) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    if (disc->info().region != "us") SKIP("the US disc's list of recorded races (Rdemo0 .. 12)");
     Flow f(*disc);
     CHECK(f.gt_mode_with_a_car());
     script::Vm& vm = f.rt->vm();

@@ -7,6 +7,7 @@
 #include "gt4r/menu/game.h"
 #include "gt4r/sim/program.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -78,12 +79,19 @@ TEST(disc_menu_car_condition_natives) {
     auto get = [&](const char* name) { return vm.attribute(car, name).as_float(); };
     m("replaceOil");
     CHECK(get("oil") == -300000.0f && m("getOilLifeRate").as_float() == 0.0f);
-    set("oil", -150000.0f);
-    CHECK(m("getOilLifeRate").as_float() == 0.025f); // (150,000 / 6,000,000)
-    set("oil", 3000000.0f);
-    CHECK(m("getOilLifeRate").as_float() == 0.5f);
+    // The old oil's limit, the program's (the US and European programs' 6,000,000 m, the Japanese one's 5,000,000 m).
     set("oil", 7000000.0f);
-    CHECK(get("oil") == 6000000.0f && m("getOilLifeRate").as_float() == 1.0f);
+    const float limit = get("oil");
+    std::printf("  old oil at most %.0f m\n", limit);
+    CHECK((limit == 6000000.0f || limit == 5000000.0f) && m("getOilLifeRate").as_float() == 1.0f);
+    CHECK(disc->info().region != "us" || limit == 6000000.0f);
+    set("oil", -150000.0f);
+    // (0.025 on the US disc; the EE's division may land a step or two off the host's: Japan's 0.03)
+    const float rate = m("getOilLifeRate").as_float(), host = 150000.0f / limit;
+    std::printf("  oil life at -150,000 m: %.9g (host %.9g)\n", rate, host);
+    CHECK(std::fabs(rate - host) <= 4 * (std::nextafter(host, 1.0f) - host));
+    set("oil", limit / 2);
+    CHECK(m("getOilLifeRate").as_float() == 0.5f);
     m("refreshBody");
     CHECK(get("bodyLife") == 0.0f && m("getBodyLifeRate").as_float() == 0.0f);
     set("bodyLife", 1750000.0f);
