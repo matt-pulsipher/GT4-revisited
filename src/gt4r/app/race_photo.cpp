@@ -291,12 +291,12 @@ void RacePhotoPause::back_from_saving() {
 photo::Correction RacePhotoPause::correction() const {
     // (0x3EFC10 in the EE's arithmetic: race::screen_correction, the white level 1.)
     photo::Correction c;
-    const race::PictureSettings::Correction s = race::screen_correction(camera_.exposure(), 0, saturation_option_ / 10.0f + 1, camera_.kelvin());
+    // (Then the filter's record on it, race::photo_filter: 0x3EFCE8 / 0x3EFD80.)
+    const race::PictureSettings::Correction s =
+        race::photo_filter(race::screen_correction(camera_.exposure(), 0, saturation_option_ / 10.0f + 1, camera_.kelvin()), filter_);
     for (int i = 0; i < 3; ++i) c.gamma[i] = s.gamma[i];
     c.white = s.contrast;
     c.saturation = s.saturation;
-    if (filter_ == 1) c.saturation *= 0.6f;
-    if (filter_ == 2) c.saturation = 0;
     return c;
 }
 

@@ -2,6 +2,8 @@
 // the files on the card. docs/formats/photo.md.
 
 #include "test_framework.h"
+#include "base/ee_float.h"
+#include "gt4r/race/picture_settings.h"
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/menu/jpeg.h"
@@ -133,6 +135,27 @@ TEST(photo_filters) {
     f.brightness = 0, f.color = photo::ColorFilter::Monochrome;
     const auto gray = photo::correction(f).apply(200, 100, 50);
     CHECK(gray[0] == gray[1] && gray[1] == gray[2]);
+    // The filters' records (0x3EFCE8 combined by 0x3EFD80): Mature x 0x3F199999 on the saturation in the EE's multiply (1 x it
+    // comes out 0x3F199998 there), not 0.6f; the record's white of 1 leaves the white level; black and white only zeroes the
+    // saturation.
+    f.color = photo::ColorFilter::Mature, f.brightness = 3, f.contrast = 2, f.white_balance = -2;
+    const photo::Correction mature = photo::correction(f);
+    const gt3r::ee::F product = gt3r::ee::F(1.0f) * gt3r::ee::F::raw(0x3F199999);
+    float sat;
+    std::memcpy(&sat, &product.bits, 4);
+    CHECK(mature.saturation == sat && mature.saturation != 0.6f);
+    f.color = photo::ColorFilter::None;
+    const photo::Correction none = photo::correction(f);
+    CHECK(none.saturation == 1 && mature.white == none.white && mature.gamma[0] == none.gamma[0] && mature.gamma[2] == none.gamma[2]);
+    f.color = photo::ColorFilter::Monochrome;
+    CHECK(photo::correction(f).saturation == 0 && photo::correction(f).white == none.white);
+    // The record no page reaches (filter 4): the gains x 1.5 / 0.95 / 0.6, the saturation x 0.3.
+    race::PictureSettings::Correction c;
+    c.saturation = 1.5f;
+    const race::PictureSettings::Correction four = race::photo_filter(c, 4);
+    CHECK(four.gamma[0] == 1.5f && near(four.gamma[1], 0.95f, 1e-6f) && near(four.gamma[2], 0.6f, 1e-6f) && near(four.saturation, 0.45f, 1e-6f));
+    CHECK(race::photo_filter(c, 3).saturation == 1.5f && race::photo_filter(c, 0).saturation == 1.5f);
+    f = {};
     const photo::Vignette v = photo::vignette({});
     CHECK(v.alpha(0, 0) == 0 && v.alpha(0.5f, 0) == 0 && v.alpha(1, 1) > 0.05f && v.alpha(1, 1) < 0.07f);
 }
