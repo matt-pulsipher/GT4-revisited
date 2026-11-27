@@ -189,12 +189,30 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   factor; 🔎 nothing of the kind was found for its glows.)
 - The sun's disc is drawn right after the sky, before the multiply, by the shared engine's routine (0x398650 -> 0x4986D8:
   the sun's RGB x gain / 2, added at As / 128, no division): the same numbers give twice the strength they give in the shared
-  engine. Here its passes go in once per unit of +0x38 (`RaceWorld::collect`). 🔎 Not compared with the original running (no
-  capture with the disc in sight).
+  engine. 🔎 Not compared with the original running (no capture with the disc in sight).
+- **The fog color as the GS gets it** (0x4A3F98): FOGCOL = trunc(clamp(c, 0, 1) x 255) per channel, c the color above.
+  The models' own programs change it per pass: command 0x21 (u32 R | G << 8 | B << 16) sets it for the draws after it,
+  0x22 keeps the one in force, 0x23 puts the kept one back, and a program starts with the one it was entered with kept
+  (the model interpreter 0x455708: 0x455C48 -> 0x4A4050, 0x455C60 / 0x455C70 with 0x4A7C00; 0x4558EC). The scenery sets 0
+  before the passes that add to the frame (ALPHA 0x58 environment passes, 0x48 additions), so they are not fogged twice:
+  on `ss_times` 317 sets, every one 0. Every scenery packet there has the PRIM fog bit (FGE) on.
 
-An adapter that presents this block to the shared engine therefore keeps the fog colors, the
-lights, the glare and the lamp types as stored, scales the stored colors of the model sets by
-+0x38, and the sun disc's strength by +0x38.
+**Ours** (`race/picture_scale.h`): where the shared engine multiplies the picture (`DrawOptions::picture_scale`) the
+race view draws as the game does: the stored colors as they are, the fog colors over +0x38, the lights over +0x38
+(each item's `light_scale`), the sun's disc once, the cars' reflection picture and the road's reflection picture at
+the same strength without a multiply of their own, the mirror multiplied like the frame; the engine multiplies each
+pixel of the scene as the GS's blend does, (Cd x 255) >> 7 on its 8-bit level, as it is drawn (no pass over the frame;
+a pass that adds to the frame adds its share x 255 / 128). Every GS truncation (the texel, MODULATE, the fog) then
+happens at half strength, as on the console, and the darkest levels come out as dark: the Times Square photo's red at
+the 2 / 10 / 25 / 50 / 75 / 90 % levels 5 / 10 / 14 / 24 / 43 / 81 against the original's 4 / 10 / 14 / 22 / 41 / 79
+(before: 7 / 12 / 19 / 27 / 45 / 84; the multiply alone 5 / 11 / 17 / 25 / 44 / 82, the programs' fog colors alone
+7 / 11 / 16 / 26 / 45 / 83). The models' fog colors from their programs: `gtm1::Options::node_fog`. With an engine
+without the multiply, the stored colors are scaled by +0x38 instead and the sun's disc drawn +0x38 times (the same
+picture but for the dark levels' steps). Two things change with it beyond the darks, both as the program draws: the
+materials' emission (not divided by +0x38, so doubled: the cars' lit lamp lenses reach 255 as in the original's Route 5
+night capture, where ours stopped near 200 before), and the billboards' stored colors, which were not scaled before.
+🔎 Still not as the GS does it: a blend's own arithmetic (the GPU rounds (Cs - Cd) As + Cd at full strength; the GS
+truncates at half strength, about a level darker where a pass is blended).
 
 ### Gran Turismo 3 offset → Gran Turismo 4 offset
 

@@ -1,5 +1,6 @@
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/gadget_bodies.h"
+#include "gt4r/race/picture_scale.h"
 
 #include "gt4r/formats/course/runway_gtrw.h"
 
@@ -32,7 +33,7 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     // textures alpha tested, each packet's own texture for its environment pass, and the second
     // pass over the road and the fences (the sheen) weighted by the frame's alpha.
     mdls::Scene sc;
-    sc.color_scale = color_scale_;
+    sc.color_scale = stored_color_scale(color_scale_);
     const Bytes block = gtm1 ? Bytes(s.begin(), s.end()) : mdls::to_gtm1(s, nullptr, sc);
     if (gtm1) animated = nullptr;
     const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
@@ -43,6 +44,7 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     o.course_env_maps = true;
     o.alpha_test = true;
     o.gs_state = true;
+    use_node_fog(o);
     scene::Model m = gt3r::gtm1::build_model(g, o, label);
     if (!gtm1) {
         // The reflecting shapes' strength: the course's (Env0 +0x34, and by the angle +0x34 x +0x30); no course's
@@ -61,7 +63,7 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
         // The set's animated models are drawn apart, posed each frame; a set whose scripts do not
         // read stays whole and still.
         try {
-            animated->models = AnimatedModels(s, color_scale_, o);
+            animated->models = AnimatedModels(s, stored_color_scale(color_scale_), o);
         } catch (const std::exception& e) {
             LOG_WARN("Course %s: its animated models stay still (%s)", label.c_str(), e.what());
             animated->models = {};
@@ -148,12 +150,13 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
         gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), road, section);
         if (!gadgets_.models.empty() && !gadgets_.placements.empty() && mdls::is_mdls(gadgets_.models)) {
             mdls::Scene sc;
-            sc.color_scale = color_scale_;
+            sc.color_scale = stored_color_scale(color_scale_);
             const Bytes block = mdls::to_gtm1(gadgets_.models, nullptr, sc); // (the parsed set points into it)
             const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
             gt3r::gtm1::Options o;
             o.alpha_test = true;
             o.gs_state = true;
+            use_node_fog(o);
             scene::Model m = gt3r::gtm1::build_model(g, o, name + "/gadgets");
             std::string nodes;
             for (const scene::Mesh& mesh : m.meshes) nodes += " " + std::to_string(mesh.node);
@@ -186,7 +189,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     if (mdls::is_mdls(file_.section(data_, course::kSlotReflection))) {
         try {
             mdls::Scene sc;
-            sc.color_scale = color_scale_;
+            sc.color_scale = stored_color_scale(color_scale_);
             Bytes out(48 * 4, 0);
             auto put = [&](int slot, ByteSpan bytes) {
                 if (bytes.empty()) return;
