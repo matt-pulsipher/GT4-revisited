@@ -4,6 +4,9 @@
 
 #include "gt4r/script/vm.h"
 
+#include <bit>
+#include <tuple>
+
 using namespace gt4r;
 using script::Op;
 
@@ -146,7 +149,7 @@ TEST(vm_runs_a_block) {
 TEST(vm_operators_and_builtins) {
     script::Vm vm;
     using V = script::Value;
-    CHECK(vm.binary("/", V::integer(7), V::integer(2)).i == 3 && vm.binary("/", V::integer(7), V::number(2)).f == 3.5f);
+    CHECK(vm.binary("/", V::integer(7), V::integer(2)).i == 3 && vm.binary("/", V::number(7), V::integer(2)).f == 3.5f);
     CHECK(vm.binary("%", V::integer(-7), V::integer(3)).i == -1 && vm.binary("<<", V::integer(1), V::integer(4)).i == 16);
     CHECK(vm.binary("+", V::string("Grid"), V::integer(2)).as_string() == "Grid2");
     CHECK(vm.binary("==", V::string("a"), V::string("a")).i == 1 && vm.binary("!=", V{}, V::integer(0)).i == 1);
@@ -192,6 +195,56 @@ TEST(vm_operators_and_builtins) {
         threw = true;
     }
     CHECK(threw);
+}
+
+// The operators on values of two kinds as the program's value classes do them (US v1.01; docs/formats/script.md, "Values
+// of two kinds"): the left value's class decides, and it takes the right one's integer, float or text.
+TEST(vm_mixed_operators_as_the_program) {
+    script::Vm vm;
+    using V = script::Value;
+    const auto i = [&](const char* op, const V& a, const V& b) {
+        const V r = vm.binary(op, a, b);
+        return r.kind == script::Kind::Int ? r.i : -999;
+    };
+    const auto f = [&](const char* op, const V& a, const V& b) {
+        const V r = vm.binary(op, a, b);
+        return r.kind == script::Kind::Float ? r.f : -999.0f;
+    };
+    const auto s = [&](const char* op, const V& a, const V& b) { return vm.binary(op, a, b).as_string(); };
+    // An integer on the left: the other's integer (a text's strtol, a float truncated, anything else 0); an integer out.
+    CHECK(i("<", V::integer(3400), V::string("3395")) == 0 && i(">", V::integer(3400), V::string("3395")) == 1);
+    CHECK(i("+", V::integer(5), V::string("12abc")) == 17 && i("+", V::integer(5), V::string("x")) == 5);
+    CHECK(i("==", V::integer(5), V::string("5")) == 1 && i("==", V::integer(0), V::string("")) == 1);
+    CHECK(i("+", V::integer(1), V::number(2.9f)) == 3 && i("==", V::integer(2), V::number(2.5f)) == 1);
+    CHECK(i("*", V::integer(3), V::number(-1.5f)) == -3 && i("/", V::integer(7), V::number(2.0f)) == 3);
+    CHECK(i("+", V::integer(4), V::array({V::integer(9)})) == 4 && i("==", V::integer(0), V::array({})) == 1);
+    CHECK(i("&", V::integer(6), V::string("3")) == 2 && i(">>", V::integer(-8), V::integer(33)) == -4);
+    // A float on the left: the EE's arithmetic with the other's float; comparisons give an integer.
+    CHECK(f("+", V::number(0.5f), V::integer(2)) == 2.5f && f("*", V::number(1.5f), V::string("2")) == 3.0f);
+    CHECK(i("==", V::number(2.5f), V::integer(2)) == 0 && i("<", V::number(1.5f), V::string("1.75")) == 1);
+    CHECK(std::bit_cast<u32>(f("/", V::number(1), V::integer(0))) == 0x7FFFFFFFu); // the EE's divider: +max, no infinity
+    CHECK(std::bit_cast<u32>(f("+", V::number(0.1f), V::number(0.2f))) == 0x3E999999u); // chopped (the nearest is ...9A)
+    // A text on the left: the other as text (an int "%d", a float "%f").
+    CHECK(s("+", V::string("Grid"), V::integer(2)) == "Grid2" && s("+", V::string("x="), V::number(1.5f)) == "x=1.500000");
+    CHECK(i("==", V::string("5"), V::integer(5)) == 1 && i("<", V::string("10"), V::integer(9)) == 1);
+    CHECK(s("-", V::string("abcabc"), V::string("b")) == "acabc" && s("-", V::string("abc"), V::string("z")) == "abc");
+    // nil: == is both nil.
+    CHECK(i("==", V{}, V{}) == 1 && i("==", V::integer(0), V{}) == 0 && i("!=", V::string(""), V{}) == 1);
+    // A test (JUMP_ZERO, &&, ||) takes the value's integer.
+    CHECK(!V::number(0.5f).truthy() && V::number(-1.0f).truthy() && !V::string("abc").truthy() && V::string("2").truthy());
+    CHECK(!V::array({V::integer(1)}).truthy() && !V{}.truthy() && V::integer(-1).truthy());
+    CHECK(vm.unary("!", V::number(0.25f)).i == 1);
+    // What the program has no operator for stops the script.
+    for (const auto& [op, a, b] : std::vector<std::tuple<const char*, V, V>>{
+             {"&", V::number(1), V::integer(1)}, {"*", V::string("a"), V::integer(2)}, {"<", V::integer(1), V{}}, {"+", V{}, V::integer(1)}}) {
+        bool threw = false;
+        try {
+            vm.binary(op, a, b);
+        } catch (const script::ScriptError&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
 }
 
 // A call that waits is left and gone on with later, at any depth of calls:

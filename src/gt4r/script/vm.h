@@ -59,7 +59,7 @@ struct Value {
 
     bool is_nil() const { return kind == Kind::Nil; }
     bool is_number() const { return kind == Kind::Int || kind == Kind::Float; }
-    bool truthy() const;
+    bool truthy() const; // as JUMP_ZERO, &&, || and ! test it: value_int(*this) != 0
     float as_float() const { return kind == Kind::Int ? float(i) : f; }
     const std::string& as_string() const; // of a String; "" otherwise
     std::string to_string() const;        // as PRINT and string concatenation write it
@@ -68,6 +68,18 @@ struct Value {
 };
 
 bool equal(const Value& a, const Value& b);
+
+// The integer and the float every value gives the program's operators and tests (its value classes' vtable slots 11 and
+// 12, US v1.01): an int's own, a float's truncated (the EE's cvt.w.s) or converted, a string's strtol base 10 / atof; any
+// other value's 0.
+s32 value_int(const Value& v);
+float value_float(const Value& v);
+
+// A diagnostic for the tools: when set, each place where a script's operator or test meets kinds that would follow from a
+// native of ours giving another kind than the program's (an int times a fraction, an int against a text, a text and a
+// float, a test of a float, a text or an object) is counted by "file:line what". GT4R_VM_NOTES=<file> sets it for a
+// whole run and writes the counts there at its end.
+extern std::map<std::string, size_t>* mixed_notes;
 
 using Args = std::span<const Value>;
 
@@ -280,6 +292,8 @@ private:
                                       const std::string& class_name, const std::vector<std::string>& base);
     std::shared_ptr<Variable> find_name(Frame& f, const std::string& name);
     [[noreturn]] void fail(const Frame& f, size_t pc, const std::string& what) const;
+    void note_mixed(const Frame& f, size_t pc, const std::string& op, const Value& a, const Value& b); // (mixed_notes)
+    void note_test(const Frame& f, size_t pc, const Value& v, const char* what = nullptr);
 
     Loader loader_;
     std::map<std::string, NativeModule> natives_;

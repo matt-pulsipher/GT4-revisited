@@ -64,8 +64,23 @@ bool class_attribute(const std::string& n) {
 std::string number_text(float v) {
     char b[32];
     if (v == std::floor(v) && std::fabs(v) < 1e9f) std::snprintf(b, sizeof b, "%d", int(v));
-    else std::snprintf(b, sizeof b, "%g", double(v));
+    else std::snprintf(b, sizeof b, "%.9g", double(v)); // (every float's own value back)
     return b;
+}
+
+// The widgets' attributes the program's classes give as floats (each registration's accessor makes an hFloat, 0x2F9360;
+// US v1.01, registered through 0x2F3860): read as floats whatever number they hold, so a script's arithmetic on them is the
+// float's (Pane.opacity += diff * 0.1 fades; an int there would take the integer of the fraction).
+bool float_attribute(const std::string& n) {
+    static const char* const kFloats[] = {"a", "additionalModelScale", "alignment", "alpha", "alphaInterpolateSpeed", "b", "cursor_speed_ratio",
+                                          "destinationX", "destinationY", "floating_range_x", "floating_range_y", "g", "h_justify", "imageHeight",
+                                          "imageScale", "imageWidth", "interpolate_ratio", "lightness", "line_width", "magnify_diff", "magnify_ratio",
+                                          "minimum_height", "minimum_width", "ofs_x", "ofs_y", "opacity", "period", "posInterpolateSpeed", "r", "ratio",
+                                          "rotInterpolateSpeed", "rotate", "rx", "ry", "rz", "scale", "scale_target", "scale_x", "scale_y", "skew",
+                                          "slope", "sx", "sy", "tx", "ty", "tz", "velocity", "view_angle", "wheel_angle"};
+    for (const char* k : kFloats)
+        if (n == k) return true;
+    return false;
 }
 
 Value number_value(const std::string& s) {
@@ -306,10 +321,10 @@ Value LiveWidget::get(const std::string& n) const {
             if (const Property* key = data.find("key"); key && !key->values.empty() && key->type == "string") return Value::string(key->values[0]);
             return Value::string({});
         }
-        return Value::integer(0);
+        return float_attribute(n) ? Value::number(0) : Value::integer(0);
     }
     if (p->type == "string") return Value::string(p->values[0]);
-    if (p->values.size() == 1) return number_value(p->values[0]);
+    if (p->values.size() == 1) return float_attribute(n) ? Value::number(number_value(p->values[0]).as_float()) : number_value(p->values[0]);
     std::vector<Value> out;
     for (const std::string& s : p->values) out.push_back(number_value(s));
     return Value::array(std::move(out));
@@ -353,6 +368,9 @@ void LiveWidget::set_property(const std::string& n, const Value& v) {
         g.values[size_t(i)] = number_text(v.as_float());
         return;
     }
+    // A face's text is text: a number given to it is kept as the number's text (the quick menus' tooltip:
+    // Laps.text = quick_work.Laps; Laps.text += translate("lap")).
+    if (n == "text" && v.is_number()) return set_property(n, Value::string(v.to_string()));
     if (v.kind == Kind::String) {
         Property& p = property(data, n, "string");
         p.type = "string", p.values = {v.as_string()}, p.is_list = false, p.items.clear();
