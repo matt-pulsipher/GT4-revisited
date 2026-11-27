@@ -244,13 +244,18 @@ MODE_SAVE_BESTLAP_REPLAY list the replays the race saved in the data folder's `r
 (`menu/game_replays.cpp`): a save's folder of `replays/` or of the memory card's folder (the data file named like it beside its
 `thumbnail`, `icon0.ico`, `icon.sys`), or the data file alone in `replays/`.
 **Best lap replays** (Save Best Lap Replay on the time trial's, free run's and license test's pages, `COMMAND_SAVE_GHOST`, offered once a
-run made a best lap: canSaveGhost / CanLogger, 0x1128E0, 0x117110, 0x11CE1C): ours are replay files of the player's car alone over the
-ghost's lap with a section `BLAP` (the lap's ms), shown with labomode's best-lap icon (objectName neither FileReplayFull nor
-FileReplayLicense: `bg_best`). MODE_SAVE_BESTLAP_REPLAY lists the best lap replays; MODE_LOAD_BESTLAP_REPLAY those of the race's course and
-car (the sequence gives the manager the car's and course's codes, 0x11CF30; ❓ the manager's own filter not read), and the one loaded is
-the race's ghost from the next start (`screen_race.cpp` load_ghost). ❓ The program's own FileGT4ReplayBest (GhostData: a recorder's
-moment and its records) is not written or read; the original's best lap file is 23 KB, ours keeps every step's states (about 0.9 MB a
-Tsukuba lap).
+run made a best lap: canSaveGhost / CanLogger, 0x1128E0, 0x117110, 0x11CE1C; FileGT4ReplayBest, `GhostData`): a card folder
+`<product>B` and seven letters (`save/best_lap_card.*`; ✔ the reference card's `BASCUS-97328BemU5YYY` a B-1 best lap) holding the data file
+named like the folder, `thumbnail` (the particulars above), `icon0.ico` (the disc's `icon/GT4_Rep_to_license.ico` for a license test,
+`_tt1` the time trial, `_to_race` else: FileGT4ReplayBest::vf17 chooses among them; ❓ which for which not read) and `icon.sys`. The data
+(Serialize::GhostData, 0x3DE768: the race's virtuals 60 .. 64) is a replay's layout (replay.md) with the race's header of one entry
+(RaceSolitaire::vf61 sets +0x958 to 1; the class RaceFreeRun or RaceLicense) and the best lap's recorder alone (u32 1, its header of 0x14F4
+bytes: the moment the lap starts from, the lap's time at +0x10, the car's record at +0x54, then its stream), scrambled as a replay. Loading
+one (RaceBase::vf63 0x3894C0, RaceSolitaire::vf64 0x3EAE40) makes it the race's ghost. ✔ A B-1 bronze run saved (12 KB of data, 28 KB with
+its other files, the original's card shows 23 KB) and loaded again: its ghost stops on the run's place to the millimetre. MODE_SAVE_BESTLAP_REPLAY
+lists the best lap folders; MODE_LOAD_BESTLAP_REPLAY those of the race's course and car (the sequence gives the manager the car's and
+course's codes, 0x11CF30; ❓ the manager's own filter not read). The original's default title `"B" License1` is the page's own (✔ ours
+the same). ❓ A best lap the original made on a console has not been loaded here (PCSX2's files do not decipher, replay.md).
 
 ### A replay's particulars
 

@@ -29,6 +29,8 @@ inline constexpr const char* kReplayModes[] = {
 };
 
 std::optional<ReplayParticulars> decode_particulars(ByteSpan file);
+// The file of them (scrambled with `random`).
+Bytes encode_particulars(const ReplayParticulars& p, u32 random);
 // The file with the title changed (its other bytes kept); none when it is no such file.
 std::optional<Bytes> rename_particulars(ByteSpan file, const std::string& title);
 

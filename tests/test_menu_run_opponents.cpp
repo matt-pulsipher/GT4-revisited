@@ -106,6 +106,85 @@ TEST(disc_menu_arcade_opponents) {
         CHECK(mustang.count(c));
 }
 
+// A car's Arcade rows (ARCADEINFO_NORMAL through 0x448AD0): its dirt and snow versions (ShiftCarCode 0x12F3E0, GetDirtCarCode
+// 0x12F8B8, GetSnowCarCode 0x12FBB0: the ENEMY_CARS rows of entries 6 and 7 by the course's surface), the race by kind and level
+// (GetRaceCode 0x12E150), the tire and dirt checks (0x12E388, 0x12E498: a car without a row answers 0), and the entry table
+// holding a row's label as that row (MGame.setEntryCarCode 0x161A50 through 0x447BB8).
+TEST(disc_menu_arcade_car_rows) {
+    Disc* disc = gt4_disc();
+    if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    script::Vm& vm = f.rt->vm();
+    auto call = [&](const char* name, std::vector<Value> args) { return vm.call(vm.lookup(std::string("main::menu::MCarData::") + name), args); };
+    auto s = [](const char* t) { return Value::string(t); };
+    CHECK(call("ShiftCarCode", {s("ka_01"), s("grandcanyon")}).to_string() == "gt4sample_d_ka_01");
+    CHECK(call("ShiftCarCode", {s("ka_01"), s("r_icerace")}).to_string() == "gt4sample_s_ka_01");
+    CHECK(call("ShiftCarCode", {s("ka_01"), s("tsukuba")}).to_string() == "ka_01");
+    CHECK(call("ShiftCarCode", {s("ka_01"), s("tsukuba_wet")}).to_string() == "ka_01");
+    CHECK(call("ShiftCarCode", {s("no_such_car"), s("grandcanyon")}).to_string() == "no_such_car");
+    CHECK(call("GetDirtCarCode", {s("ka_01")}).to_string() == "gt4sample_d_ka_01");
+    CHECK(call("GetSnowCarCode", {s("ka_01")}).to_string() == "gt4sample_s_ka_01");
+    CHECK(call("IsDirtRunnable", {s("ka_01")}).truthy());
+    CHECK(!call("IsDirtRunnable", {s("no_such_car")}).truthy());
+    CHECK(!call("IsTireNormal", {s("no_such_car")}).truthy());
+    CHECK(call("GetRaceCode", {s("no_such_car"), Value::integer(0), Value::integer(0)}).is_nil());
+    CHECK(call("GetRaceCode", {s("ka_01")}).is_nil());
+    // The entry table: a row's label kept as its car with the row beside it, answered by the row's label; car_code set by a
+    // car's label clears it.
+    const Value game = vm.lookup("main::game");
+    auto method = [&](const char* name, std::vector<Value> args) { return vm.call(vm.attribute(game, name), args); };
+    method("setEntryCarCode", {Value::integer(0), s("gt4sample_d_ka_01"), Value::integer(3)});
+    menu::RaceRequest& q = f.rt->game().race;
+    CHECK(q.car == "ka_01" && q.car_enemy == "gt4sample_d_ka_01" && q.paint == 3);
+    const Value got = method("getEntryCarCode", {Value::integer(0)});
+    CHECK(got.items() && got.items()->size() == 2 && (*got.items())[0].to_string() == "gt4sample_d_ka_01");
+    method("setEntryCarCode", {Value::integer(2), s("gt4sample_d_ka_01"), Value::integer(1)});
+    CHECK(q.entries.size() > 2 && q.entries[2] == "ka_01" && q.entry_enemies[2] == "gt4sample_d_ka_01");
+    method("setEntryCarCode", {Value::integer(2), s("ka_01"), Value::integer(1)});
+    CHECK(q.entry_enemies[2].empty());
+    vm.member(game, "car_code")->set(vm, s("ka_01"));
+    CHECK(q.car_enemy.empty() && q.entry_enemies[0].empty());
+}
+
+// Arcade's single race on a dirt course through the menus: doGame shifts every entry to its car's dirt version (ShiftCarCode),
+// so the request holds the cars with their ENEMY_CARS rows (the player's and the opponents').
+TEST(disc_menu_arcade_dirt_entries) {
+    Disc* disc = gt4_disc();
+    if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    if (f.page() != "TopRoot") return;
+    f.press({menu::Key::Accept});
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "CategoryRoot");
+    f.press({menu::Key::Right, menu::Key::Down}); // (the four categories in two rows: Real, Road; City, Dirt)
+    if (f.focus() != "Dirt") f.press({menu::Key::Left});
+    CHECK(f.focus() == "Dirt");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "CourseRoot");
+    f.press({menu::Key::Accept});
+    if (f.page() == "CourseRoot") f.press({menu::Key::Accept}); // the direction
+    CHECK(f.page() == "MakerRoot");
+    f.press({menu::Key::Accept});
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "CarRoot");
+    f.press({menu::Key::Accept}); // the car
+    for (int i = 0; i < 4 && f.page() == "CarRoot" && f.focus() != "ColItem"; ++i) f.press({menu::Key::Accept});
+    f.press({menu::Key::Accept}); // the paint
+    for (int i = 0; i < 4 && !f.rt->finished(); ++i) f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> race = f.rt->race_request();
+    CHECK(race.has_value());
+    if (!race) return;
+    std::printf("  %s at %s: %s, %d opponents", race->car.c_str(), race->course.c_str(), race->car_enemy.c_str(), race->overwrite_enemy_num);
+    for (size_t i = 1; i < race->entry_enemies.size(); ++i) std::printf(" %s", race->entry_enemies[i].c_str());
+    std::printf("\n");
+    CHECK(race->car_enemy.rfind("gt4sample_d_", 0) == 0 && race->car_enemy == "gt4sample_d_" + race->car);
+    CHECK(race->overwrite_enemy_num >= 1 && race->entry_enemies.size() > size_t(race->overwrite_enemy_num));
+    for (int i = 1; i <= race->overwrite_enemy_num && size_t(i) < race->entry_enemies.size(); ++i)
+        if (!race->entries[size_t(i)].empty()) CHECK(race->entry_enemies[size_t(i)] == "gt4sample_d_" + race->entries[size_t(i)]);
+}
+
 // A new car's figures (0x434E38 -> 0x440F78, 0x434FD0): run in, its showroom car's power; the never-driven
 // Panda Super i.e. '90 the original shows at 44 HP.
 TEST(disc_menu_new_car_power) {

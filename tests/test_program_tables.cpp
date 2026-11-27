@@ -31,7 +31,7 @@ Disc* gt4_disc() {
 // to a value is a change of this hash, made on purpose).
 TEST(program_tables_values) {
     const std::span<const sim::ProgramTable> t = sim::gt4_tables();
-    CHECK(t.size() == 14);
+    CHECK(t.size() == 15);
     size_t bytes = 0;
     for (size_t k = 0; k < t.size(); ++k) {
         bytes += t[k].bytes.size();
@@ -39,9 +39,9 @@ TEST(program_tables_values) {
         CHECK(sim::gt4_table_at(t[k].address) == &t[k] && sim::gt4_table_at(t[k].address + u32(t[k].bytes.size()) - 1) == &t[k]);
         CHECK(sim::gt4_table_at(t[k].address - 1) != &t[k] && sim::gt4_table_at(t[k].address + u32(t[k].bytes.size())) != &t[k]);
     }
-    CHECK(bytes == 6180);
+    CHECK(bytes == 6196);
     std::printf("  %zu tables, %zu bytes, hash 0x%016llx\n", t.size(), bytes, (unsigned long long)sim::gt4_tables_hash());
-    CHECK(sim::gt4_tables_hash() == 0x45ec3a0138e108ebull);
+    CHECK(sim::gt4_tables_hash() == 0x6a3dc74fe0636122ull);
     // A few values as the readers know them: the static block's rolling-resistance points, the pedals' ramps (1/6), a soft
     // material (2: gravel).
     auto byte = [](u32 a) { const sim::ProgramTable* t = sim::gt4_table_at(a); return t ? t->bytes[a - t->address] : u8(0); };
@@ -63,7 +63,7 @@ TEST(program_tables_per_release) {
     for (sim::Release r : {sim::Release::Us, sim::Release::Europe, sim::Release::Japan})
         std::printf("  %s: hash 0x%016llx\n", sim::release_name(r), (unsigned long long)sim::gt4_tables_hash(r));
     CHECK(sim::gt4_tables_hash(sim::Release::Europe) == sim::gt4_tables_hash(sim::Release::Us));
-    CHECK(sim::gt4_tables_hash(sim::Release::Japan) == 0x7ec0cce31612c91dull);
+    CHECK(sim::gt4_tables_hash(sim::Release::Japan) == 0x4a2afa3e246d8568ull);
 }
 
 // Every Gran Turismo 4 disc of GT4R_DISC: its program is the release it says (by its code) and its tables are that release's

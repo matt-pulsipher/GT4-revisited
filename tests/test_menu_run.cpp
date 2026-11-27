@@ -5,6 +5,7 @@
 #include "test_framework.h"
 #include "menu_run_flow.h"
 
+#include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/program_tables.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -1008,7 +1009,7 @@ TEST(disc_menu_course_rankings) {
     // A machine test: every finished run of the 1000 m test into unit 1.
     run(6, "mt_testcourse", 30'100, false, "mt1000_testcourse");
     run(6, "mt_testcourse", 30'500, false, "mt1000_testcourse");
-    const Value name[1] = {Value::string("1000")};
+    const Value name[1] = {Value::string("0_1000")}; // (quick-mt's UnitData: the program's names, 0x6A57C0)
     const Value mt = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), name);
     std::printf("  the 1000 m test: %d ranked\n", int(vm.call(vm.attribute(mt, "getRankNum"), {}).i));
     CHECK(vm.call(vm.attribute(mt, "getRankNum"), {}).i == 2);
@@ -1023,12 +1024,17 @@ TEST(disc_menu_course_rankings) {
         f.rt->race_finished(r);
     };
     top(80.0f), top(88.97f);
-    const Value max_name[1] = {Value::string("max")};
+    const Value max_name[1] = {Value::string("MAXSPEED")};
     const Value mtmax = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), max_name);
     const Value first[1] = {Value::integer(0)};
     const std::string fastest = vm.call(vm.attribute(mtmax, "getBestSpeed"), first).as_string();
     std::printf("  the top speed test: %d ranked, the first %s\n", int(vm.call(vm.attribute(mtmax, "getRankNumMaxSpeed"), {}).i), fastest.c_str());
     CHECK(vm.call(vm.attribute(mtmax, "getRankNumMaxSpeed"), {}).i == 2 && (fastest.rfind("320", 0) == 0 || fastest.rfind("199", 0) == 0));
+    // Names are compared exactly (0x433C98): no unit for any other text.
+    CHECK(menu::machine_test_unit("0_400") == 0 && menu::machine_test_unit("LASVEGAS") == 3 && menu::machine_test_unit("max") < 0 &&
+          menu::machine_test_unit("1000") < 0);
+    const Value other[1] = {Value::string("max")};
+    CHECK(vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), other).is_nil());
     CHECK(f.clean());
 }
 

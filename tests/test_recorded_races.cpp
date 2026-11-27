@@ -9,6 +9,7 @@
 #include "gt4r/race/replay_file.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/record_image.h"
 
 #include <cstdio>
 #include <cstring>
@@ -118,4 +119,39 @@ TEST(a_saved_replays_details) {
         CHECK(g.steps[i][1].clutch_closed == f.steps[i][1].clutch_closed);
         CHECK(g.steps[i][0].rolling == f.steps[i][0].rolling);
     }
+}
+
+// A best lap's recorder header keeps the car's record (0x10A0 bytes at +0x54): what our record takes from it (sim::load_car_record)
+// written back (sim::store_car_record) over the same bytes leaves them as they were; on the disc's free run (Rdemo9, a lap's recorder).
+TEST(a_recorders_car_record_written_back) {
+    Disc* disc = nullptr;
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const sim::Program program = sim::Program::load(*disc);
+    const gt3r::Volume::Entry* e = disc->volume().find("replay/Rdemo9/Rdemo9");
+    const std::optional<Bytes> plain = e ? save::unscramble(disc->volume().read(*e), 0, save::FileKind::Replay) : std::nullopt;
+    const std::optional<replay::Demonstration> d = plain ? replay::Demonstration::parse(*plain, program) : std::nullopt;
+    CHECK(d && d->streams.size() == 1);
+    if (!d || d->streams.empty()) return;
+    const std::optional<replay::RecorderState> st = replay::recorder_state(d->streams[0]);
+    CHECK(st.has_value());
+    if (!st) return;
+    sim::Record r;
+    sim::load_car_record(r, st->car);
+    Bytes again(st->car.begin(), st->car.end());
+    sim::store_car_record(r, again);
+    Bytes blank(0x10A0, 0);
+    sim::store_car_record(r, blank);
+    size_t written = 0;
+    for (u8 b : blank) written += b != 0;
+    std::printf("  %zu of 0x10A0 bytes the record writes non-zero\n", written);
+    CHECK(std::equal(again.begin(), again.end(), st->car.begin()));
+    CHECK(written > 0x100);
+    // The whole file again with that header: its recorder's header, its records.
+    replay::Demonstration made = *d;
+    made.streams[0].state.assign(d->streams[0].state.begin(), d->streams[0].state.end());
+    std::copy(blank.begin(), blank.end(), made.streams[0].state.begin() + 0x54);
+    const std::optional<replay::Demonstration> back = replay::Demonstration::parse(made.encode(program), program);
+    CHECK(back && back->streams.size() == 1 && back->streams[0].frames == d->streams[0].frames && back->streams[0].state.size() == 0x14F4);
 }

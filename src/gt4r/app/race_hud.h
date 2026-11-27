@@ -146,6 +146,8 @@ public:
     };
     // A paint's chip (its words' colors in bands, the gloss over them) at a place of the canvas.
     void draw_chip(float x, float y, float w, float h, const std::array<u32, 4>& words);
+    // A plain box in a GS colour (R the low byte, alpha 0x80 full) on the canvas (640 x 480): the Race Monitor's sector bars.
+    void draw_box(float x, float y, float w, float h, u32 color, float opacity);
     // The help strip with its line (a movie's page).
     void draw_strip(const std::string& words);
     void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);

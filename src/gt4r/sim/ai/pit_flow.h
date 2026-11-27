@@ -120,10 +120,10 @@ HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle);
 void pit_refuel(PitCar& c, F& fuel, F tank, F dt, u8 rate_byte);
 
 // 0x343C20: the car's race state for the pits: 0 racing, 1 its race over (the race's time limit passed, 0x34C158, or its
-// laps done and past half the lap), 2 its last line just crossed (its laps done, before half the lap). A car whose result
-// is in (F +0x4B0) is racing to the pits' eyes.
+// laps done and past half the lap), 2 its last line just crossed (its laps done, before half the lap). A car with backward
+// crossings of the line still to take back (F +0x4B0, counted by the lap step 0x358608) is racing to the pits' eyes.
 struct LapStateInputs {
-    bool finished = false;   // F +0x4B0
+    u8 back = 0;             // F +0x4B0
     u32 clock_ms = 0;        // the race clock (cond + 0xF898 / 3, 0x358440)
     u32 limit_minutes = 0;   // the race's time limit (cond + 0xF850, 0x34C140: x 60,000 ms; 0 none)
     int laps = 0;            // the race's laps (the conductor's virtual +0x128; 0: no end)

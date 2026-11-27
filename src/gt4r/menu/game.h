@@ -55,6 +55,11 @@ struct RaceRequest {
     // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
     std::vector<std::string> entries;
     std::vector<int> entry_paints;
+    // An entry the scripts set to an ENEMY_CARS row's label (Arcade's dirt and snow versions, MCarData.ShiftCarCode):
+    // that label ("" none); its car's GENERIC_CAR label is in `entries` (and `car` for entry 0), and the race takes the
+    // row's parts and settings for it (the program's entry holds the row's code, 0x4307D0 through 0x447BB8).
+    std::vector<std::string> entry_enemies;
+    std::string car_enemy;
     // The "replay" sequence (the Replay Theater's Play): the saved replay to show, a file of the
     // data folder's replays/ (race/replay_file.h).
     std::string replay_file;
@@ -89,6 +94,7 @@ struct RaceResult {
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
     u32 best_lap_ms = 0;   // the player's car's best lap (0x35E3F0; 0: none)
+    std::optional<sim::Equipment> equipment; // the player's car as it ran (a ranking entry's pass code: power, weight, tires)
     float max_speed = 0;   // a machine test's: the car's top speed (car +0x6CC, m/s; 0: none)
     std::string pass_code; // a ranking entry's (up to 32 characters)
     std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
@@ -399,6 +405,8 @@ struct GameState {
         std::function<bool(const std::string& title, const std::string& path)> save;
     };
     std::shared_ptr<PendingReplay> pending_replay;
+    // The race's course and car (labels) for Load Best Lap Replay's list (0x11CF30 hands the card manager their codes).
+    std::string ghost_course, ghost_car;
     // The pictures the scripts hold as texture chunks (a card file's getIconTexture): an image face's `image_chunk` is the
     // picture's name here.
     std::map<std::string, gt3r::Tex1::Image> chunk_pictures;

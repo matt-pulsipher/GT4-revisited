@@ -8,6 +8,7 @@
 
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/equipment.h"
+#include "gt4r/sim/showroom.h"
 
 #include <algorithm>
 #include <cmath>
@@ -455,7 +456,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         update();
         return Value{};
     });
-    car->method("getCurrentPower", [c](Vm&, const Value&, Args) { return number(s32(std::lround(c->power100 / 100.0))); });
+    // getCurrentPower (0x1412A8): the power x 100 (+0x178) / 100 (0x1465D8) + 0.5, truncated.
+    car->method("getCurrentPower", [c](Vm&, const Value&, Args) {
+        return number(gt3r::ee::to_int(gt3r::ee::int_to_f(s32(c->power100)) / sim::F(100.0f) + sim::F(0.5f)));
+    });
     car->method("getCurrentWeight", [c](Vm&, const Value&, Args) { return number(c->weight); });
     car->method("getCurrentPs", [c, spec, st](Vm& vm, const Value&, Args a) {
         const GameState::Unit unit = st->power_unit();
@@ -718,28 +722,63 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         return text(id == kNoCode ? std::string() : db().label(id));
     });
 
-    // ---- The car's condition.
-    car->method("getOilLifeRate", [rec](Vm&, const Value&, Args) {
+    // ---- The car's condition (the record's block +0x498: +0x08 the oil's distance, +0x0C the dirt, +0x10 the body's,
+    // +0x14 no wear), by the engine condition's limits (0x620320, sim::condition_limits: fresh oil at 3 x +0x14, old at +0x1C)
+    // and the body's table (0x620B00 from 0x620AF0, 0x366100: its life 0 at s16 0x620AF4 x 1,000 m rising to 1 at s16
+    // 0x620AF6 x 1,000 m, the most kept). US 1.01: fresh oil -300,000 m, old 6,000,000 m; the body 500,000 to 3,000,000 m.
+    using gt3r::ee::F;
+    auto oil_limits = [db]() -> std::pair<F, F> { // {fresh (0x3507D0), old (0x350808)}
+        const sim::ConditionLimits l = sim::condition_limits(db().program);
+        return {l.fresh_oil * F::raw(0x40400000), l.old_oil};
+    };
+    auto body_limits = [db]() -> std::pair<F, F> { // {life 0 at, life 1 at (0x3662F8)}
+        const sim::Program& p = db().program;
+        return {gt3r::ee::int_to_f(s16(p.h(0x620AF4))) * F::raw(0x447A0000), gt3r::ee::int_to_f(s16(p.h(0x620AF6))) * F::raw(0x447A0000)};
+    };
+    // getOilLifeRate (0x3437F0): 0 without wear; 1 when the oil's limit is 0; else the distance (fresh oil's counted from
+    // its start) over the limit, at most 1.
+    car->method("getOilLifeRate", [rec, oil_limits](Vm&, const Value&, Args) {
         const CarRecord& r = rec();
         if (r.no_wear()) return Value::number(0);
-        const float o = r.condition(2), dd = o >= 0 ? o : o + 300000.0f;
-        return Value::number(std::min(1.0f, dd / 6'000'000.0f));
+        const auto [fresh, old] = oil_limits();
+        if (old == F::raw(0)) return Value::number(1);
+        F o(r.condition(2));
+        if (o < F::raw(0)) o = o - fresh;
+        const F rate = o / old;
+        return Value::number(F::raw(0x3F800000) < rate ? 1.0f : rate.host());
     });
-    car->property("oil", [rec] { return Value::number(rec().condition(2)); }, [rec](const Value& v) {
-        if (!rec().no_wear()) rec().set_condition(2, std::min(v.as_float(), 6'000'000.0f));
+    // oil (get 0x14EA58, set 0x343698: at most the old oil's limit), replaceOil (0x343928: fresh oil), without wear nothing.
+    car->property("oil", [rec] { return Value::number(rec().condition(2)); }, [rec, oil_limits](const Value& v) {
+        if (rec().no_wear()) return;
+        const F old = oil_limits().second, n(v.as_float());
+        rec().set_condition(2, (old < n ? old : n).host());
     });
-    car->method("replaceOil", [rec](Vm&, const Value&, Args) {
-        if (!rec().no_wear()) rec().set_condition(2, -300000.0f);
+    car->method("replaceOil", [rec, oil_limits](Vm&, const Value&, Args) {
+        if (rec().no_wear()) return Value{};
+        const auto [fresh, old] = oil_limits();
+        rec().set_condition(2, (old < fresh ? old : fresh).host());
         return Value{};
     });
-    car->property("dirtiness", [rec] { return Value::number(rec().condition(3)); }, [rec](const Value& v) { rec().set_condition(3, std::clamp(v.as_float(), 0.0f, 0.8f)); });
-    car->method("getBodyLifeRate", [rec](Vm&, const Value&, Args) {
+    // dirtiness (0x14EB80 -> 0x3438A0): at most 0.8 (0x3F4CCCCC), with or without wear.
+    car->property("dirtiness", [rec] { return Value::number(rec().condition(3)); }, [rec](const Value& v) {
+        const F most = F::raw(0x3F4CCCCC), n(v.as_float());
+        rec().set_condition(3, (most < n ? most : n).host());
+    });
+    // getBodyLifeRate (0x343A80 -> 0x366300): 0 without wear; the body table's curve of two points (0 at the first distance,
+    // 2 at the second, held past either end) times its +0x10 (1 / 2).
+    car->method("getBodyLifeRate", [rec, body_limits](Vm&, const Value&, Args) {
         const CarRecord& r = rec();
         if (r.no_wear()) return Value::number(0);
-        return Value::number(std::clamp((r.condition(4) - 500'000.0f) / 2'500'000.0f, 0.0f, 1.0f));
+        const auto [lo, hi] = body_limits();
+        const F b(r.condition(4)), two = F::raw(0x40000000);
+        const F y = b <= lo ? F::raw(0) : hi <= b ? two : two * (b - lo) / (hi - lo); // (0x359568)
+        return Value::number((y * F::raw(0x3F000000)).host());
     });
-    car->property("bodyLife", [rec] { return Value::number(rec().condition(4)); }, [rec](const Value& v) {
-        if (!rec().no_wear()) rec().set_condition(4, std::clamp(v.as_float(), 0.0f, 3'000'000.0f));
+    // bodyLife (set 0x343978: at most the second distance), refreshBody (0x343A58: 0), without wear nothing.
+    car->property("bodyLife", [rec] { return Value::number(rec().condition(4)); }, [rec, body_limits](const Value& v) {
+        if (rec().no_wear()) return;
+        const F hi = body_limits().second, n(v.as_float());
+        rec().set_condition(4, (hi < n ? hi : n).host());
     });
     car->method("refreshBody", [rec](Vm&, const Value&, Args) {
         if (!rec().no_wear()) rec().set_condition(4, 0);

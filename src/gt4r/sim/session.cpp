@@ -1389,6 +1389,7 @@ std::unique_ptr<Session> Session::solo(size_t car) const {
     s->states_ = {states_[car]};
     s->rng_ = rng_, s->random_state_ = random_state_;
     s->crossings_set_ = crossings_set_;
+    if (car < back_.size()) s->back_ = {back_[car]};
     s->loose_ = loose_, s->course_kind_ = course_kind_, s->course_road_ = course_road_;
     s->steps_ = steps_;
     return s;
