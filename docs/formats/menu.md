@@ -666,7 +666,8 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   run inserts nothing. A machine test the car finished (+0x5B6) inserts its best lap every run (0x1161A0): the 400 m
   test into the machine record's unit 0 (mt400_lasvegas into 3, 0x116268), the 1000 m into 1 (0x116440), the top speed
   into 2 by speed (0x1165B8, 0x433348; not here: the machine test's conductor is not built). ❓ The race's kind (+0xD68
-  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. `game_race.cpp` race_finished.
+  0x10 .. 0x12) is taken from the RACE row's +0x10, which counts in each release's own numbers (US 0x16 .. 0x18, Europe
+  0x18 .. 0x1A, Japan 0x22 .. 0x24 for mt400 / mt1000 / mtmax_testcourse): its distance from mt400_testcourse's. `game_race.cpp` race_finished.
 - **A ranking entry's pass code** (license tests and courses, 0x10F718 -> 0x44B258; `game_race.cpp` ranking_pass_code,
   `menu/prologue_passcode.*` PassLayout::gt4): ten fields of 5, 11, 9, 1, 12, 12, 3, 22, 4, 4 bits (83) — the kind 17
   (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x449190), the car as sold (the
