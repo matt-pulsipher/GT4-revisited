@@ -239,7 +239,10 @@ is sold, tuned, saved and replayed as the game's own cars are; it is drawn with 
 the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
 there). The Mods page lists each mod's cars, and why one is not in the game; `gt4tool modcar <disc> <mods folder>
 [disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
-gives: removing the mod leaves a garage place for a car the game no longer has. In a Multi-LAN Race a player who lacks
+gives: with its mod removed (or switched off) the garage leaves the car out and the save keeps it as it was, the car driven
+too (no car is driven meanwhile); with the mod back the car is there again. A mod installed while the game runs (the Mods
+page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod removed while the game runs
+leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
 their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
 an electric drive (a file with `type = electric` is not loaded), mods' makers (`makers/`).

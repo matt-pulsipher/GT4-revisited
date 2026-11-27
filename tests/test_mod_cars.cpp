@@ -1,6 +1,7 @@
 // Mod cars (formats/db/mod_cars.*): the car file, then a car made of a disc car's rows on the discs of GT4R_DISC.
 
 #include "test_framework.h"
+#include "menu_run_flow.h"
 
 #include "gt4r/audio/car_sound.h"
 #include "gt4r/formats/db/car_parts.h"
@@ -67,11 +68,6 @@ db::SpecDb open_db(Disc& disc, std::shared_ptr<const std::string> list) {
 }
 db::SpecDb open_db(Disc& disc, std::string list) { return open_db(disc, std::make_shared<const std::string>(std::move(list))); }
 
-Disc* gt4_disc() {
-    for (Disc* d : test::reference_discs())
-        if (d->info().game == Game::GT4) return d;
-    return nullptr;
-}
 
 // The file written in a folder of its own, "<mod>\t<path>" as the file layer lists it.
 std::string write_car(const std::string& name, const std::string& text) {
@@ -347,4 +343,59 @@ TEST(mod_car_added_later) {
     CHECK(items && items->size() == 6 && items->back().as_string() == "gt4r_test_alfa_26");
     CHECK(rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carnum").i == 6);
     CHECK(menu::refresh_mod_cars(*rt).empty());
+}
+
+
+// A save with a mod car whose mod was removed: the place is kept as it was (vacant to the pages), the car driven too, and the
+// car is back with its mod.
+TEST(mod_car_save_without_its_mod) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    Flow h(*disc);
+    CHECK(h.gt_mode_with_a_car());
+    const std::string list = write_car("gt4r_test_alfa_26.ini", "[car]\nlabel = gt4r_test_alfa_26\nname = Alfa Test `26\nprice = 23456\ndonor = _147_20_twinspark_02\n");
+    db::SpecDb with = open_db(*disc, list), without = open_db(*disc, "");
+    const save::Codes mod_codes = save::database_codes(with), plain_codes = save::database_codes(without);
+    menu::GameState state = h.rt->game();
+    CHECK(state.garage.size() == 1 && state.garage[0].record);
+    menu::GarageEntry e = state.garage[0];
+    e.car = "gt4r_test_alfa_26", e.paint = 1, e.odometer = 1234;
+    state.garage.push_back(e);
+    state.riding_car = 1;
+    const Bytes saved = save::write_game(state, mod_codes);
+
+    // Without the mod: the place vacant to the pages, its code kept; no car driven.
+    menu::GameState lacking;
+    std::vector<int> wanted; // (the garage file's records, as the card has them)
+    CHECK(save::read_game(saved, lacking, plain_codes, &wanted));
+    for (int i : wanted) lacking.garage[size_t(i)].record = state.garage[size_t(i)].record;
+    CHECK(lacking.garage.size() == 2 && lacking.garage[0].used && lacking.garage[1].missing());
+    CHECK(lacking.garage[1].missing_code == mod_codes.code(0, "gt4r_test_alfa_26"));
+    CHECK(lacking.riding_car == -1 && lacking.riding_missing == 1 && lacking.garage_count() == 1);
+    // Saved again so: the same game.
+    const Bytes again = save::write_game(lacking, plain_codes);
+    CHECK(again == saved);
+    // The mod back: the car and its driving.
+    menu::GameState back;
+    CHECK(save::read_game(again, back, mod_codes));
+    CHECK(back.garage.size() == 2 && back.garage[1].used && back.garage[1].car == "gt4r_test_alfa_26" && back.garage[1].odometer == 1234);
+    CHECK(back.riding_car == 1 && back.garage[1].record && back.garage[1].record->bytes == state.garage[1].record->bytes);
+    // Another car driven meanwhile: that one is driven, the missing car's place still kept.
+    lacking.riding_car = 0;
+    menu::GameState other;
+    CHECK(save::read_game(save::write_game(lacking, plain_codes), other, mod_codes));
+    CHECK(other.riding_car == 0 && other.garage[1].car == "gt4r_test_alfa_26");
+
+    // The menus with the game: the garage shows the one car; the pages run clean.
+    h.rt->game() = lacking;
+    h.rt->game().riding_car = -1;
+    h.map_focus("Home");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "HomeRoot");
+    h.focus_on("Garage");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "GarageRoot");
+    std::printf("  garage: %s\n", h.text_of("cars").c_str());
+    CHECK(h.text_of("cars") == "1/1 cars");
+    CHECK(h.clean());
 }
