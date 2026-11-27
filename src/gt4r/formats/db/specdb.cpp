@@ -1,6 +1,7 @@
 #include "gt4r/formats/db/specdb.h"
 
 #include "gt4r/formats/db/mod_cars.h"
+#include "gt4r/formats/db/mod_makers.h"
 #include "gt4r/formats/db/specdb_prologue.h"
 
 #include "base/log.h"
@@ -212,11 +213,36 @@ SpecDb::~SpecDb() = default;
 SpecDb::SpecDb(SpecDb&&) noexcept = default;
 SpecDb& SpecDb::operator=(SpecDb&&) noexcept = default;
 
+void SpecDb::read_mod_makers(bool more) {
+    if (makers_of_mods_ && !more) return;
+    ModMakers m;
+    if (!prologue_)
+        if (const std::optional<Bytes> list = read_("mods/.cars"); list && !list->empty()) {
+            m = ModMakers::read(std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_, tuners_, countries_, makers_of_mods_.get());
+            const size_t known = makers_of_mods_ ? makers_of_mods_->statuses().size() : 0;
+            for (size_t i = known; i < m.statuses().size(); ++i)
+                if (const ModMakers::Status& s = m.statuses()[i]; !s.error.empty()) LOG_WARN("Mod maker %s (%s): %s", s.key.c_str(), s.mod.c_str(), s.error.c_str());
+        }
+    if (!m.statuses().empty() || !makers_of_mods_) makers_of_mods_ = std::make_unique<ModMakers>(std::move(m));
+}
+
+const ModMakers& SpecDb::mod_makers() {
+    read_mod_makers(false);
+    return *makers_of_mods_;
+}
+
+std::optional<ModPicture> SpecDb::mod_picture(std::string_view path) {
+    if (const std::optional<ModCars::Picture> p = mod_cars().picture(path)) return ModPicture{p->disc, p->png};
+    if (const std::optional<ModCars::Picture> p = mod_makers().picture(path)) return ModPicture{p->disc, p->png};
+    return std::nullopt;
+}
+
 // The mods' cars are worked out from the tables as the disc has them; then what they add goes into every table, label list
 // and pool read so far, and into the others as they are read.
 void SpecDb::prepare_mods() {
     if (mods_state_ != 0) return;
     mods_state_ = 1;
+    read_mod_makers(false); // (the cars name them)
     ModCars m;
     if (!prologue_)
         if (const std::optional<Bytes> list = read_("mods/.cars"); list && !list->empty()) try {
@@ -248,6 +274,7 @@ std::vector<std::string> SpecDb::add_mod_cars() {
     const std::optional<Bytes> list = read_("mods/.cars");
     if (!list || list->empty()) return {};
     ModCars more;
+    read_mod_makers(true); // (a mod's makers installed since)
     mods_state_ = 1; // (the builder reads the tables as they are now, the cars in so far included)
     try {
         more = ModCars::build_more(*this, std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_, *mods_);

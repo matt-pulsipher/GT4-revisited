@@ -2,6 +2,7 @@
 
 #include "gt4r/formats/db/car_export.h"
 #include "gt4r/formats/db/car_parts.h"
+#include "gt4r/formats/db/mod_makers.h"
 
 #include "base/config.h"
 #include "base/file.h"
@@ -849,6 +850,10 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
             for (const auto& [b, n] : brands)
                 if (n > most) brand = b, most = n;
             put8(car, 0x10, brand);
+        } else if (const ModMakerDef* mm = db.mod_makers().named(d.maker)) {
+            // A mod's maker (mod_makers.h): its own numbers and country.
+            put8(car, 0x0F, u32(mm->maker)), put8(car, 0x10, u32(mm->tuner));
+            if (mm->country_number >= 0) put8(car, 0x0E, u32(mm->country_number));
         } else if (!makers.empty()) {
             st.warnings.push_back("[car] maker '" + d.maker + "' is not a maker of this game: the donor's is kept");
         }
@@ -1069,6 +1074,11 @@ bool ModCarBuilder::import(const ModCarDef& d, ModCarStatus& st) {
                             return a == w;
                         }())
                         put8(b, 0x0F, u32(n));
+            if (!d.maker.empty())
+                if (const ModMakerDef* mm = db.mod_makers().named(d.maker)) {
+                    put8(b, 0x0F, u32(mm->maker)), put8(b, 0x10, u32(mm->tuner));
+                    if (mm->country_number >= 0) put8(b, 0x0E, u32(mm->country_number));
+                }
         } else if (table == "DEFAULT_PARTS") {
             for (size_t k = 0; k < 26 && 8 * k + 8 <= b.size(); ++k) put32(b, 8 * k, map_id(named_table(get32(b, 8 * k + 4)), get32(b, 8 * k)));
         } else if (table == "FRONTTIRE" || table == "REARTIRE") {

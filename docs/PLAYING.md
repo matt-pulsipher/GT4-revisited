@@ -262,7 +262,24 @@ their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. The 
 off on the disc it came from): its rows of the database in a records file, its models and pictures. A disc that has the
 car makes it from its own; one that lacks it (the European disc's Vauxhalls on the American disc) takes the rows from
 the file, the rows it has under the same names its own. The exported files are your disc's: keep them for your own use;
-online, an exported car is never sent. Not yet: mods' makers (`makers/`), another rim for a body of its own
+online, an exported car is never sent.
+
+**Mod makers** are text files too, `mods/<name>/makers/<key>.ini` (the file's name is the maker's key: letters, digits and
+`_`): a maker the game does not have, whose cars (`[car] maker =` its name or key) are its own. It gets a dealer on its
+country's page of Gran Turismo mode after the disc's dealers, with the mod's pictures, its name on the pages, the car
+picker and the Car database, and its line on the country page:
+
+```ini
+[maker]
+name = Voltra                       ; what the pages show
+country = US                        ; JP, US, GB, DE, FR, IT, AU, KR, BE, NL, SE or ES (GT3 Revisited's region = us .. works too)
+description = Voltra: electric cars from a mod.   ; the country page's line about it (default: the name)
+icon = images/voltra_icon.png       ; the country page's button, 128 x 84
+logo = images/voltra_logo.png       ; the dealer page's logo, 378 x 135 (also its tune shop's button)
+```
+
+A maker the game has already is not a new one: its cars name it in `[car] maker`. The dealer page's moving picture at its top
+is left empty. Not yet: another rim for a body of its own
 (`[model] wheel`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
 the Priuses', the Insight's and the DN-X's, each work beside one; a car made from one of them keeps it), and a drive of
 ours would behave as no car of the game does; one gear and a curve of your own come closest.
@@ -396,7 +413,7 @@ The ones a player meets first:
   and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.
-- Mods: files, textures, texture packs and cars are used; mods' events, liveries and makers are not read yet, and a mod
+- Mods: files, textures, texture packs, cars and makers are used; mods' events and liveries are not read yet, and a mod
   car has no body or electric drive of its own yet.
 
 ## Scripted play (for checks)

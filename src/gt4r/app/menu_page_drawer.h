@@ -276,10 +276,10 @@ private:
         }
         quad(t, at, uv ? uv : whole, c, blend);
     }
-    // A picture of the page's packs; a mod car's stands in by its body car's (mod_car_pictures.h).
+    // A picture of the page's packs; a mod car's stands in by its body car's, a mod maker's is its own (mod_car_pictures.h).
     const gt3r::Tex1::Image* pack_image(const std::string& path) {
         const gt3r::Tex1::Image* img = project_->image(page_, path);
-        if (img || path.find("piece/car_") == std::string::npos) return img;
+        if (img || (path.find("piece/car_") == std::string::npos && path.find("piece/tune") == std::string::npos)) return img;
         const std::string key = page_ + "|" + path;
         if (const auto it = mod_pack_images_.find(key); it != mod_pack_images_.end()) return it->second.get();
         std::unique_ptr<gt3r::Tex1::Image>& slot = mod_pack_images_[key];

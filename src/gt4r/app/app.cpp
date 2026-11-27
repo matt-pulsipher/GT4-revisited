@@ -407,7 +407,8 @@ db::SpecDb* App::db() {
                                                [vfs](const std::string& dir) { return vfs->list_dir(dir); });
             if (disc_ && disc_->info().game == Game::GT4) try { // (a mod car's maker by its name: the program's makers)
                     const std::shared_ptr<const gt3r::CoreImage> image = disc_->program_image();
-                    db_->set_makers(menu::ProgramTables::find(image->program, image->load_address).makers);
+                    const menu::ProgramTables names = menu::ProgramTables::find(image->program, image->load_address);
+                    db_->set_names(names.makers, names.tuners, names.countries); // (the mods' makers numbered after them)
                 } catch (const std::exception& e) {
                     LOG_WARN("Car makers: %s", e.what());
                 }
