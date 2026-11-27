@@ -1699,16 +1699,11 @@ public:
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
 
     // What the race display shows now.
-    // The top speed on the lap line: the speed in the display's unit x 10 (0x472940: km/h v x 3.6, mph v x 3.6 x 0.6214),
-    // truncated, at most 9,999 (RaceDisplaySpeedEvent::vf2 0x3A36E0). ❓ How the display writes it (its word, decimals) is not
-    // read: here "<whole>.<tenth> <unit>".
-    std::string machine_speed_text(const RaceHud& hud) const {
-        using gt3r::ee::F;
-        F v = machine_speed_ * F::raw(0x40666666);
-        if (hud.mph()) v = v * F::raw(0x3F1F136A);
-        const int tenths = std::clamp(int(gt3r::ee::to_int((v * F::raw(0x41200000)).bits)), 0, 9999);
-        return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + (hud.mph() ? " mph" : " km/h");
-    }
+    // The top speed on the lap line (0x35E7C0 → RaceDisplay::vf2 → 0x3A0600 → 0x3A12A0): the speed in the display's unit
+    // (0x472940: km/h v x 3.6, mph v x 3.6 x 0.6214) kept x 10, truncated, 0 .. 9,999 (RaceDisplaySpeedEvent::vf2 0x3A36E0),
+    // read back x 0.1 (vf3 0x3A3778), then written by 0x3B0230: three digits, a point and the tenth ("085.3"; at or under 0
+    // "\x7F\x7F\x7F.\x7F"), the unit's name joined with no space (0x472680: "km/h", "mph"). No word of the display's.
+    std::string machine_speed_text(const RaceHud& hud) const { return race::machine_speed_line(machine_speed_, hud.mph()); }
     void fill(HudState& h, const RaceHud& hud) const {
         const std::span<const race::CarState> cars = shown();
         const bool demo = demo_run_.has_value();

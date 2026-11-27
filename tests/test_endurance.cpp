@@ -272,3 +272,13 @@ TEST(endurance_pace_up_mark) {
     l.pass(2, 2, 0, 39'000), l.pass(3, 1, 0, 41'000);
     CHECK(l.time(0, 2) == 39'000 && l.time(0, 3) < 0);
 }
+
+// The top speed test's line (0x3A12A0 → 0x3B0230): three digits, a point, the tenth, the unit joined.
+TEST(endurance_machine_speed_line) {
+    using gt3r::ee::F;
+    CHECK(race::machine_speed_line(F(88.967f), true) == "199.0mph");
+    CHECK(race::machine_speed_line(F(88.967f), false) == "320.2km/h"); // (320.28 kept as 3202 tenths)
+    CHECK(race::machine_speed_line(F(23.706f), false) == "085.3km/h");
+    CHECK(race::machine_speed_line(F(0.0f), false) == "\x7F\x7F\x7F.\x7Fkm/h");
+    CHECK(race::machine_speed_line(F(400.0f), false) == "999.9km/h"); // (x 10 kept at most 9,999)
+}
