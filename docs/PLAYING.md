@@ -503,6 +503,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   step makes of it (0x349FD0). The original rumble's level and the wheel's force are the game's; the Modern
   rumble, the triggers and the Modern wheel force are the shared engine's, fed from the game's step
   (`docs/specs/input.md`).
+- Mod cars are our addition (`formats/db/mod_cars.*`, `car_export.*`, `race/mod_car_body.*`): their rows are made of the
+  game's own rows of the donor (or an exported car's), and they race, sell and draw through the game's code; a body of a
+  mod's own is read by the shared engine's glTF loader and stretched bodies by its `fit_body`, both drawn by our GT4 car
+  path with the course's reflection factors; no GT3 value enters (an electric drive is refused for that reason).
 - Settings, Mods, Controls and the mouse are the app's own (`src/gt4r/settings`, `app_settings.cpp`, `page.*`,
   `screen_settings.cpp`, `screen_controls.cpp`) over the shared engine's parts: the GPU device's options, dynamic
   resolution, the gamma pass, the output devices, the log file and crash notes, the disc list, the mods' archives,
