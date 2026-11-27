@@ -414,6 +414,22 @@ ones). Not saved: the race being set up, `isNeedSave`, and the credits (the gara
 Codes are 64-bit `{u32 row, u32 table}` of the car database: cars table 0, courses 0x22, races
 0x23, wheels 29, wings 30.
 
+### Japan's game data (SCPS-17001 v1.05; N = 0x3A0A0) ✔
+
+The European program's Status has the US sizes (Option's block 0x11C0). The Japanese program's
+Option block is 0x11D8 bytes (Option::vf2 0x42FE68, its other parts 0x18 further on in memory), so
+its payload is 0x20 longer: the same up to the options' block (UserProfile 0x38920, the context
+0x150, as in the US program); in the block the screen settings at Option +0x1180 (race) and +0x1190
+(replays) and the slide show's transition time at +0x11A0 (the accessors 0x1870A0, 0x187360,
+0x184848; the US program's +0x1184, +0x1194, +0x1180), the size word 0x11D8; everything after the
+block (the game zone on) 0x20 later. ❓ The block's +0x11A4 to its end: the option's reset (0x42EEF0)
+sets none of it and no accessor of it was found; written as zeros. The data file is 0x3A0C0 bytes
+in both. `save::Layout` (game_data.h): the state is read and written in the US layout and turned
+into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
+the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The
+card folder BISCPS-17001GAMEDATA is Gran Turismo 4's, not Prologue's (whose products are
+SCPS-15055, SCES-52438, SCKA-20022).
+
 ### The B-spec driver's book (payload 0xA4, 0x180 bytes; menu/game_bspec.h)
 
 Three tables of 8 x 8 u16 (table t, row r, column c at 2 (64 t + 8 r + c)): the B-spec driver's experience, a

@@ -297,6 +297,36 @@ TEST(disc_save_slot_coding) {
     CHECK(bad == 0);
 }
 
+// A new game and a garage car as our writer makes them, read by each release's own program (US v1.01 and Japan's v1.05; the
+// interpreter has no map for Europe's): its decoder's payload size, its check and read, its write giving back the same bytes,
+// the garage header. Japan's options block is longer (save/game_data.h Layout): the Japanese program refuses the US layout.
+TEST(disc_save_layout_each_release) {
+    int checked = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4 || d->info().region == "uk") continue;
+        const fs::path dir = fs::temp_directory_path() / ("gt4r-test-save-layout-" + d->info().region);
+        fs::remove_all(dir);
+        db::SpecDb sdb(reader(*d), config(*d).list, "american");
+        save::GameSave card((dir / "memorycard").string(), save::database_codes(sdb), reader(*d), d->info().product);
+        menu::GameState s;
+        s.option_defaults(d->info().region);
+        s.username = "Driver", s.money = 123'456;
+        s.monitor_params.assign(0x2C, 1);
+        const bool saved = card.save_new(s, "Game Data") == save::Result::Ok;
+        CHECK(saved);
+        const auto place = save::edit_place((dir / "memorycard").string(), d->info().product);
+        const auto files = saved && place ? save::read_files(*place, d->info().product) : std::nullopt;
+        CHECK(files.has_value());
+        if (!files) continue;
+        const diff::SaveCheck r = diff::check_save(*d, files->game, files->garage, {});
+        std::printf("  %s: decoded %d (0x%zX bytes), valid %d, %zu bytes written differently, garage %d, money %lld\n",
+                    d->info().product.c_str(), r.decoded, r.payload, r.valid, r.differ, r.garage, static_cast<long long>(r.money));
+        CHECK(r.ok() && r.money == s.money);
+        ++checked;
+    }
+    if (!checked) SKIP("set GT4R_DISC to a Gran Turismo 4 disc (US or Japan)");
+}
+
 TEST(disc_save_edit_garage) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");

@@ -294,3 +294,39 @@ TEST(save_options_display_picture) {
     CHECK(e.menu.music == 0 && e.race.effects == 0.5f);
     CHECK(save::write_game(t, codes) == q);
 }
+
+// Japan's game data (save/game_data.h Layout): the screen settings and the slide show's transition time where its options
+// block keeps them, the blocks after it 0x20 later, the header for its length; and back. A Japanese card's folder is Gran
+// Turismo 4's game data, not Prologue's.
+TEST(save_japan_layout) {
+    const save::Codes codes = made_up_codes();
+    menu::GameState s;
+    s.option_defaults("jp");
+    s.username = "Driver";
+    s.options["race_color_correction"] = std::string("-2 1 4 -5"), s.options["replay_color_correction"] = std::string("1 2 3 4");
+    s.options["album_slide_transition_time"] = 7;
+    s.major_menu_project = "gtmode";
+    const Bytes us = save::write_game(s, codes);
+    const Bytes jp = save::to_layout(us, save::Layout::Japan);
+    auto word = [](const Bytes& p, size_t at) { return u32(p[at]) | u32(p[at + 1]) << 8 | u32(p[at + 2]) << 16 | u32(p[at + 3]) << 24; };
+    constexpr size_t kOption = 0x38928;
+    CHECK(jp.size() == 0x3A0A0 && word(jp, 4) == u32(-s32(0x3A0A0 - 0x10)) && word(jp, kOption + 8) == 0x11D8 && word(us, kOption + 8) == 0x11C0);
+    CHECK(s32(word(jp, kOption + 0x1180)) == -2 && s32(word(jp, kOption + 0x118C)) == -5 && word(jp, kOption + 0x1190) == 1 && word(jp, kOption + 0x11A0) == 7);
+    CHECK(s32(word(us, kOption + 0x1184)) == -2 && word(us, kOption + 0x1194) == 1 && word(us, kOption + 0x1180) == 7);
+    CHECK(std::memcmp(jp.data() + 0x39AF0 + 0x20, us.data() + 0x39AF0, us.size() - 0x39AF0) == 0); // (the context's menu last)
+    const std::optional<Bytes> back = save::from_layout(jp, save::Layout::Japan);
+    CHECK(back && *back == us && !save::from_layout(us, save::Layout::Japan) && !save::from_layout(jp, save::Layout::Us));
+    CHECK(save::layout_of_product("BISCPS-17001") == save::Layout::Japan && save::layout_of_product("BASCUS-97328") == save::Layout::Us);
+    CHECK(save::is_prologue_product("BISCPS-15055") && !save::is_prologue_product("BISCPS-17001") && !save::is_prologue_product("BASCUS-97328"));
+    // A Japanese card's save and load.
+    const std::string dir = (std::filesystem::temp_directory_path() / "gt4r-save-test-japan").string();
+    std::filesystem::remove_all(dir);
+    save::GameSave card(dir, codes, {}, "BISCPS-17001");
+    CHECK(card.save_new(s, "Game Data") == save::Result::Ok);
+    CHECK(std::filesystem::file_size(card.folder() + "BISCPS-17001GAMEDATA") == 0x3A0C0 && std::filesystem::exists(card.folder() + "garage"));
+    menu::GameState t;
+    CHECK(save::GameSave(dir, codes, {}, "BISCPS-17001").load(t) == save::Result::Ok);
+    CHECK(t.username == "Driver" && t.major_menu_project == "gtmode" && menu::settings_of(t).race_picture == (std::array<int, 4>{-2, 1, 4, -5}));
+    CHECK(save::GameSave(dir, codes, {}, "BISCPS-17001").load(t) == save::Result::Ok);
+    std::filesystem::remove_all(dir);
+}
