@@ -20,7 +20,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
 | The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎; the B-spec panel's refusal not done |
-| Not built | saving and developing a film (the dialog answers the photo) | |
+| Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the frames' drivers, skid marks, gadgets and particles not written (DRVR, SMOK's marks, GDGT, PTCL: read and kept, not drawn) |
 
 ## The sequence
 
@@ -136,8 +136,9 @@ with `gt4tool photo <disc> check <card>` on the reference card: the record, both
 and the icon come out the same bytes; a photo taken here lists, shows and checks the same.
 
 The app's save files are no card: the photo pages' card manager always answers a card, formatted, with room (`free` 8,000), in
-either slot the one folder; the page that asks where to save and as what (`SaveDialog`) is answered without
-showing it (the photo, the save files); a write that fails says so once. The other questions of the scripts about
+either slot the one folder; the page that asks where to save (`DestinationDialog`) is answered without
+showing it (the photo, the save files); the photo pause's, which asks as what too (`SaveDialog`), is shown as the program's; a
+write that fails says so once. The other questions of the scripts about
 a card are answered in the menus.
 
 The **slide show's list** is the folder `BASCUS-97328LSTSLIDE` (76 KB by the program's count): 400
@@ -217,26 +218,62 @@ race screen's `open_photo` / `update_photo`.
   at k / 32 of the shutter's time on (0x333680: the shutter in 60ths of a second, at most one step; 0x334730: the race drawn
   that far on, here its cars between this step's states and the next's), corrected as the finder, the course's vignette as the
   replay draws it. Then (0x3C51A0) the race's 0x17E0-byte display state is kept, the project `photo_save` runs with the argument
-  `filmphoto` over the still race (its `SaveDialog`, with the method), and the state comes back. Here the dialog is answered
-  as Photo Travel's (the photo, the save files), the picture's record names the followed car and the course.
+  `filmphoto` over the still race (its `SaveDialog`: where, and Film, Film and Photo or Photo), and the state comes back. The
+  picture's record names the followed car and the course, and the race's mode at +0xD8 (the race's +0xD68 through vf96: 13 in
+  the photo drive, ✔ the original's; 0 Photo Travel's).
 
-## Films (read, not built)
+## Films
 
-- **Saving** (`photo_save`'s `SaveDialog`): the method film, film and photo, or photo; the USB memory as slot 2. A **film**
-  (`MODE_SAVE_PHOTO_FILM`, the folder `F%04d`, `icon/GT4_film_*.ico`) holds the photo's settings (0x334FC8: the lens, focus,
-  filters and the car's frame) and one or two frames of the race's replay (0x33A2A0).
-  The film's data (0x334E38 -> 0x334FC8) is chunks (0x45B4D8 opens one: a tag, then u32 sizes written at its close, 0x45B548):
-  `PMDI` (u8 the photo's +0x124), `FILM` (u8 2, u16 width, u16 height, u8 tiles across, u8 down, f32 aspect, u8 upright, u8
-  pictures, u8 +0x124, f32 the shutter in 60ths, then 4 bytes each of +0x128 .. +0x13C and 32 of +0x144: the lens and focus,
-  the filter, saturation, exposure, white balance and the car's frame), then the race (0x33A2A0): `RHDR` (u8 2, the course's
-  and another label as text, u8 cars, each car's label, its paint's text and a u8, a u32, the `ENVP` block of 0x17F4 bytes of the
-  race's display state when asked, a `CDTL` a car: its two driver texts, two more, u8 +0x345C), and one or two `SFRM` frames
-  (0x33A018: the camera 0x339FE0 at a time 1 or 0, a `CARD` each car: its model's state 0x459E30, 0x339C08, the skid marks
-  0x3E91E0; the race's +0x35E8 and +0x3238 when asked).
-- **Developing** (Photo Lab's Film folder, "Development"): the film is read, `photo_labo` returns `develop`, and 0x1C7BF8 runs
-  `RacePhotoDevelop` (0x335248 reads the film into a race of its course and cars, steps it until loaded, 0x3C8AA8 draws the
-  photo at the film's settings), then `photo_save` without an argument (the photo saved as a photo). ❓ The cars' frame records
-  (0x459E30, 0x339C08) are not read: neither saving nor developing is built; the save dialog answers the photo.
+Code: `src/gt4r/photo/film.*` (the data), `save/photo_file.*` (the card), `app/race_photo.*` and `screen_race.cpp` (saving at the
+photo pause, the sequence `photo_develop`), `menu/game_photos.cpp`; `gt4tool photo film <file>` lists one and writes it again,
+`gt4tool photo import <card image> <folder>` takes a card image's photos and films. ✔ A film the original saved in its photo
+drive's pause (Tsukuba, the Ford GT, 140 mm): read and written again, the same 3,246 bytes; its card files (record, data
+scrambled, icon) made again the same; developed here, its photo has the original photo's framing and the car's place and pose.
+
+- **Saving** (`photo_save`'s `SaveDialog`: Destination slot 1, slot 2 or USB, Method Film, Film and Photo, or Photo; the options
+  `photo_save_slot` and `photo_save_method` keep the choice; USB takes the photo only). Film and Photo writes the film, then the
+  photo. A **film** is `MODE_SAVE_PHOTO_FILM`: `GT4MC::FileGT4FilmData` (0x1D0698): the folder `...F` + letters, the record named
+  `F%04d` (films numbered on their own), the data scrambled as the film kind (0.654321, 0.345678, the bytes after the first word
+  shuffled), the icon `icon/GT4_film_4_to_3_.ico` (`3_to_4_` upright) with the photo's small picture; its size on the card counted
+  as a photo's (30 KB for the original's: the icon is most of it).
+- **The data** (0x334E38 -> 0x334FC8): chunks of a tag (its four letters in order), a u32 size with the 8-byte head, the payload
+  (0x45B4D8 opens one, 0x45B548 writes the size at its close; fields little-endian: u8 0x45AF18, bool 0x45AF58, u16 0x45AF78,
+  u32 0x45AFC8, f32 0x45B018, NUL-ended text 0x45B040), nested:
+  - `PMDI` u8 (the photo's +0x124, 1). `FILM`: u8 2, u16 640, u16 480 (a tile), u8 2, u8 2 (tiles), f32 4/3, bool upright, u8 32
+    pictures, bool +0x124, f32 the shutter in 60ths of a second (+0x120: 0.48 at 1/125), then the photo's +0x128 the filter (the
+    pause's +0x1A8), +0x12C (0 in the pause), +0x130 the saturation (1 + `photo_saturation` / 10), +0x134 the exposure (EV, the
+    camera's virtual 16), +0x138 the white balance (K, virtual 17), +0x13C (0) (0x3C4DC4; 0x334B28 gives +0x134, +0x13C, +0x130,
+    +0x138 to the correction 0x3EFC10), and 32 bytes +0x144: the car's frame in the picture, the JPEG's `G4PI` record.
+  - `RHDR` (0x33A2A0): u8 2, the course's label, the race's kind ("photo_drive"), u8 cars, each car's label, its paints' label (the
+    VARIATION rows' label less "_n": "ford0006") and a u8 (its paint here), a u32 the frames; `ENVP` (0x17F4 bytes of the race's
+    display state, not in the pause's films), then a `CDTL` a car (0x33A1B0): u8 1, four texts (the driver's two looks
+    "pdi_0014", two "default"), u8 (the entry's +0x345C).
+  - `SFRM` a frame (0x33A018), two for a shutter with time (the step before at time 1, the step shown at 0; here the step shown and
+    the next): `PCAM` (0x33AEA0 -> 0x33ADE8): u8 1, the eye, a target the focus distance (at least 1 m) along the view, the up axis,
+    the angle across a 4:3 width (2 atan of the projection's x scale: 13.02 at 140 mm), the scales' ratio 0.75, the near plane
+    (0.818 at 140 mm: 0.07 / tan of half the angle over the height, CameraVariable::vf12 0x3794A8), the far (5,000), the f-number,
+    the shutter (s), EV, K. A `CARD` a car (0x339F38): `CPRM` (0x459E30, 370 bytes with its head): u8 0, then the car model's
+    parameter sponsor (CarParamSponsor; the race's RaceCarParamSponsor 0x3D6F40 ..) at the frame's time: virtuals 4, 5 the road's
+    frame under the car (angles, point: the shadow's), 6 the velocity (course space: F +0x648 as x, z, -y), 7 the body's angles
+    (degrees: pitch, yaw, roll; the body turned by yaw about y, pitch about x, roll about z; front -z, right +x), 8 its point,
+    15, 16 (0.02), 18 (a bool), 19 .. 22, a wheel each: 9 its angles (the spin, negative forward, unwrapped; the steering), 10 its
+    place in the body's frame (x right, y up, z back: the Ford GT's (-+0.800, 0.227, -1.355) front), 11 the tire's width (0.235),
+    12 its radius (0.334), 13 its sidewall (0.106), 14 the spin over a step, 9's spin now less a step before, 24, 25; then 26 a
+    wheel each (-1), 23 the engine's rpm, 27 a vector a wheel. Then the driver's and co-driver's figures (`DRVR` / `NAVI`, 0x339AD0:
+    960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
+    0x3C2990), the last frame.
+  Here the pause's film carries the cameras (L1 + Cross's two), every car's parameters from its drawn state (the body, the
+  wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), an empty `SMOK`; no
+  `DRVR`, `GDGT`, `PTCL`. What it reads of them is kept and written again as it was.
+- **Developing** (Photo Lab's Film folder, the third button "Develop the selected film", "Do you wish to develop the selected
+  film?"): the film is loaded (`load`), `photo_labo`'s result is `develop`, and 0x1C7BF8 runs `RacePhotoDevelop` (0x335248 reads
+  the film into a race of its course and cars, steps it until loaded, 0x3C8AA8 draws the photo at the film's settings): black
+  while it is drawn, then `photo_save` without an argument (the photo saved as a photo: START Save, Square Return), then the lab
+  again on its Film folder. Here the race screen's sequence `photo_develop`: the course and the film's cars (paint by the
+  header's byte), each frame's cars set from their parameters as a replay's two steps, the photo pause's photo at once with the
+  last frame's camera (the first's when it differs: the camera between them, as L1 + Cross's), the film's settings and car frame.
+  ✔ Both ways by picture: the original's film gives its photo; ours develops to the photo it was saved with (mean difference 0.65
+  of 255).
 
 ## Checked against the original
 
