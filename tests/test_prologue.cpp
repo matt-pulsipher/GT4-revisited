@@ -315,7 +315,7 @@ TEST(disc_prologue_step_routines_equal) {
     }
     // Gran Turismo 4's routines where Prologue's are its in another layout, on other drives: four wheel drive with a turbo, the
     // special kind 7, the hybrid (its axles its own path), rear wheel drive.
-    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03"}) {
+    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03", "mtr_gmv_04"}) {
         std::string err;
         const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", car, 600, "prologue", err);
         CHECK(err.empty());

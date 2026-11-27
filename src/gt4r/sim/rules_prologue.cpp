@@ -336,6 +336,9 @@ rules::DriveExtra drive_extra(const ex::Params& p) {
     d.layout = s.layout, d.unequal = s.unequal, d.gears = s.gears, d.driven_axle = s.driven_axle;
     d.awd_k = s.awd_k, d.awd_capacity = s.awd_capacity, d.engine_inertia = s.engine_inertia;
     d.diff_type = s.diff_type, d.kind = s.kind, d.x13 = 0;
+    // The special kind 8 (`mtr_gmv_04`, a gearbox of kind 0) where Gran Turismo 4 tests its gearbox kind 4: its clutch
+    // closed at once (0x3B9E10) and its rpm without the idle's floor (0x3B9BB8, at least 0).
+    if (p.special == 8 && s.kind == 0) d.kind = 4;
     d.diff_initial = s.diff_initial, d.diff_accel = s.diff_accel, d.diff_decel = s.diff_decel;
     d.launch_rpm = s.launch_rpm, d.up_rpm = s.up_rpm;
     for (size_t g = 0; g < s.down_rpm.size(); ++g) d.down_rpm[g] = s.down_rpm[g];
@@ -719,7 +722,6 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     if (c.p.d.kind == 3) c.clutch = 0, c.clutch_req = F(); // (the hybrid's by its request alone, 0x3B9DE8)
     rules::brakes_and_clutch(c, dx, x.layout); // (0x3B9E10: Gran Turismo 4's 0x3511A0 in its layout)
     if (c.p.d.kind == 3) c.clutch_req = request, c.clutch = request == F() ? 0 : 1;
-    if (c.p.special == 8) c.clutch = 1;
     rules::rolling_resistance(c, x.layout, t.road); // (0x3BBF18: Gran Turismo 4's 0x3534A0 in its layout)
     rules::tire_curves(c, x.tires, x.layout);       // (0x3BA538: 0x351850)
     prologue::class_grip(c, x.layout, grip);

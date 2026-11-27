@@ -344,8 +344,9 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   brakes and clutch 0x3B9E10 (0x3511A0), wheel torques 0x3CE4D0 (0x36D230), vectoring 0x3CE5A8 (0x36D2F8), the axles 0x3CEAE0
   (0x36D818; not the hybrid's), the wheel speeds 0x3CF740 (0x36E4B8), the engine speed 0x3BA6C0 (0x3519B8) and the gearbox
   0x3BAAD8 (0x351DC8, the automatic shift with Prologue's settings). Tapped also on the Impreza WRC, Skyline GT-R, S2000, MR2,
-  Prius, SL55 AMG, Odyssey, Viper and GT-One: every call equal but the Prius's axles (its own path) and the special kind 8's
-  (`mtr_gmv_04`) clutch at the first call and engine speed while stopped, which the engine's missed the same way (not ported).
+  Prius, SL55 AMG, Odyssey, Viper, GT-One and `mtr_gmv_04`: every call equal but the Prius's axles (its own path). The special
+  kind 8 (`mtr_gmv_04`, gearbox kind 0) is where Gran Turismo 4 tests its gearbox kind 4: its clutch closed at once (0x3B9E10)
+  and its rpm without the idle's floor (0x3B9BB8), `drive_extra`.
   The wheels' spin and the drawn car's points 0x3B25F0 (0x344040, on the special row's height; no lean's view).
 - *Prologue's own*: the class grip 0x3BC03C, the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
   the layout's wheels), the brake heat 0x3B3810 (Gran Turismo 4's over the layout but heating with the pedal up too), and the
@@ -360,7 +361,7 @@ Still not run, or not Prologue's own:
 
 - Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: the four-motor layout 7's state and the special car kind 1's moods): not run
   (no car of the database has either; the special kinds 1 and 2 are `pod_tmv_01` and `r35_gtr_tmv_01`).
-- The special kind 8's clutch and no blips (`mtr_gmv_04`), the in-line lean's steering (0x3DE310, kind 4), the computer drivers'
+- The special kind 8's no blips (`mtr_gmv_04`), the in-line lean's steering (0x3DE310, kind 4), the computer drivers'
   stop zone (0x3C46C8 ..: the conductor's +0x10BA8, set by no race here) and their PD steering and throttle (0x506612 of 2 or
   more; 1 on the disc): not ported.
 - The program's sensor lines of a pit stop: no Prologue course has the records.
