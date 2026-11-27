@@ -931,6 +931,15 @@ public:
             else if (face.is("RaceCourseMapFace") && course_map) course_map(face, dst, at.w > 0 ? dst.w / at.w : drawer_.screen_scale(), opacity);
         };
         photos_.picture = [this]() { return rt_ ? rt_->photo_picture.get() : nullptr; };
+        // The texts' sizes for the pages' packing (a dialog grows to its message) by this drawer's fonts when nothing else
+        // measures them (a scripted race with menus of its own; under the menu viewer its drawer does).
+        if (!menu::text_measure().measure) {
+            menu::text_measure().measure = [this](const LiveWidget& face, float& w, float& h) { drawer_.measure(face, w, h); };
+            measures_ = true;
+        }
+    }
+    ~RuntimePainter() override {
+        if (measures_) menu::text_measure().measure = nullptr;
     }
     void draw(menu::Runtime& rt, float x, float scale) override {
         rt_ = &rt;
@@ -958,6 +967,7 @@ private:
     menu::Runtime* rt_ = nullptr; // while drawn
     MenuCursor cursor_;
     u64 stepped_ = 0; // the menus' picture the pointer was last stepped to
+    bool measures_ = false; // the texts are measured by drawer_
 };
 
 } // namespace
