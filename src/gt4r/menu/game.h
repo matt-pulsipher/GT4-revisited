@@ -416,6 +416,10 @@ struct GameState {
     std::map<std::string, gt3r::Tex1::Image> chunk_pictures;
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
+    // The Analyzer's laps, handed by the race (logger.h), and its display switches (the save's block 0x39F1C: Track A,
+    // Track B, speed, accel, brake).
+    std::shared_ptr<struct LoggerSource> logger;
+    std::array<u8, 5> logger_display{1, 1, 1, 1, 1};
 };
 
 // A unit by the option's name ("MPH", "HP", "FTLB", ...): what a value in the game's own unit

@@ -15,6 +15,7 @@
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/logger_face.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
@@ -873,6 +874,8 @@ public:
             if (face.is("CarFace")) cars_.draw(face, project, page, at, dst, opacity);
             else if (face.is("ModelFace")) models_.draw(face, project, page, at, dst, opacity);
             else if (face.is("PhotoRenderFace")) photos_.draw(at, dst, opacity); // (the photo pause's photo_save page)
+            else if (face.is("LoggerFace")) draw_logger_face(drawer_, face, at, opacity);
+            else if (face.is("RaceCourseMapFace") && course_map) course_map(face, dst, at.w > 0 ? dst.w / at.w : drawer_.screen_scale(), opacity);
         };
         photos_.picture = [this]() { return rt_ ? rt_->photo_picture.get() : nullptr; };
     }

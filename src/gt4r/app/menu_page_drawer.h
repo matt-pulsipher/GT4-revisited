@@ -100,6 +100,21 @@ public:
     // `project`, `page`: where its pictures are.
     std::function<void(const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity)> draw_live;
 
+    // For a face drawn by another (app/logger_face.h), inside draw_live: the renderer, a point of the page on the screen,
+    // the page's scale, a text drawn as a face with these properties would draw it, and a font's line height.
+    SDL_Renderer* renderer() const { return r_; }
+    SDL_FPoint screen_point(float x, float y) const { return to_screen(x, y); }
+    float screen_scale() const { return scale_; }
+    void draw_text(const Widget& w, const Rect& at, float opacity) { text(w, at, opacity, at); }
+    float font_line_height(const std::string& name) const {
+        const auto it = fonts_.find(name);
+        return it == fonts_.end() ? 16.0f : float(it->second->line_height);
+    }
+    float font_ascent(const std::string& name) const {
+        const auto it = fonts_.find(name);
+        return it == fonts_.end() ? 12.0f : float(it->second->ascent);
+    }
+
     // A text's size as its face draws it (for the scripts' getTextSize).
     void measure(const LiveWidget& face, float& w, float& h) {
         const Widget& d = face.data;
