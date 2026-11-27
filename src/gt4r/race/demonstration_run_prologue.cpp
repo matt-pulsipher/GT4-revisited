@@ -103,6 +103,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         so.rules[0x40] = u8(entries.size() - 1);
         sim::Session session(sdb, program, std::make_shared<const course::Runway>(*road), entries, sim::course_row(sdb, ev->course), &so);
         session.set_race_rules(rr.hits, rr.speed_cap, rr.penalty_cap);
+        session.set_pit_rule({false, 3}); // (a lesson's conductor, DynamicsConductorLicense or Training: no pits)
         {
             std::array<gt3r::s8, 4> grip{};
             for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(ev->bytes[0x53 + k]);

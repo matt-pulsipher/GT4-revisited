@@ -687,7 +687,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
 void Session::ground_contact(ex::Car& c, Extra& x) {
     const size_t car = size_t(&c - cars_.data());
     if (prologue_ && course_ground_) { // (Prologue's 0x3754D8 on its GTRW road, as the program queries it)
-        prologue::ground_contact(c, prologue_cars_[car], *course_ground_, prologue_->bumps, true);
+        prologue::ground_contact(c, prologue_cars_[car], *course_ground_, prologue_->bumps, pit_rule_.pits);
         for (size_t i = 0; i < 4; ++i) x.kinds[i] = c.g[i].flags, x.materials[i] = c.g[i].material;
         return;
     }
@@ -1149,9 +1149,9 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
             rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
-        } else if (prologue_) { // phases 20 .. 22 (0x3BBBB8, 0x3BBD80 with the single race's conductor, 0x3C26F0)
+        } else if (prologue_) { // phases 20 .. 22 (0x3BBBB8, 0x3BBD80 with the race's conductor's pit rule, 0x3C26F0)
             prologue::tire_wear(c, prologue_cars_[i], race_.prep.wear);
-            prologue::wear_flags(c, prologue_cars_[i], race_.prep.wear, {});
+            prologue::wear_flags(c, prologue_cars_[i], race_.prep.wear, pit_rule_);
             prologue::flaps(c, prologue_cars_[i], prologue_step_, rng_);
         } else {
             ex::tire_wear(c, race_.prep.wear);
@@ -1398,7 +1398,7 @@ std::unique_ptr<Session> Session::solo(size_t car) const {
     s->tables_ = tables_, s->start_tables_ = start_tables_;
     s->start_counters_ = {start_counters_[car]};
     s->pace_kmh_ = {pace_kmh_[car]};
-    s->gt4_ready_ = gt4_ready_, s->gt4_rules_ = gt4_rules_;
+    s->gt4_ready_ = gt4_ready_, s->gt4_rules_ = gt4_rules_, s->pit_rule_ = pit_rule_;
     s->specs_ = {specs_[car]}, s->equipment_ = {equipment_[car]}, s->blocks_ = {blocks_[car]};
     s->states_ = {states_[car]};
     s->rng_ = rng_, s->random_state_ = random_state_;

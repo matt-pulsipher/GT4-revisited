@@ -422,6 +422,7 @@ void RaceWorld::build_simulation() {
             for (size_t i = 0; i < choices_.size(); ++i) session_->set_wheel_options(i, choices_[i].wheel_strength, choices_[i].wheel_assist);
             const sim::RaceRules race_rules = sim::race_rules(setup_.event_row, program);
             session_->set_race_rules(race_rules.hits, race_rules.speed_cap, race_rules.penalty_cap);
+            session_->set_pit_rule(setup_.pit_rule);
             { // the race's class grips (the rule block's +0x18 .. +0x1B from the row's +0x53 .. +0x56, 0x35E108)
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)

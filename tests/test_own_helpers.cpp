@@ -141,3 +141,27 @@ TEST(disc_prologue_gear_ratios_equal_the_programs) {
     std::printf("  %zu cars with a made gearbox, %zu car and slider pairs checked, %zu equal\n", cars, checked, equal);
     CHECK(cars > 10 && equal == checked);
 }
+
+// Prologue's conductors' pit rule (sim::prologue::PitRule, what the race sets with Session::set_pit_rule): each conductor's
+// virtuals 43 (whether a car may go to the pits) and 39 (the mode) called in the program: the single race's and the machine
+// test's 1 / 0, a license's and a training's 0 / 3, the free run's 0 / 0.
+TEST(disc_prologue_conductors_pit_rule) {
+    Disc* disc = disc_of(Game::Prologue);
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    diff::Ee ee;
+    diff::prologue::boot(ee, *disc);
+    const u32 self = ee.alloc(0x20000, 64);
+    struct Row {
+        const char* name;
+        u32 vtable;
+        u32 pits, mode;
+    };
+    const Row rows[] = {{"single race", 0x539608, 1, 0}, {"machine test", 0x539488, 1, 0}, {"license", 0x539308, 0, 3},
+                        {"training", 0x539788, 0, 3},    {"free run", 0x53A0D8, 0, 0}};
+    for (const Row& r : rows) {
+        const u32 pits = ee.call(ee.r32(r.vtable + 0x15C), {diff::Arg::ptr(self)}).v0_s32();
+        const u32 mode = ee.call(ee.r32(r.vtable + 0x13C), {diff::Arg::ptr(self)}).v0_s32();
+        std::printf("  %s: pits %u, mode %u\n", r.name, pits, mode);
+        CHECK(pits == r.pits && mode == r.mode);
+    }
+}

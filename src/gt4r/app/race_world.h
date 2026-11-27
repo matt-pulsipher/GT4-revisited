@@ -23,6 +23,7 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/equipment.h"
+#include "gt4r/sim/phases_prologue.h"
 
 #include <array>
 #include <future>
@@ -82,6 +83,7 @@ struct WorldSetup {
     // test's and a mission's cars start by the event's row (race/start_rule.h RowStart).
     race::Conductor conductor = race::Conductor::Other;
     int section = -1;
+    sim::prologue::PitRule pit_rule; // Prologue's conductor's pit rule (sim::Session::set_pit_rule): a single race's by default
     bool own_hold = false; // the race counts its start's hold itself, from the set-up's state (no steps of the session's own)
     // An online race's rules (a battle's conductor sets them in place of the event's: net/lan_rules.h): the tire damage (-1: no
     // such race) and the boost.
