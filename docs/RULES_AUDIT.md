@@ -46,10 +46,15 @@ event configs call them (config-august, -e3, -june, -lemans, -mazda, -subaru, -w
 0, the setting a computer lacks); the slide show's and Photo Lab's music **ported**: `MSound.isPlayingStream` (0x23EA18) and
 `sound.stream.isPlaying` (0x2C3700) answer whether the stream plays (Runtime::stream_playing, the app's music stream), so
 their music player goes on to the next track (it held on the first while they answered 0; `disc_menu_stream_playing`); the
-pause's idle time-out (end code 3, `timeout_count_to_topmenu`
-600 s copied at 0x3B5070; ❓ its reader); the car's distance added once after a race, not each step (0x35DE20; the oil's run-in
-wrap may fall otherwise); the oil's and the body's life rates as constants in `game_car.cpp` where the program reads its tables
-(0x350808 / 0x3507D0 on 0x620320, 0x366300 on 0x620B00); the Replay Theater's play list (empty) and the replays' SHUFFLE play
+pause's idle time-out (`timeout_count_to_topmenu`, the option's +0x1154, 600 from the options' maker 0x436488) **not met**:
+nothing in the program reads it but the scripts' attribute (0x186530) and the race's copy of the options, which keeps its own
+(0x3B5070), and no retail script reads it (Prologue's title counts its own `timeout_count`); the car's distance **ported**:
+added each step by the step (0x35DD00 in 0x35DE20, `sim/rules_speeds.cpp`) and the block carried back to the garage car
+(`RaceResult::condition`), `add_distance` only for a run without that step; the oil's and the body's life rates **ported**
+(`game_car.cpp`: getOilLifeRate 0x3437F0, oil 0x343698, replaceOil 0x343928 on the engine condition's limits 0x350678;
+getBodyLifeRate 0x343A80 -> 0x366300, bodyLife 0x343978 on the body's table 0x366100 from 0x620AF4 / 0x620AF6; dirtiness at
+most 0x3F4CCCCC, 0x3438A0; the US disc's values as the constants were, the body's setter now without a least and the rates in
+the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list (empty) and the replays' SHUFFLE play
 (`replay_play_mode`, read, unused); the time trial's `ranking` project after a run with a time (0x108354: the online
 leaderboard); the event Preview (`race_view` 0x10BB80 → 0x10BA28, a RaceArcadeDemo: ours the event's field driven by the
 computer in the TV view, ❓ the demo's length and camera not read); a free run's pause Exit after a lap (RaceFreeRun::vf77
@@ -126,9 +131,9 @@ dealers, the presents): they run as written on our natives. The program's side:
 | Endurance | a save in the middle of a race | none (the save's `suspended_*` are a championship left between races, 0x119BD8) | `GameState::suspend_series` | the game has none |
 | Endurance | fuel (tank, burn P +0x104C, 0.74 kg/l, out of fuel), tire wear and the event's curve (only on a course counting fuel), pit stops (request, lane, crew, refuel, the PIT STOP menu) | 0x354B78, 0x352EA0, 0x34CCD4, 0x35B060, 0x3DCC50 | `sim/rules_fuel.*`, `sim/rules_wear.*`, `pit_flow.*`, `update_pit_menu` | ported ✔ (26-endurance `fc_pitwindow_*`) |
 | Car condition | the block (odometer, engine distance, oil, dirt, body); the engine's factor on torque by its distance and the oil's | 0x43DC20, 0x350868 | `CarRecord::condition`, `sim::engine_condition` | ported ✔ (05-gtmode: the Panda 40 → 44 HP after an oil change) |
-| Car condition | distance added each step to the odometer, engine, oil (its run-in wrap), body | 0x35DE20 | `game_race.cpp` `add_distance`: once after the race | judged |
+| Car condition | distance added each step to the odometer, engine, oil (its run-in wrap), body | 0x35DD00, 0x35DE20 | `sim/rules_speeds.cpp`, the block back by `RaceResult::condition`; `add_distance` once only for a run without the step | ported |
 | Car condition | dirt from the race | 0x3438C8 | gap 12 | missing |
-| Car condition | oil change, car wash, body refresh, the life rates | 0x14EB38, 0x14EB80, 0x14EDD8, 0x3437F0, 0x343A80 | `game_car.cpp`; the rates' limits as constants | ported; the rates judged |
+| Car condition | oil change, car wash, body refresh, the life rates | 0x14EB38, 0x14EB80, 0x14EDD8, 0x3437F0, 0x343A80 | `game_car.cpp` on the program's limits (0x350678, 0x366100) | ported |
 | Used cars | makeUsed, the price by odometer | 0x440FB8, 0x441128, 0x4411F0 | `game_car.cpp` | ported ✔ |
 | Used cars, legend cars, presents | the week's line-up (`usedcar/US_used%04d`, 400 lists), the sold marks, the legend dealer, presents by race and by date | scripts, MUsedCar 0x1B21A0, MPresent 0x19FE18 | natives in `game_records.cpp` | script ✔ (21-gtmode-deep: two weeks); the legend dealer not compared |
 | Calendar | a day per diary event (kept 2,922); the weeks from 2005-04-02 | 0x42F0E0, 0x42F530 | `GameState::put_day`, `game_records.cpp` | ported ✔ |

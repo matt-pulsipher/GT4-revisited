@@ -4,6 +4,7 @@
 #include "menu_run_flow.h"
 
 #include <cstdio>
+#include <cstring>
 
 using script::Value;
 
@@ -54,4 +55,43 @@ TEST(disc_menu_stream_playing) {
     playing = false;
     for (int i = 0; i < 3; ++i) call(vm, tick, {Value{}}); // it ended: the next one
     CHECK(stream_starts(*f.rt) == before + 2);
+}
+
+// The garage car's condition natives (CarGarage 0x14E9C0 .. 0x14EDD8) on the program's limits: the engine condition's table
+// (0x350678 from the static block +0xD5, +0xD7: fresh oil -300,000 m, old oil 6,000,000 m) and the body's (0x366100 from
+// 0x620AF4 / 0x620AF6: 500,000 to 3,000,000 m), the dirt at most 0.8 (0x3438A0).
+TEST(disc_menu_car_condition_natives) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    script::Vm& vm = f.rt->vm();
+    const Value car = vm.attribute(vm.attribute(vm.lookup("main::game"), "garage"), "riding_car");
+    CHECK(!car.is_nil());
+    if (car.is_nil()) return;
+    auto m = [&](const char* name) { return call(vm, vm.attribute(car, name), {}); };
+    auto set = [&](const char* name, float v) { vm.member(car, name)->set(vm, Value::number(v)); };
+    auto get = [&](const char* name) { return vm.attribute(car, name).as_float(); };
+    m("replaceOil");
+    CHECK(get("oil") == -300000.0f && m("getOilLifeRate").as_float() == 0.0f);
+    set("oil", -150000.0f);
+    CHECK(m("getOilLifeRate").as_float() == 0.025f); // (150,000 / 6,000,000)
+    set("oil", 3000000.0f);
+    CHECK(m("getOilLifeRate").as_float() == 0.5f);
+    set("oil", 7000000.0f);
+    CHECK(get("oil") == 6000000.0f && m("getOilLifeRate").as_float() == 1.0f);
+    m("refreshBody");
+    CHECK(get("bodyLife") == 0.0f && m("getBodyLifeRate").as_float() == 0.0f);
+    set("bodyLife", 1750000.0f);
+    // (2 x 1,250,000 / 2,500,000 in the EE's division: one step under 1, so 0.49999997)
+    CHECK(m("getBodyLifeRate").as_float() == 0.49999997f);
+    set("bodyLife", 4000000.0f);
+    CHECK(get("bodyLife") == 3000000.0f && m("getBodyLifeRate").as_float() == 1.0f);
+    set("bodyLife", -10.0f); // (no least: the program keeps it)
+    CHECK(get("bodyLife") == -10.0f && m("getBodyLifeRate").as_float() == 0.0f);
+    set("dirtiness", 1.0f);
+    u32 bits = 0;
+    const float dirt = get("dirtiness");
+    std::memcpy(&bits, &dirt, 4);
+    CHECK(bits == 0x3F4CCCCCu);
 }
