@@ -1,4 +1,5 @@
 #include "gt4r/race/car_visual.h"
+#include "gt4r/race/car_lods.h"
 
 #include "base/log.h"
 #include "formats/course/course_model.h"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <set>
 
 namespace gt4r::race {
 
@@ -64,6 +66,81 @@ mdls::Scene body_scene(bool brake, int lamp_level, int spoiler = 0) {
     for (u16 id = 20; id <= 39; ++id) s.callback_values[id] = kSkip;
     s.callback_values[47] = spoiler; // 0 as built, 1 a wing fitted, 2 the spoiler taken off
     return s;
+}
+
+// What model 0's draw program reaches: every level switch (0x07) with the stack's depth there, in address order, and
+// whether it calls callback 46 (0x59 46 or a 0x06 on it: the far level's wheels drawn as shapes of the body).
+struct ProgramWalk {
+    struct Switch : BodyLods::Switch {
+        int depth = 0;
+    };
+    std::vector<Switch> switches;
+    bool wheel_face = false;
+};
+ProgramWalk walk_program(ByteSpan b) {
+    ProgramWalk out;
+    const mdls::Header h = mdls::read_header(b);
+    if (!h.models || h.model_table + 0x1C > b.size()) return out;
+    std::vector<std::pair<size_t, int>> work{{rd32(b, h.model_table + 0x18), 0}};
+    std::set<size_t> seen;
+    const auto rel = [&](size_t at) { return size_t(s64(at) + s64(s16(rd16(b, at)))); };
+    while (!work.empty()) {
+        auto [pc, depth] = work.back();
+        work.pop_back();
+        while (pc && pc < b.size() && seen.insert(pc).second) {
+            const u8 op = b[pc];
+            const size_t a = pc + 1;
+            if (op == 0x00) break;
+            if (op == 0x06 || op == 0x4D) {
+                if (a + 3 > b.size()) break;
+                const u32 n = b[a + 2];
+                if (op == 0x06 && rd16(b, a) == 46) out.wheel_face = true;
+                for (u32 k = 0; k < n && a + 5 + 2 * k <= b.size(); ++k) work.push_back({rel(a + 3 + 2 * k), depth});
+                pc = a + 3 + 2 * size_t(n);
+            } else if (op == 0x07) {
+                if (a + 17 > b.size()) break;
+                ProgramWalk::Switch sw;
+                float f[4];
+                std::memcpy(f, b.data() + a, 16);
+                sw.at = u32(pc), sw.centre[0] = f[0], sw.centre[1] = f[1], sw.centre[2] = f[2], sw.size = f[3], sw.levels = b[a + 16];
+                sw.depth = depth;
+                out.switches.push_back(sw);
+                for (int k = 0; k < sw.levels && a + 19 + 2 * size_t(k) <= b.size(); ++k) work.push_back({rel(a + 17 + 2 * size_t(k)), depth});
+                if (sw.levels) break;
+                pc = a + 17;
+            } else if (op == 0x08) {
+                if (a >= b.size()) break;
+                pc = size_t(s64(a) + std::int8_t(b[a]));
+            } else if (op == 0x09) {
+                if (a + 2 > b.size()) break;
+                pc = rel(a);
+            } else if (op == 0x0A) {
+                if (a >= b.size()) break;
+                const size_t skip = a + 1 + 12 * size_t(b[a]);
+                if (skip + 2 > b.size()) break;
+                work.push_back({rel(skip), depth});
+                pc = skip + 2;
+            } else {
+                const int k = mdls::command_operand_bytes(op);
+                if (k < 0) break;
+                if (op == 0x59 && a < b.size() && b[a] == 46) out.wheel_face = true;
+                depth += op == 0x0C ? 1 : op == 0x0D ? -1 : 0;
+                pc = a + size_t(k);
+            }
+        }
+    }
+    std::sort(out.switches.begin(), out.switches.end(), [](const ProgramWalk::Switch& x, const ProgramWalk::Switch& y) { return x.at < y.at; });
+    return out;
+}
+
+// The body's level of detail switch (0x07: centre, size, levels): the first one at the program's top level, outside
+// every push (on 785 of the 807 race bodies the program's first command after the render states without operands;
+// on the other 22, after the four wheels' constructs, which have switches of their own). `at` 0: none.
+using LodSwitch = BodyLods::Switch;
+LodSwitch lod_switch(ByteSpan body) {
+    for (const ProgramWalk::Switch& sw : walk_program(body).switches)
+        if (sw.depth == 0) return sw;
+    return {};
 }
 
 // A car's sets as the shared engine decodes its own cars': the programs' alpha test cuts the wheel
@@ -268,23 +345,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
     }
     const u32 body_models = mdls::read_header(body).models;
 
-    // The level of detail's switch at the start of the body's program (0x07: centre, size), after the
-    // render-state commands without operands that come before it (0x22 on the cars looked at).
-    {
-        const mdls::Header h = mdls::read_header(body);
-        u32 pc = h.models && h.model_table + 0x1C <= body.size() ? rd32(body, h.model_table + 0x18) : 0;
-        const auto plain = [](u8 op) {
-            for (u8 o : {0x01, 0x0B, 0x0C, 0x0D, 0x17, 0x18, 0x1A, 0x1B, 0x1D, 0x1E, 0x22, 0x23, 0x25, 0x26, 0x2D, 0x2E, 0x30, 0x40, 0x4E, 0x4F, 0x56, 0x57, 0x58})
-                if (op == o) return true;
-            return false;
-        };
-        for (int k = 0; pc && k < 8 && pc < body.size() && plain(body[pc]); ++k) ++pc;
-        if (pc && pc + 18 <= body.size() && body[pc] == 0x07) {
-            float f[4];
-            std::memcpy(f, body.data() + pc + 1, 16);
-            lod_centre_ = {f[0], f[1], f[2]}, lod_size_ = f[3], lod_levels_ = body[pc + 17];
-        }
-    }
+    if (const LodSwitch sw = lod_switch(body); sw.at) lod_centre_ = {sw.centre[0], sw.centre[1], sw.centre[2]}, lod_size_ = sw.size, lod_levels_ = sw.levels;
+    far_wheel_face_ = walk_program(body).wheel_face;
     // A fitted wing (wing/lod/<label>): the stock spoiler's case 1 of callback 47; the wing set's
     // model 0 is drawn before the body at the parts block's place (+0xD0), scaled by half its width
     // (+0xDC) (0x4533A8).
@@ -304,8 +366,10 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
     }
     // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
     // wheels as shapes of its own with the picture callback 46 binds to slot 2: the wheel set's last
-    // texture set (its far level's turning face), given to the body as a set of its own here.
-    constexpr int kLevels = kWheelLevels;
+    // texture set (its far level's turning face), given to the body as a set of its own here. A body
+    // without callback 46 (22 of the 807: their wheels' constructs come first, each with a switch of its
+    // own) draws its wheels by their callbacks at every level, and its far level is built as the others.
+    const int kLevels = far_wheel_face_ ? kWheelLevels : std::clamp(lod_levels_, 1, 3);
     Bytes far_body;
     int far_set = -1;
     if (c.wheel) {
@@ -313,7 +377,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         const mdls::Header wh = mdls::read_header(wheel_set);
         const u32 list = wh.texture_lists ? rd32(wheel_set, wh.texture_table) : 0;
         const u32 last = wh.texture_sets && list + 4 * wh.texture_sets <= wheel_set.size() ? rd32(wheel_set, list + 4 * (wh.texture_sets - 1)) : 0;
-        if (lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
+        if (far_wheel_face_ && lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
     }
     // A scripted body (docs/formats/model.md "What a car's script reads"): the brake lamps by script, and on a few cars
     // moving parts, the shapes under a turn by a register (0x48: the 1886 Benz's flywheel and belts) and those blended by
@@ -379,6 +443,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         } catch (const std::exception& e) {
             LOG_WARN("Car %s: its body of its own (%s): %s; the model's is drawn", name.c_str(), mod->glb_path.c_str(), e.what());
         }
+    body_shown_.fill(false);
     for (int brake = 0; brake < 2; ++brake) {
         // With turned parts: the body without them, and each part alone.
         const int turned = moving_ && !moving_->parts.empty() ? -1 : -2;
@@ -403,7 +468,12 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             m.compute_bounds();
             min_ = {m.bounds_min[0], m.bounds_min[1], m.bounds_min[2]};
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
-            for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
+            std::array<size_t, 4> triangles{};
+            for (const scene::Mesh& mesh : m.meshes) {
+                lods_ = std::max(lods_, mesh.lod + 1);
+                if (mesh.lod >= 0 && mesh.lod < int(triangles.size())) triangles[size_t(mesh.lod)] += mesh.indices.size() / 3;
+            }
+            for (size_t l = 0; l < triangles.size(); ++l) body_shown_[l] = draws_body(int(triangles[l]), int(triangles[0]));
         }
         // The band: a model of its own (the body's pictures it draws with), drawn at rest without a Motion.
         if (moving_ && !moving_->band[size_t(brake)].meshes.empty()) {
@@ -463,13 +533,13 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                     mdls::Scene ts;
                     ts.resolve_callbacks = true;
                     // The turning tire is the set's second list of pictures.
-                    scene::Model tire = build_levels(tire_set, th.models > u32(side) ? side : 0, ts, kLevels, th.texture_lists > 1 ? turning : 0, "tire");
+                    scene::Model tire = build_levels(tire_set, th.models > u32(side) ? side : 0, ts, kWheelLevels, th.texture_lists > 1 ? turning : 0, "tire");
                     reshape_tire(tire, spec.tire_width[axle], spec.rim_radius[axle], spec.tire_radius[axle]);
                     gt3r::course::append_model(both, std::move(tire));
                 }
                 // The face is drawn through outside slot 2: the level's still picture or the one
                 // after it, the turning one (sets 3 / 4 for the nearest level, 5 / 6, 7 / 8).
-                for (int lod = 0; lod < kLevels; ++lod) {
+                for (int lod = 0; lod < kWheelLevels; ++lod) {
                     mdls::Scene ws;
                     ws.resolve_callbacks = true;
                     ws.outside_sets[mdls::kWheelFaceSlot] = mdls::kWheelFaceSet + 2 * lod + turning;
@@ -861,15 +931,15 @@ void CarVisual::set_still_skeleton(size_t seat, const posture::Skeleton& s) {
 
 int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* view) const {
     const Mat4 body = body_matrix(s);
-    if (!view || lod_size_ <= 0) return std::min(render::length(v3(s.position) - eye) < 30.0f ? 0 : 1, lods_ - 1);
+    const auto shown = [&](int level) { return shown_level(level, lods_, body_shown_.data(), int(body_shown_.size())); };
+    if (!view || lod_size_ <= 0) return shown(render::length(v3(s.position) - eye) < 30.0f ? 0 : 1);
     // The program's choice (0x07 with the car's callback, 0x4539A8): v = K x size / depth of the switch's
     // centre; v > T: 0, v > 0.33 T: 1, else 2, T = 200.
     const render::Vec3 c = body.transform_point(lod_centre_);
     const float depth = std::max(render::dot(c - eye, view->forward), 0.0001f);
     const float v = view->k * lod_size_ / depth;
     constexpr float kT = 200;
-    const int level = v > kT ? 0 : v > kT * 0.33f ? 1 : 2;
-    return std::min(level, lods_ - 1);
+    return shown(v > kT ? 0 : v > kT * 0.33f ? 1 : 2);
 }
 
 void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view, bool wheels,
@@ -909,7 +979,7 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
     for (int w = 0; w < 4; ++w) {
         // The brake parts in the wheel's frame; the tire and the wheel turned and scaled in it, with
         // their turning pictures when the wheel turns fast enough.
-        if (lod >= kWheelLevels) break; // the far level draws its wheels itself
+        if (lod >= kWheelLevels && far_wheel_face_) break; // the far level draws its wheels itself
         if (gt3_file_) {
             bool parts = false;
             if (gt3_brakes_shown(s, w, eye, view, parts)) {
@@ -933,7 +1003,7 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         if (!wheels) continue;
         const bool turning = wheel_turning(s.wheels[w], step);
         const render::GpuModel* wheel = wheels_[size_t(w)][turning ? 1 : 0] ? wheels_[size_t(w)][turning ? 1 : 0].get() : wheels_[size_t(w)][0].get();
-        if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), lod});
+        if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), std::min(lod, kWheelLevels - 1)});
     }
 }
 
@@ -1008,6 +1078,60 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});
+}
+
+// Judged: on the US disc's 807 race bodies every level has a quarter or more of level 0's triangles but the 1886
+// Benz's farther two (level 1 draws nothing, level 2 its wheels alone: 256 of 4520).
+bool draws_body(int triangles, int nearest) { return triangles > 0 && 10 * triangles >= nearest; }
+
+int shown_level(int level, int levels, const bool* drawn, int drawn_count) {
+    level = std::max(0, std::min(level, levels - 1));
+    const int n = std::min(levels, drawn_count);
+    for (int l = level; l < n; ++l)
+        if (drawn[l]) return l;
+    for (int l = std::min(level, n) - 1; l >= 0; --l)
+        if (drawn[l]) return l;
+    return level;
+}
+
+BodyLods body_lods(ByteSpan file) {
+    BodyLods out;
+    const car::CarFile c = car::CarFile::parse(file);
+    const ByteSpan body = file.subspan(c.body);
+    const ProgramWalk walk = walk_program(body);
+    for (const ProgramWalk::Switch& w : walk.switches) out.switches.push_back(w);
+    out.wheel_face = walk.wheel_face;
+    const LodSwitch sw = lod_switch(body);
+    out.has_switch = sw.at != 0;
+    for (int i = 0; i < 3; ++i) out.centre[i] = sw.centre[i];
+    out.size = sw.size, out.levels = sw.levels;
+    const mdls::Scene sc = body_scene(false, 0);
+    for (int k = 0; k < (sw.at ? std::min(sw.levels, 3) : 1); ++k) { // (the callback picks 0 .. 2)
+        gt3r::gtm1::Options o = car_options();
+        o.node = 0;
+        o.run.lod = k;
+        scene::Model m = mdls::build_model(body, o, sc, "lods");
+        BodyLods::Level l;
+        l.index = k;
+        bool first = true;
+        float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        for (const scene::Mesh& mesh : m.meshes) {
+            l.triangles += int(mesh.indices.size() / 3);
+            for (u32 i : mesh.indices) {
+                if (i >= mesh.vertices.size()) continue;
+                for (int a = 0; a < 3; ++a) {
+                    const float v = mesh.vertices[i].pos[a];
+                    if (first || v < lo[a]) lo[a] = v;
+                    if (first || v > hi[a]) hi[a] = v;
+                }
+                first = false;
+            }
+        }
+        for (int a = 0; a < 3; ++a) l.extent[a] = hi[a] - lo[a];
+        out.level.push_back(l);
+    }
+    for (BodyLods::Level& l : out.level) l.missing = !draws_body(l.triangles, out.level[0].triangles);
+    return out;
 }
 
 } // namespace gt4r::race
