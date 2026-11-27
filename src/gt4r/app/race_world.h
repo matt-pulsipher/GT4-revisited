@@ -117,6 +117,11 @@ public:
     // The entries' cars as a demonstration's file enters them (each its equipment, grid place, gearbox and
     // aids; sim/ai/demo_driver.h), or back as set up (empty); the world starts again.
     void set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides);
+    // An entry's condition block from the next restart (a garage car's, as the last run left it: each run of a sequence
+    // starts from the riding car's, 0x10F948).
+    void set_condition(size_t entry, const std::optional<std::array<u8, 0x20>>& c) {
+        if (entry < setup_.entries.size()) setup_.entries[entry].condition = c;
+    }
     // The computer drivers drive the player's car too (B-spec, a scripted run) from the next restart.
     void set_computer_player(bool on) { computer_player_ = on; }
     // The game's computer drivers drive the cars (false: the caller's inputs, e.g. the stand-in's

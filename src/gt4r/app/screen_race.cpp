@@ -764,6 +764,12 @@ public:
     // The cars on the grid and the start's hold from the beginning; `watched`: the computer drives the
     // player's car too (B-spec).
     void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { world_->set_bspec_book(book, marks); }
+    // The player's garage car's condition block from the next run on (each run of a sequence starts from the riding car's,
+    // 0x10F948, as the last run left it, 0x10FA58).
+    void set_player_condition(const std::optional<std::array<u8, 0x20>>& c) {
+        if (!setup_.player_condition || !c || *c == *setup_.player_condition) return;
+        setup_.player_condition = c, world_->set_condition(0, c), stale_ = true;
+    }
     const WorldSetup& world_setup() const { return world_->setup(); }
     // What the player chose for his car (the next run's).
     void set_player(const RaceWorld::PlayerChoice& c) { stale_ = world_->set_player(c) || stale_; }
@@ -3621,6 +3627,7 @@ private:
             // Retry (end code 4): the run again at once, without the menus.
             pause_retry_ = false;
             if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+            if (menus_ && !sequence_.empty()) race_->set_player_condition(menu::race_condition(menus_->game(), menus_->game().race.garage_slot));
             race_->set_player(player_choice());
             race_->begin_run(spectator_);
             result_tried_ = false, result_.reset(), reported_ = false;
@@ -3791,6 +3798,7 @@ private:
         reported_ = false;
         replay_picture_.clear();
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+        if (menus_ && !sequence_.empty()) race_->set_player_condition(menu::race_condition(menus_->game(), menus_->game().race.garage_slot));
         if (menus_ && sequence_ == "championship") {
             const auto& series = menus_->game().series;
             race_->set_last_race(series.race_count > 0 && series.races_run + 1 >= series.race_count);
@@ -3867,6 +3875,8 @@ private:
         r.place = std::max(0, flow.place(0) - 1);
         r.time_ms = r.finished ? u32(flow.run_ms(0)) : 0;
         r.distance_m = race_->player_distance();
+        // The garage car's condition block as the step left it (Gran Turismo 4's step only: it started from the car's).
+        if (const sim::Session* ss = race_->world().session(); ss && ss->gt4_rules() && setup_.player_condition && q.garage_slot >= 0) r.condition = ss->condition(0);
         r.bspec_distance_m = race_->bspec_distance();
         if (race_->aspec_race() && !r.watched) r.score = race_->aspec_taken();
         if (is_license(sequence_)) {
