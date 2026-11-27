@@ -438,6 +438,12 @@ std::shared_ptr<Object> GameNatives::build_option(GameState& held, std::shared_p
             s->options[n] = picture_text(p);
         });
     }
+    // Japan's language_for_unit (MOption's accessor 0x17E6F0: by the language's name, 0x4870B8 / 0x487128; ❓ a name that
+    // is no language is not kept).
+    if (!s->unit_language.empty())
+        option->property("language_for_unit", [s] { return text(s->option_text("language_for_unit")); }, [s](const Value& v) {
+            if (language_number(v.to_string()) >= 0) s->options["language_for_unit"] = v.to_string();
+        });
     Runtime* r = &rt;
     // apply(), save(): the settings take effect (Runtime::on_options) and are kept (under the
     // data folder). A copy's take effect as the copy has them (the option pages' preview) and
@@ -445,6 +451,8 @@ std::shared_ptr<Object> GameNatives::build_option(GameState& held, std::shared_p
     GameNatives* np = this;
     const bool copied = copy != nullptr;
     auto take_effect = [r, np, s, copied] {
+        // (Japan's apply 0x42F0E8: the units by language_for_unit, 0x46A868)
+        if (!s->unit_language.empty()) s->units_by_language(s->option_text("language_for_unit"));
         if (copied) {
             if (r->on_options) r->on_options(settings_of(*s));
             return;
@@ -1310,7 +1318,8 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
     // The Replay Theater's replays (game_replays.cpp).
-    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY")
+    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY" ||
+        mode == "MODE_REPLAY_PLAYLIST")
         install_replay_list(*this, *m, mode);
     if (mode == "MODE_DEMONSTRATION") install_demo_list(*this, *m, false);
     if (mode == "MODE_DEMONSTRATION_SUB") install_demo_list(*this, *m, true);
@@ -1462,6 +1471,13 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     rt.keep_alive(n);
     Runtime* r = &rt;
     GameState* s = &rt.game();
+    // Japan's program keeps the units by a language (GameState::unit_language): a new game's the console's language.
+    if (const Database& d = n->db(); d.program.known() && d.program.release() == sim::Release::Japan) {
+        // (the console's language: the menus')
+        s->unit_language = language_number(rt.language()) >= 0 ? rt.language() : std::string("JP");
+        if (language_number(s->option_text("language_for_unit")) < 0) s->options["language_for_unit"] = s->unit_language;
+        s->units_by_language(s->option_text("language_for_unit"));
+    }
 
     // The objects the main script makes.
     {
@@ -1518,6 +1534,9 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "SetLanguage", [r](Vm&, const Value&, Args a) {
             const std::string l = arg_text(a, 0);
             r->note("language: " + l);
+            // (Japan's language setter 0x42ECC8 / 0x42EC28: another language sets the units by it too, until the options'
+            // next apply sets them by language_for_unit again)
+            if (!r->game().unit_language.empty() && r->game().option_text("language") != l) r->game().units_by_language(l);
             r->set_language(l);
             r->game().options["language"] = l;
             return Value{};

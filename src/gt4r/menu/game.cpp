@@ -69,6 +69,47 @@ void GameState::option_defaults(const std::string& region) {
     options["unit_velocity"] = std::string(imperial ? "MPH" : "KMPH");
     options["unit_power"] = std::string(region == "us" ? "HP" : region == "uk" ? "BHP" : "PS");
     options["unit_torque"] = std::string(region == "us" || region == "uk" ? "FTLB" : "KGFM");
+    // Japan's reset (0x42EEC0): language_for_unit the console's language, the units by it.
+    if (!unit_language.empty()) options["language_for_unit"] = unit_language, units_by_language(unit_language);
+}
+
+namespace {
+const char* const kLanguages[] = {"JP", "US", "GB", "FR", "DE", "IT", "ES", "PT", "KR", "CN", "TW", "DB"};
+const char* const kVelocityUnits[] = {"KMPH", "MPH"};
+const char* const kPowerUnits[] = {"PS", "HP", "BHP", "CH", "KW", "CV", "PF"};
+const char* const kTorqueUnits[] = {"KGFM", "FTLB", "NM"};
+} // namespace
+
+int language_number(const std::string& name) {
+    for (int i = 0; i < 12; ++i)
+        if (name == kLanguages[i]) return i;
+    return -1;
+}
+
+const char* language_name(int number) { return number >= 0 && number < 12 ? kLanguages[number] : ""; }
+
+std::array<u8, 3> japan_units(u32 language) {
+    // 0x46A868's table (0x6A3620): JP 1, US 2, GB 3, FR 4, DE 5, IT 6, ES 7, PT 11, KR 8, CN 9, TW 10; another language
+    // case 1 (0x46A758). The cases (0x46A760, the unit block's +0 speed, +4 power, +8 torque): 1, 5, 8, 9, 10 km/h PS
+    // kgf.m; 2 mph HP ft.lb; 3 km/h BHP kgf.m (the US and European programs' 0x472408: mph); 4 km/h CH kgf.m; 6, 7, 11
+    // km/h CV kgf.m.
+    static constexpr u8 kCase[12] = {1, 2, 3, 4, 5, 6, 7, 11, 8, 9, 10, 1};
+    const u8 c = language < 12 ? kCase[language] : 1;
+    switch (c) {
+    case 2: return {1, 1, 1};
+    case 3: return {0, 2, 0};
+    case 4: return {0, 3, 0};
+    case 6: case 7: case 11: return {0, 5, 0};
+    default: return {0, 0, 0};
+    }
+}
+
+void GameState::units_by_language(const std::string& language) {
+    const int n = language_number(language);
+    const std::array<u8, 3> u = japan_units(n < 0 ? 0xFFFFFFFFu : u32(n));
+    options["unit_velocity"] = std::string(kVelocityUnits[u[0]]);
+    options["unit_power"] = std::string(kPowerUnits[u[1]]);
+    options["unit_torque"] = std::string(kTorqueUnits[u[2]]);
 }
 
 s32 GameState::option_int(const std::string& name, s32 fallback) const {

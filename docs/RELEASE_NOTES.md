@@ -25,6 +25,5 @@ Download: macOS (Apple Silicon), Windows, Linux and Android.
 ## Known problems
 
 - The Japanese release races on the US release's driving, computer-driver and race rules for now (its own are being added)
-- The name entry takes no typed letters: choose them with the arrows and Enter
 - Photo Lab: films cannot be developed; no printer or USB memory
 - Mods' cars, events and liveries are not read yet

@@ -9,16 +9,23 @@
 //   gt4tool photo <disc> check <card folder>
 //       each photo's record, icon and icon.sys made again from what they hold and compared, and the JPEG
 //       decoded and coded again: the sizes of both.
+//   gt4tool photo <disc> film <film file>
+//       a film's data (a card's F folder's file) unscrambled, its chunks listed.
+//   gt4tool photo <disc> import <card image> <card folder>
+//       the photo and film folders of a .ps2 / .mcd card image (BASCUS-97328P..., ...F...) copied into a card folder.
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/menu/jpeg.h"
+#include "gt4r/photo/film.h"
 #include "gt4r/photo/photo_course.h"
 #include "gt4r/photo/picture.h"
 #include "gt4r/save/card_icon.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/photo_file.h"
+#include "formats/ps2/memcard.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -89,7 +96,10 @@ int card(Disc& disc, const std::string& folder, const std::string& out) {
 int check(Disc& disc, const std::string& folder) {
     auto reader = [&disc](const std::string& path) { return disc_file(disc, path); };
     save::PhotoCard c(folder, reader);
-    for (const save::PhotoEntry& e : c.list('P')) {
+    std::vector<save::PhotoEntry> entries = c.list('P');
+    for (const save::PhotoEntry& e : c.list('F')) entries.push_back(e);
+    for (const save::PhotoEntry& e : entries) {
+        const bool film = e.kind == 'F';
         const std::filesystem::path dir = std::filesystem::path(folder) / e.folder;
         std::printf("%s:\n", e.folder.c_str());
         // The record.
@@ -99,12 +109,13 @@ int check(Disc& disc, const std::string& folder) {
         if (plain && e.info) {
             Bytes again = e.info->encode();
             int differ = 0;
-            for (size_t i = 0; i < save::kInfoSize; ++i) differ += again[i] != (*plain)[i];
+            for (size_t i = 0; i < save::kInfoSize; ++i)
+                if (again[i] != (*plain)[i]) ++differ, std::printf(" [+0x%02zX %02X, made %02X]", i, (*plain)[i], again[i]);
             std::printf(", %d bytes differ made again", differ);
         }
         std::printf("\n");
         // The scrambling: the same file from its own payload and first word.
-        for (const auto& [name, kind] : {std::pair{std::string("thumbnail"), save::FileKind::Info}, std::pair{e.folder, save::FileKind::Photo}}) {
+        for (const auto& [name, kind] : {std::pair{std::string("thumbnail"), save::FileKind::Info}, std::pair{e.folder, film ? save::FileKind::Film : save::FileKind::Photo}}) {
             const Bytes file = read_file(dir / name);
             const std::optional<Bytes> body = save::unscramble(file, 0, kind);
             bool same = false;
@@ -114,7 +125,7 @@ int check(Disc& disc, const std::string& folder) {
                     const u32 r = rd32(file, o);
                     if (o > 0 && file.size() > 4096 && rd32(file, 0) != 0 && o % 1 != 0) continue;
                     const u64 n = file.size() - 4;
-                    const double f = kind == save::FileKind::Info ? 0.468643 : 0.404;
+                    const double f = kind == save::FileKind::Info ? 0.468643 : kind == save::FileKind::Film ? 0.345678 : 0.404;
                     if (std::abs(double(o) - double(n) * f) > 2) continue;
                     same = save::scramble(ByteSpan(body->data(), body->size()).subspan(0, body->size()), 0, r, kind) == file;
                 }
@@ -123,7 +134,7 @@ int check(Disc& disc, const std::string& folder) {
         }
         // The icon.
         const Bytes icon = read_file(dir / "icon0.ico");
-        const std::optional<Bytes> t = reader(e.portrait ? "icon/GT4_photo_3_to_4_.ico" : "icon/GT4_photo_4_to_3_.ico");
+        const std::optional<Bytes> t = reader(std::string(film ? "icon/GT4_film_" : "icon/GT4_photo_") + (e.portrait ? "3_to_4_.ico" : "4_to_3_.ico"));
         if (const std::optional<std::vector<u32>> px = save::icon_picture(icon); px && t) {
             std::vector<u16> small;
             for (u32 v : *px) small.push_back(u16((v & 255) >> 3 | (v >> 8 & 255) >> 3 << 5 | (v >> 16 & 255) >> 3 << 10));
@@ -157,6 +168,90 @@ int check(Disc& disc, const std::string& folder) {
     return 0;
 }
 
+// A chunk's tag where one reads (four capitals) and its size inside the span.
+bool chunk_at(ByteSpan d, size_t at, size_t end, u32& size) {
+    if (at + 8 > end) return false;
+    for (size_t i = 0; i < 4; ++i)
+        if (d[at + i] < 'A' || d[at + i] > 'Z') return false;
+    size = rd32(d, at + 4);
+    return size >= 8 && at + size <= end;
+}
+void dump_chunks(ByteSpan d, size_t at, size_t end, int depth) {
+    while (at < end) {
+        u32 size = 0;
+        if (!chunk_at(d, at, end, size)) {
+            std::printf("%*s+%04zX:", depth * 2, "", at);
+            const size_t stop = [&] {
+                for (size_t q = at + 1; q < end; ++q)
+                    if (u32 z = 0; chunk_at(d, q, end, z)) return q;
+                return end;
+            }();
+            for (size_t q = at; q < stop; ++q) std::printf(" %02X", d[q]);
+            std::printf("\n");
+            at = stop;
+            continue;
+        }
+        std::printf("%*s%c%c%c%c %u\n", depth * 2, "", d[at], d[at + 1], d[at + 2], d[at + 3], size);
+        dump_chunks(d, at + 8, at + size, depth + 1);
+        at += size;
+    }
+}
+int film(const std::string& path) {
+    const std::optional<Bytes> d = save::unscramble(read_file(path), 0, save::FileKind::Film);
+    if (!d) return std::fprintf(stderr, "%s: does not unscramble\n", path.c_str()), 1;
+    std::printf("%zu bytes\n", d->size());
+    dump_chunks(*d, 0, d->size(), 0);
+    // Read as a film, and written again: the same bytes.
+    const std::optional<photo::film::Film> f = photo::film::Film::decode(*d);
+    if (!f) return std::puts("does not read as a film"), 1;
+    const photo::film::Photo& p = f->photo;
+    std::printf("photo: %ux%u x %ux%u, aspect %.4f, upright %d, %u pictures, shutter %.3f frames, filter %d, saturation %.2f, %+.1f EV, %.0f K, "
+                "+0x12C %g, +0x13C %g\n", p.tile_w, p.tile_h, p.tiles_x, p.tiles_y, double(p.aspect), p.upright, p.pictures,
+                double(p.shutter_frames), p.filter, double(p.saturation), double(p.exposure), double(p.kelvin), double(p.p12c), double(p.p13c));
+    std::printf("race: %s (%s), %zu cars, %zu frames\n", f->course.c_str(), f->kind.c_str(), f->cars.size(), f->frames.size());
+    for (const photo::film::Car& c : f->cars) std::printf("  car %s paint %s; %s %s %s %s\n", c.label.c_str(), c.paint.c_str(), c.looks[0].c_str(), c.looks[1].c_str(), c.looks[2].c_str(), c.looks[3].c_str());
+    for (const photo::film::Frame& fr : f->frames) {
+        const photo::film::Camera& c = fr.camera;
+        std::printf("  camera eye (%.3f %.3f %.3f) target (%.3f %.3f %.3f) up (%.4f %.4f %.4f) fov %.3f aspect %.3f near %.3f far %.1f F%.1f 1/%.0f %+.1f EV %.0f K\n",
+                    double(c.eye.x), double(c.eye.y), double(c.eye.z), double(c.target.x), double(c.target.y), double(c.target.z), double(c.up.x),
+                    double(c.up.y), double(c.up.z), double(c.fov), double(c.aspect), double(c.near), double(c.far), double(c.f_number),
+                    double(1 / c.shutter), double(c.exposure), double(c.kelvin));
+        for (const photo::film::CarFrame& car : fr.cars) {
+            const photo::film::Params& q = car.params;
+            std::printf("    car at (%.3f %.3f %.3f) turn (%.3f %.3f %.3f) v (%.3f %.3f %.3f) rpm %.0f v18 %d v19 %g\n", double(q.at.x), double(q.at.y),
+                        double(q.at.z), double(q.turn.x), double(q.turn.y), double(q.turn.z), double(q.velocity.x), double(q.velocity.y),
+                        double(q.velocity.z), double(q.rpm), q.v18, double(q.v19));
+            for (const auto& w : q.wheels)
+                std::printf("      wheel turn (%.2f %.2f %.2f) at (%.3f %.3f %.3f) %g %g %g %g spun %g %g %g\n", double(w.turn.x), double(w.turn.y),
+                            double(w.turn.z), double(w.at.x), double(w.at.y), double(w.at.z), double(w.v11), double(w.v12), double(w.v13),
+                            double(w.v14), double(w.spun), double(w.v24), double(w.v25));
+        }
+    }
+    const Bytes again = f->encode();
+    const bool same = again.size() <= d->size() && std::equal(again.begin(), again.end(), d->begin()) &&
+                      std::all_of(d->begin() + ptrdiff_t(again.size()), d->end(), [](u8 b) { return b == 0; });
+    std::printf("written again: %zu bytes, %s\n", again.size(), same ? "the same" : "DIFFERENT");
+    return same ? 0 : 1;
+}
+
+int import_photos(const std::string& image, const std::string& folder) {
+    const Bytes data = read_file(image);
+    if (!gt3r::ps2::is_card_image(data)) return std::fprintf(stderr, "%s: not a card image\n", image.c_str()), 1;
+    int n = 0;
+    for (const gt3r::ps2::McDir& d : gt3r::ps2::read_card(data)) {
+        if (d.name.size() != 20 || d.name.compare(0, 12, "BASCUS-97328") != 0 || (d.name[12] != 'P' && d.name[12] != 'F')) continue;
+        const std::filesystem::path dir = std::filesystem::path(folder) / d.name;
+        std::filesystem::create_directories(dir);
+        for (const gt3r::ps2::McFile& f : d.files) {
+            std::ofstream out(dir / f.name, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(f.data.data()), std::streamsize(f.data.size()));
+        }
+        std::printf("%s: %zu files\n", d.name.c_str(), d.files.size()), ++n;
+    }
+    std::printf("%d folders\n", n);
+    return 0;
+}
+
 } // namespace
 
 int cmd_photo(Disc& disc, const std::vector<std::string>& args) {
@@ -165,6 +260,8 @@ int cmd_photo(Disc& disc, const std::vector<std::string>& args) {
     if (args[0] == "location" && args.size() > 1) return locations(disc, args[1]);
     if (args[0] == "card" && args.size() > 1) return card(disc, args[1], args.size() > 2 ? args[2] : std::string());
     if (args[0] == "check" && args.size() > 1) return check(disc, args[1]);
+    if (args[0] == "film" && args.size() > 1) return film(args[1]);
+    if (args[0] == "import" && args.size() > 2) return import_photos(args[1], args[2]);
     return 1;
 }
 

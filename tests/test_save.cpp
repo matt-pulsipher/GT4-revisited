@@ -81,6 +81,32 @@ TEST(save_codec_pieces) {
         const u64 top = bits > 24 ? (u64(v) >> (bits - 24)) << (bits - 24) : v;
         CHECK(b.below(1000) == u32(top * 1000 >> 32));
     }
+    // ... on the EE's multiplier: a product just above a whole number can come out one below it (the program's j of the bit
+    // shuffle, read from the program run in the interpreter, for the seed `key + slot` of a garage slot and the draw for bit i).
+    struct Draw {
+        u32 seed, i, j;
+    };
+    for (const Draw& d : {Draw{0xE9E064EBu + 422, 7158, 4280}, Draw{0xBFA8DE34u + 173, 5364, 4206}, Draw{0x0FA3A624u + 201, 6308, 3256}}) {
+        save::Mt19937 m(d.seed);
+        u32 j = 0;
+        for (u32 i = 0x500 * 8 - 1; i >= d.i; --i) j = m.below(i + 1);
+        CHECK(j == d.j);
+    }
+    // A slot shuffled on the exact product (as an emulator without the EE's multiplier writes it) still reads, the other way.
+    {
+        Bytes record(0x4B8);
+        for (size_t i = 0; i < record.size(); ++i) record[i] = u8(i * 13 + 1);
+        const u32 key = 0xE9E064EB, slot = 422;
+        Bytes coded = save::encode_slot(ByteSpan(record.data(), record.size()), key, slot, 0x751C9383);
+        Bytes other = coded;
+        save::unshuffle_bits(other.data(), other.size(), key + slot);
+        save::shuffle_bits(other.data(), other.size(), key + slot, save::Product::Exact);
+        CHECK(other != coded);
+        for (const Bytes* b : {&coded, &other}) {
+            const std::optional<Bytes> back = save::decode_slot(ByteSpan(b->data(), b->size()), key, slot);
+            CHECK(back && std::memcmp(back->data(), record.data(), record.size()) == 0);
+        }
+    }
     save::Lcg lcg(0);
     CHECK(lcg.next() == (17u ^ (17u << 16)));
     // A file of a payload and back; one bit changed fails the CRC.
@@ -267,4 +293,84 @@ TEST(save_options_display_picture) {
     CHECK(!e.display.map && e.display.steering && e.display.config && e.wide && e.race_picture == (std::array<int, 4>{-2, 1, 4, -5}) && e.replay_picture[0] == 0);
     CHECK(e.menu.music == 0 && e.race.effects == 0.5f);
     CHECK(save::write_game(t, codes) == q);
+}
+
+// Japan's game data (save/game_data.h Layout): the screen settings and the slide show's transition time where its options
+// block keeps them, the blocks after it 0x20 later, the header for its length; and back. A Japanese card's folder is Gran
+// Turismo 4's game data, not Prologue's.
+TEST(save_japan_layout) {
+    const save::Codes codes = made_up_codes();
+    menu::GameState s;
+    s.option_defaults("jp");
+    s.username = "Driver";
+    s.options["race_color_correction"] = std::string("-2 1 4 -5"), s.options["replay_color_correction"] = std::string("1 2 3 4");
+    s.options["album_slide_transition_time"] = 7;
+    s.major_menu_project = "gtmode";
+    const Bytes us = save::write_game(s, codes);
+    const Bytes jp = save::to_layout(us, save::Layout::Japan);
+    auto word = [](const Bytes& p, size_t at) { return u32(p[at]) | u32(p[at + 1]) << 8 | u32(p[at + 2]) << 16 | u32(p[at + 3]) << 24; };
+    constexpr size_t kOption = 0x38928;
+    CHECK(jp.size() == 0x3A0A0 && word(jp, 4) == u32(-s32(0x3A0A0 - 0x10)) && word(jp, kOption + 8) == 0x11D8 && word(us, kOption + 8) == 0x11C0);
+    CHECK(s32(word(jp, kOption + 0x1180)) == -2 && s32(word(jp, kOption + 0x118C)) == -5 && word(jp, kOption + 0x1190) == 1 && word(jp, kOption + 0x11A0) == 7);
+    CHECK(s32(word(us, kOption + 0x1184)) == -2 && word(us, kOption + 0x1194) == 1 && word(us, kOption + 0x1180) == 7);
+    CHECK(std::memcmp(jp.data() + 0x39AF0 + 0x20, us.data() + 0x39AF0, us.size() - 0x39AF0) == 0); // (the context's menu last)
+    const std::optional<Bytes> back = save::from_layout(jp, save::Layout::Japan);
+    CHECK(back && *back == us && !save::from_layout(us, save::Layout::Japan) && !save::from_layout(jp, save::Layout::Us));
+    CHECK(save::layout_of_product("BISCPS-17001") == save::Layout::Japan && save::layout_of_product("BASCUS-97328") == save::Layout::Us);
+    CHECK(save::is_prologue_product("BISCPS-15055") && !save::is_prologue_product("BISCPS-17001") && !save::is_prologue_product("BASCUS-97328"));
+    // A Japanese card's save and load.
+    const std::string dir = (std::filesystem::temp_directory_path() / "gt4r-save-test-japan").string();
+    std::filesystem::remove_all(dir);
+    save::GameSave card(dir, codes, {}, "BISCPS-17001");
+    CHECK(card.save_new(s, "Game Data") == save::Result::Ok);
+    CHECK(std::filesystem::file_size(card.folder() + "BISCPS-17001GAMEDATA") == 0x3A0C0 && std::filesystem::exists(card.folder() + "garage"));
+    menu::GameState t;
+    CHECK(save::GameSave(dir, codes, {}, "BISCPS-17001").load(t) == save::Result::Ok);
+    CHECK(t.username == "Driver" && t.major_menu_project == "gtmode" && menu::settings_of(t).race_picture == (std::array<int, 4>{-2, 1, 4, -5}));
+    CHECK(save::GameSave(dir, codes, {}, "BISCPS-17001").load(t) == save::Result::Ok);
+    std::filesystem::remove_all(dir);
+}
+
+// Japan's language_for_unit (Option +0x10, a u32 language; the US and European programs keep three unit bytes there): the
+// units by it as Japan's cases give them (British English km/h with BHP), carried at this layout's +0x13 and written as
+// Japan's word; read back, the language and the units by it. The US layout of a US game keeps its three units.
+TEST(save_japan_language_for_unit) {
+    const save::Codes codes = made_up_codes();
+    CHECK(menu::japan_units(0) == (std::array<u8, 3>{0, 0, 0}) && menu::japan_units(1) == (std::array<u8, 3>{1, 1, 1}));
+    CHECK(menu::japan_units(2) == (std::array<u8, 3>{0, 2, 0}) && menu::japan_units(3) == (std::array<u8, 3>{0, 3, 0}));
+    CHECK(menu::japan_units(5) == (std::array<u8, 3>{0, 5, 0}) && menu::japan_units(7) == (std::array<u8, 3>{0, 5, 0}));
+    CHECK(menu::japan_units(8) == (std::array<u8, 3>{0, 0, 0}) && menu::japan_units(11) == (std::array<u8, 3>{0, 0, 0}));
+    menu::GameState s;
+    s.unit_language = "JP";
+    s.option_defaults("jp");
+    CHECK(s.option_text("language_for_unit") == "JP" && s.option_text("unit_velocity") == "KMPH");
+    s.options["language_for_unit"] = std::string("GB");
+    s.units_by_language("GB");
+    CHECK(s.option_text("unit_velocity") == "KMPH" && s.option_text("unit_power") == "BHP" && s.option_text("unit_torque") == "KGFM");
+    const Bytes us = save::write_game(s, codes);
+    const Bytes jp = save::to_layout(us, save::Layout::Japan);
+    constexpr size_t kOption = 0x38928;
+    auto word = [](const Bytes& p, size_t at) { return u32(p[at]) | u32(p[at + 1]) << 8 | u32(p[at + 2]) << 16 | u32(p[at + 3]) << 24; };
+    CHECK(word(jp, kOption + 0x10) == 2 && us[kOption + 0x13] == 2);
+    const std::optional<Bytes> back = save::from_layout(jp, save::Layout::Japan);
+    CHECK(back && *back == us);
+    menu::GameState t;
+    t.unit_language = "JP";
+    t.option_defaults("jp");
+    CHECK(back && save::read_game(*back, t, codes));
+    CHECK(t.option_text("language_for_unit") == "GB" && t.option_text("unit_power") == "BHP" && t.option_text("unit_velocity") == "KMPH");
+    // Japan's file with US English for the units: mph, HP, ft.lb.
+    menu::GameState u = s;
+    u.options["language_for_unit"] = std::string("US");
+    const std::optional<Bytes> us_back = save::from_layout(save::to_layout(save::write_game(u, codes), save::Layout::Japan), save::Layout::Japan);
+    menu::GameState v;
+    v.unit_language = "JP";
+    v.option_defaults("jp");
+    CHECK(us_back && save::read_game(*us_back, v, codes) && v.option_text("unit_velocity") == "MPH" && v.option_text("unit_power") == "HP" &&
+          v.option_text("unit_torque") == "FTLB");
+    // A US game: no language_for_unit, its own units, +0x13 left as it was.
+    menu::GameState w;
+    w.option_defaults("uk");
+    const Bytes uk = save::write_game(w, codes);
+    CHECK(uk[kOption + 0x10] == 1 && uk[kOption + 0x11] == 2 && uk[kOption + 0x12] == 1 && uk[kOption + 0x13] == 0 && !w.options.count("language_for_unit"));
 }

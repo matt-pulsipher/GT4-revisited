@@ -17,6 +17,7 @@ namespace gt4r::diff {
 struct SaveCheck {
     bool ran = false;
     bool decoded = false;  // the decoder took the file
+    size_t payload = 0;    // the payload's size the decoder gives
     bool valid = false;    // the check took the payload
     size_t differ = 0;     // bytes the program writes differently from what it read
     size_t first = 0;      // the first of them

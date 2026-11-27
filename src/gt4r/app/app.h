@@ -59,6 +59,9 @@ public:
     // narrower than 4:3, down to 1:1, the view keeping 4:3's width of the scene and the display's parts at the screen's corners.
     // Else the game's picture is never narrower than 4:3 (the menus' pages: bars above and below).
     virtual bool view_fills_narrow() const { return false; }
+    // A race's display under the menu layout's touch buttons (its pause, its replays): L1, SEL, START and R1 in one row at the top's
+    // middle, clear of the display's place and best lap at the corners (a place the player gave them in [touch] stays theirs).
+    virtual bool touch_top_row() const { return false; }
     // Read from every controller and the keyboard, whatever player 1's are: pages that choose the controllers.
     virtual bool menu_input_any_device() const { return false; }
     // A file dropped on the window that this screen takes itself (it gets the event); else a .zip is a mod to install and
@@ -107,10 +110,10 @@ public:
     SDL_Point menu_model_size(const SDL_FRect& dst) const;
 
     // The sound's settings ([audio]): the output device, the music's and the effects' level (on top of the game's own options), the
-    // rear cue.
+    // rear cue. Both levels start at 1: what plays is the game's options alone (a new game's 115 / 128, docs/formats/sound.md).
     struct Sound {
         std::string device; // empty: the system's
-        float music = 0.8f, effects = 0.8f;
+        float music = 1.0f, effects = 1.0f;
         bool rear_cue = true;
     };
     const Sound& sound_settings() const { return sound_settings_; }
@@ -269,6 +272,8 @@ private:
     // Phones and tablets (and GT4R_TOUCH=1 on a computer, for pictures): the on-screen controls, the display's cutout.
     bool touch_ui_ = false;
     gt3r::TouchOverlay touch_;
+    bool touch_top_row_ = false;
+    void place_touch_top(bool row); // the menu layout's top buttons at the sides (the game's menus) or in a row (races)
     gt3r::UiRect back_button_{};          // the page's "< Back" as last drawn (set_back_button), empty when none
     std::optional<gt3r::platform::DisplayInsets> display_insets_;
     int insets_retry_ = 0;
@@ -375,6 +380,9 @@ struct RaceStart {
     // ("single_race"): the race runs that sequence's own menus on them and leaves them where it ends.
     menu::Runtime* menus = nullptr;
     std::string sequence;
+    // The title's time-out plays it (a demonstration's recorded race, sequence "replay"): any button ends it and the time-out
+    // (the menus' menu_result "terminate", menu::autodemo_step).
+    bool attract = false;
     // An online race the lobby loaded (net/online_race.h): its cars, rules and places in place of the fields above, and the
     // game's options (menu::GameState::options; empty: a new game's).
     std::shared_ptr<const net::OnlineRace> online;

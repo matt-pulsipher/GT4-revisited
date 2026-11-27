@@ -257,6 +257,18 @@ lists the best lap folders; MODE_LOAD_BESTLAP_REPLAY those of the race's course 
 course's codes, 0x11CF30; ❓ the manager's own filter not read). The original's default title `"B" License1` is the page's own (✔ ours
 the same). ❓ A best lap the original made on a console has not been loaded here (PCSX2's files do not decipher, replay.md).
 
+### The Replay Theater's play list
+
+The folder `<product>LSTRPLAY` (FileGT4ReplayList: its name 0x1D1228, the icon `icon/GT4_Playlist_replay.ico` 0x1D1270)
+holds the data file named like it, icon0.ico and icon.sys. The data is FileGT4PlayList's (vf3 0x1D0F38, the slide show's
+`LSTSLIDE` the same): 400 entries of u64, the count (u32) at 0xC80, zeros to 0xCC0 bytes, not scrambled; the scripts are told
+76 KB. An entry is a card folder: the seven letters after the product's letter as a number (0x1CBEB0: from the name's 14th
+character, the first letter the lowest six bits) with that letter in the top byte, 0 for a name without the product
+(0x1CD860, 0x1D1478): `R` a full replay, `B` a best lap's. The list's natives (MMemoryCardPlayList 0x17DDF8) keep entries:
+`append` adds at the end below 400 (0x1D1280), `search` compares entries (0x1D13A0), `remove` closes the gap (0x1D12D8),
+`order` takes the table's places (0x17DC78), `rotate(n)` turns the first n to the end (0x17DD78). A replay of the list is
+found again by its folder's name made from the entry (0x1D1340 -> 0x1CD8A0). `save/replay_list.*`, `game_replays.cpp`.
+
 ### A replay's particulars
 
 A replay's or a photo's folder holds a 256-byte `thumbnail` beside the data (0x1CF400 writes it, 0x1CF628 reads it): the 0xE8
@@ -314,8 +326,10 @@ A payload of N bytes is stored in `S = (N + 0x47) & ~0x3F` bytes:
 - Then two 4-byte swaps (0x1D4CA8; back 0x1D4C68 in the other order): the word at 4 with the
   word at `4 + trunc(0.135790... x (S - 8))`, then the word at 0 with the word at
   `trunc(0.654860... x (S - 4))`. The two factors are the single-precision constants
-  0x3E0B0C88 and 0x3F27A4E7; the products are whole numbers of the exact product (the
-  console's toward-zero rounding gives the same).
+  0x3E0B0C88 and 0x3F27A4E7; each product is the EE's `mul.s` (the constant first), whole
+  (`cvt.w.s`). Ours makes every such product (these, and the shuffles' below) on the EE's
+  multiplier when writing; reading tries that and then the exact product chopped (what an emulator
+  without the EE's multiplier writes) when the file's check, or the garage header's key, fails.
 
 Reading undoes the swaps, deciphers, and refuses a CRC that does not match (`INVALID_FILE`).
 
@@ -351,8 +365,10 @@ draw; the stamp XOR the generator's first draw (seeded with the key); then the 5
 shuffled by MT seeded with the generator's second draw. Back (0x1CB9B8) in the other order.
 
 **The bit shuffle** (0x5D2818, back 0x5D2900): for `i = n - 1` down to 1, `j = trunc(u x (i +
-1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero), and
-bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
+1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero: 0x579548),
+the product the EE's `mul.s` (u first; its multiplier gives the chopped product or, now and then, one
+below it, so a product just above a whole number can give one less: about one garage slot in 200
+has such a draw), and bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
 swapped from `i = 1` up.
 
 **A slot** (0x1CEAA8, read 0x1CEEC0): slot i at `0x40 + i x 0x500`: u32 T (a clock word), u32
@@ -414,6 +430,31 @@ ones). Not saved: the race being set up, `isNeedSave`, and the credits (the gara
 
 Codes are 64-bit `{u32 row, u32 table}` of the car database: cars table 0, courses 0x22, races
 0x23, wheels 29, wings 30.
+
+### Japan's game data (SCPS-17001 v1.05; N = 0x3A0A0) ✔
+
+The European program's Status has the US sizes (Option's block 0x11C0). The Japanese program's
+Option block is 0x11D8 bytes (Option::vf2 0x42FE68, its other parts 0x18 further on in memory), so
+its payload is 0x20 longer: the same up to the options' block (UserProfile 0x38920, the context
+0x150, as in the US program); in the block the screen settings at Option +0x1180 (race) and +0x1190
+(replays) and the slide show's transition time at +0x11A0 (the accessors 0x1870A0, 0x187360,
+0x184848; the US program's +0x1184, +0x1194, +0x1180), the size word 0x11D8; everything after the
+block (the game zone on) 0x20 later. The block's +0x11A4 to its end is never a field: the option's reset
+(0x42EEC0) clears the whole block (0x11D8 bytes from +8) and sets nothing there, the copy (0x42FEE8) and the
+card's read and write move the block whole, and no load or store of the program at those offsets is the
+Option's (all 50 are other objects' or globals', none in the Option's code or through its pointer: the JPEG decoders, race objects, tables); so the program
+always writes zeros there, as ours does. Japan's Option +0x10 is a u32, `language_for_unit` (the language
+whose units the game shows: the reset sets it to the console's language, MOption's accessor 0x17E6F0 by
+name through 0x4870B8 / 0x487128, the option's apply 0x42F0E8 sets the units from it with 0x46A868 and
+Japan's own unit cases 0x46A760; US and Europe keep three unit bytes there, 0x4361D0). Ours carries it in
+this layout's Option +0x13 (no field of the US and European programs, whose unit bytes end at +0x12) and
+writes it as Japan's word; read back, the three unit bytes are Japan's units for it (✔ test
+`save_japan_language_for_unit`). The data file is 0x3A0C0 bytes
+in both. `save::Layout` (game_data.h): the state is read and written in the US layout and turned
+into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
+the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The
+card folder BISCPS-17001GAMEDATA is Gran Turismo 4's, not Prologue's (whose products are
+SCPS-15055, SCES-52438, SCKA-20022).
 
 ### The B-spec driver's book (payload 0xA4, 0x180 bytes; menu/game_bspec.h)
 

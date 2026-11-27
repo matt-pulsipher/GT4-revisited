@@ -213,6 +213,7 @@ struct GameState {
     std::string major_menu_project, major_menu_page, major_menu_widget;
     std::string last_sequence = "boot", next_sequence;
     std::string last_menu_project, next_menu_project, last_menu_arg, next_menu_arg, menu_result;
+    Bytes develop_film; // the film Photo Lab loaded for its development (menu_result "develop"; photo/film.h)
     std::string loading_mode = "default"; // MSystem::SetLoadingMode's (0x104E30): what the next loading page shows
     std::vector<std::string> menu_stack; // menuPush / menuPop / menuRef
 
@@ -241,7 +242,13 @@ struct GameState {
 
     // MOption's attributes by name. `option_defaults` fills them as a new game has them.
     std::map<std::string, OptionValue> options;
+    // Japan's program only (SCPS-17001): the units follow a language the player picks, `language_for_unit` (Option +0x10, a
+    // u32 language), and a new game's is this one (the console's language); empty on the other releases, which keep the
+    // three units themselves.
+    std::string unit_language;
     void option_defaults(const std::string& region);
+    // Japan's units by a language's name (0x46A868 with Japan's cases 0x46A760; unit_velocity, unit_power, unit_torque).
+    void units_by_language(const std::string& language);
     s32 option_int(const std::string& name, s32 fallback = 0) const;
     std::string option_text(const std::string& name) const;
     // The units the player chose: what a value in the game's own unit is multiplied by, and
@@ -331,6 +338,7 @@ struct GameState {
         s32 skip_at = 0;       // +0x5C
         s32 restart = 0;       // +0x60 restart_from_beginning
         s32 card_at = 0;       // +0x64 the card's replays' next
+        u32 card_seed = 0;     // +0x68 their shuffled order's seed (0x434950)
         s32 movie_left = 0;    // +0x6C demonstrations until the movie
         bool more = false;     // the time-out's sequence goes on after the project it ran
     } demonstration;
@@ -391,6 +399,9 @@ struct GameState {
     // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
     int card_action = 0;
     std::string replay_file;
+    // The play list under way (the load_replay sequence's "list"), and the replays of it not found so far (0x10CA50's count).
+    bool replay_list = false;
+    int replay_list_missed = 0;
     // The run the race's menus save (labomode with MODE_SAVE_FULL_REPLAY: the card manager's new file), and what writes it.
     struct PendingReplay {
         std::string course, car; // labels
@@ -423,6 +434,13 @@ struct GameState {
 GameState::Unit velocity_unit_of(const std::string& option);
 GameState::Unit power_unit_of(const std::string& option);
 GameState::Unit torque_unit_of(const std::string& option);
+// The languages by number (0x6AE3F8: JP US GB FR DE IT ES PT KR CN TW DB); -1 for another name.
+int language_number(const std::string& name);
+const char* language_name(int number); // "" for another number
+// Japan's units for a language's number (0x46A868: its table of languages to cases, a language not in it case 1;
+// the cases 0x46A760): the numbers of unit_velocity (KMPH MPH), unit_power (PS HP BHP CH KW CV PF) and unit_torque
+// (KGFM FTLB NM) as the options keep them.
+std::array<u8, 3> japan_units(u32 language);
 
 // The car a race takes from the garage (RaceRequest::garage_slot): the sheet in use of its
 // record, the program's car equipment record as it is (docs/formats/save.md "The car
@@ -430,8 +448,25 @@ GameState::Unit torque_unit_of(const std::string& option);
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
 // And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
 std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
+// The first of a parts type's owned bits in a car record (0x43F270: -1 for a type without; Japan's program numbers them
+// without the suspension and turbine kit it lacks: game_car.cpp).
+int parts_owned_from(int type, bool japan);
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
-// run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
+// run and its argument (the movie), or a recorded race of the disc to play (`replay`: its file, "replay/Rdemo0/Rdemo0"); none
+// when the sequence is over. `first` at the time-out, then after each one played; a played one left with a key sets the
+// game's menu_result "terminate", which ends the sequence (0x10BBB0's end code 2).
+struct DemoStep {
+    std::string project, arg;
+    std::string replay;
+};
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first);
+// The card's play list's next replay as the play list and the title's time-out pick it (0x4349A8, game_replays.cpp): the
+// list's length (0: no list, or an empty one), `path` the replay ("" when it is not on the card).
+s32 card_replay_pick(Runtime& rt, std::string& path);
+// The Replay Theater's play list played (the load_replay sequence's loop, 0x10CA50, game_replays.cpp): the next replay of
+// the card's list as its sequence picks it (0x4349A8: in order or shuffled, the missing passed over) set to be shown
+// (`replay_file`, `next_sequence` "replay"). `start`: the theater's Play of its PlayList folder; else after a replay of the
+// list (`quit`: the player ended it, which ends the list). False when nothing more plays.
+bool play_list_next(Runtime& rt, bool start, bool quit = false);
 
 } // namespace gt4r::menu

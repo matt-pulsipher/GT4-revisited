@@ -4,6 +4,7 @@
 #include "menu_run_flow.h"
 #include "natives_check.h"
 
+#include "gt4r/menu/game.h"
 #include "gt4r/sim/program.h"
 
 #include <cstdio>
@@ -110,4 +111,75 @@ TEST(sim_program_calendar_natives_equal) {
     CHECK(r.ran && r.dates > 40000 && r.days > 36000);
     CHECK(r.dates_equal == r.dates && r.days_equal == r.days);
     if (r.dates_equal != r.dates || r.days_equal != r.days) std::printf("  dates %zu of %zu, days %zu of %zu\n", r.dates_equal, r.dates, r.days_equal, r.days);
+}
+
+// Japan's program numbers the parts' owned bits without the suspension and the turbine kit it lacks (its 0x43F270: 94 bits)
+// and offers 4 suspensions and 5 turbine kits; the rest as v1.01's.
+TEST(menu_parts_owned_bits_by_release) {
+    const int us[] = {-1, 0, 2, 4, 9, 11, -1, -1, 13, -1, 17, 19, -1, 23, 27, 33, 35, 37, 39, 41, 44, 48, 52, 56, 58, 64, 77, 90, 92, -1, -1, 94};
+    const int jp[] = {-1, 0, 2, 4, 8, 10, -1, -1, 12, -1, 16, 18, -1, 22, 26, 31, 33, 35, 37, 39, 42, 46, 50, 54, 56, 62, 75, 88, 90, -1, -1, 92};
+    for (int t = 1; t < 32; ++t) CHECK(menu::parts_owned_from(t, false) == us[t] && menu::parts_owned_from(t, true) == jp[t]);
+}
+
+// On Japan's disc the garage car's parts and condition natives are Japan's program's (the same routines as v1.01's, 0x14D850 ..
+// 0x14DC68; its tables): 4 suspensions, 5 turbine kits, old oil at 5,000,000 m (the static block's +0xD7, 50).
+TEST(disc_menu_japan_car_natives) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().serial.rfind("SCPS_170.01", 0) == 0) disc = d.get();
+    if (!disc) SKIP("needs the Japanese Gran Turismo 4 disc (SCPS-17001) in GT4R_DISC");
+    Flow f(*disc);
+    f.gt_mode_with_a_car(); // (the menus up; Japan's map has no Alfa Romeo dealer: the car is given)
+    script::Vm& vm = f.rt->vm();
+    const Value garage = vm.attribute(vm.lookup("main::game"), "garage");
+    if (f.rt->game().garage_count() == 0) {
+        call(vm, vm.attribute(garage, "addNewCar"), {Value::string("panda_super_ie_90"), Value::integer(0)});
+        call(vm, vm.attribute(garage, "changeRidingCar"), {Value::integer(0)});
+    }
+    CHECK(f.rt->game().garage_count() == 1);
+    const Value car = vm.attribute(garage, "riding_car");
+    CHECK(!car.is_nil());
+    if (car.is_nil()) return;
+    auto m = [&](const char* name, std::vector<Value> a = {}) { return call(vm, vm.attribute(car, name), a); };
+    CHECK(m("getPartsTypeMax", {Value::integer(3)}).as_float() == 4 && m("getPartsTypeMax", {Value::integer(14)}).as_float() == 5);
+    CHECK(m("getPartsTypeMax", {Value::integer(24)}).as_float() == 6);
+    m("replaceOil");
+    const float fresh = vm.attribute(car, "oil").as_float();
+    vm.member(car, "oil")->set(vm, Value::number(7000000.0f));
+    std::printf("  fresh oil %g m, past the old oil %g m\n", double(fresh), double(vm.attribute(car, "oil").as_float()));
+    CHECK(vm.attribute(car, "oil").as_float() == 5000000.0f && m("getOilLifeRate").as_float() == 1.0f);
+}
+
+// Japan's language_for_unit (MOption's accessor 0x17E6F0; the option's apply 0x42F0E8 sets the units by it through 0x46A868
+// and Japan's cases 0x46A760): on Japan's disc a new game's is the console's language and its units, British English gives
+// km/h with BHP once applied; the US and European programs have no such option (a stub) and keep their own units.
+TEST(disc_menu_japan_language_for_unit) {
+    int discs = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        Flow f(*d, "JP");
+        if (!f.boot_to_title()) continue;
+        menu::GameState& g = f.rt->game();
+        script::Vm& vm = f.rt->vm();
+        const Value option = vm.attribute(vm.lookup("main::game"), "option");
+        if (!option.p) continue;
+        const bool japan = d->info().serial.rfind("SCPS_170.01", 0) == 0;
+        const std::string before = vm.attribute(option, "language_for_unit").to_string(), velocity = g.option_text("unit_velocity");
+        std::printf("  %s: language_for_unit %s, units %s %s %s\n", d->info().serial.c_str(), before.c_str(), velocity.c_str(), g.option_text("unit_power").c_str(),
+                    g.option_text("unit_torque").c_str());
+        if (japan) {
+            CHECK(before == "JP" && g.unit_language == "JP" && velocity == "KMPH" && g.option_text("unit_power") == "PS");
+            if (const auto m = vm.member(option, "language_for_unit")) m->set(vm, Value::string("GB"));
+            call(vm, vm.attribute(option, "apply"), {});
+            CHECK(g.option_text("language_for_unit") == "GB" && g.option_text("unit_velocity") == "KMPH" && g.option_text("unit_power") == "BHP" &&
+                  g.option_text("unit_torque") == "KGFM");
+            if (const auto m = vm.member(option, "language_for_unit")) m->set(vm, Value::string("US"));
+            call(vm, vm.attribute(option, "apply"), {});
+            CHECK(g.option_text("unit_velocity") == "MPH" && g.option_text("unit_power") == "HP" && g.option_text("unit_torque") == "FTLB");
+            ++discs;
+        } else if (d->info().serial.rfind("SCUS", 0) == 0 || d->info().serial.rfind("SCES", 0) == 0) {
+            CHECK(g.unit_language.empty() && !g.options.count("language_for_unit") && before.find("stub") != std::string::npos);
+            ++discs;
+        }
+    }
+    if (!discs) SKIP("needs a Gran Turismo 4 disc in GT4R_DISC");
 }

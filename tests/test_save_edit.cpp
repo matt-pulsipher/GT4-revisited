@@ -210,27 +210,29 @@ TEST(save_edit_write_backup_refusals) {
 
 TEST(save_edit_card_image) {
     const fs::path dir = a_saved_game("gt4r-test-save-edit3");
-    const Bytes image = save::export_card((dir / "card").string(), std::nullopt);
-    CHECK(!image.empty());
-    // The game data file replaced by other bytes: the image a new card with them would be, page for page, its spare bytes too.
-    std::vector<gt3r::ps2::McDir> dirs = gt3r::ps2::read_card(image);
-    CHECK(dirs.size() == 1);
-    Bytes other;
-    for (gt3r::ps2::McFile& f : dirs[0].files)
-        if (f.name == kName) {
-            for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
-            other = f.data;
-        }
-    // Both stamp the clock's second on entries without a time (the engine's make_card): built again if a second passed between them.
-    Bytes fresh;
+    // The card's root entries ("." and "..") take the clock's second when a card is made (the engine's make_card: the export's
+    // image and the new card below each make one) and replace_in_card keeps the image's: all three are made again until they
+    // fall within one second, so the times agree.
+    Bytes image, other, fresh;
+    std::vector<gt3r::ps2::McDir> dirs;
     std::string why;
     std::optional<Bytes> patched;
-    for (int tries = 0; tries < 3; ++tries) {
+    for (int tries = 0; tries < 5; ++tries) {
         const std::time_t before = std::time(nullptr);
+        image = save::export_card((dir / "card").string(), std::nullopt);
+        if (image.empty()) break;
+        // The game data file replaced by other bytes: the image a new card with them would be, page for page, its spare bytes too.
+        dirs = gt3r::ps2::read_card(image);
+        for (gt3r::ps2::McFile& f : dirs[0].files)
+            if (f.name == kName) {
+                for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
+                other = f.data;
+            }
         fresh = gt3r::ps2::make_card(dirs);
         patched = save::replace_in_card(image, kName, kName, other, &why);
         if (std::time(nullptr) == before) break;
     }
+    CHECK(!image.empty() && dirs.size() == 1);
     CHECK(patched && patched->size() == fresh.size());
     size_t differ = 0;
     for (size_t i = 0; i < fresh.size(); ++i) differ += (*patched)[i] != fresh[i];
