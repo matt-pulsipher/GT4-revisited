@@ -968,7 +968,8 @@ still, and takes the screen at once (❓ the program fades the page out in 0.25 
   digit). The text style's default font is `hn_14` (0x246F58), Prologue's `sw_16` (0x2F75D0),
   both with the colour 0xD4D4D4. ❓ Prologue's texts are not broken to the face's width (they
   carry their own line ends; the card dialog's first line passes its face by 5 pixels).
-- Each line is aligned by itself; its width is the pen less half a space's advance.
+- Each line is aligned by itself; its width is the pen less half a space's advance (Prologue's 0x445328: less a quarter of
+  the font's size, its record's +0x0C >> 2, the same for the race fonts, which have no space, 1 to 3 less for `sw_16` / `sw_20`).
 - Marks: `%%` a percent sign; `%Crgb` a colour (hex digits x 17, 0x493BC0); `%Bx` the button
   x of the `Gaiji` font at scale 1, `c` .. `f` (triangle, circle, cross, square) in the
   colours of the program's table before the name "Gaiji" (found by that), the others gray

@@ -580,12 +580,21 @@ Prologue's display is its own `RaceDisplay` (0x388FC8; `app/race_hud_prologue.*`
 +0x02 the alignments: 0 left or top, 1 right or bottom, 2 centered, + 4 the wide picture's edge; +0x08 the opacity, +0x0C / +0x0E
 the place, +0x10 / +0x12 the size) in a frame of 640 x 448, its colors constants of its code. The parts a mode shows and their
 places are Gran Turismo 3's tables `database/racemode_e3.db` and `racedetail_e3.db` (16 modes; 122 rows differ from Gran Turismo
-3's; `gt4tool prologue <disc> hud` lists them), applied by 0x38D020 (the part's number) and 0x38D548 (a time line's):
+3's; `gt4tool prologue <disc> hud` lists them), applied by 0x38D020 (the part's number) and 0x38D548 (a time line's).
+**The mode** (RaceDisplay::vf1 0x389698, 0x389BA0; `race/display_mode_prologue.*`, test
+`prologue_display_mode_by_its_race_classes`): the race class's label (RaceArcade and its demonstration `RACE_MODE_SINGLE`,
+RaceLicense and RaceTraining `RACE_MODE_LICENSE`, the machine tests theirs; no free run, time trial, free practice or split
+race exists), the two-player modes by the 16:9 option; a replay (play kinds 1, 3) `RACE_MODE_REPLAY` (a two-player race's
+kept when its replay is split), a demonstration (kind 2; kind 1 becomes 2 when the race's +0x9C is set and the display's
++0x78F6 is not 🔎) `RACE_MODE_DEMO`. Unlike Gran Turismo 3's display no mode turns into the endurance one at 10 laps or a time
+limit (lesson 35 runs ten laps under the test's display). The texts are the menus' text object (0x506C14; the font's name with
+`#` its variant and `*x,y` its scale in percent, 0x40BDD0) at the positions the parts give, the pen kept between two
+draws (0x40C630): menu.md "Text" (Prologue's fonts). The parts:
 
 | Part | Object | Drawn |
 |---|---|---|
 | 1 rank | RaceRankDisplay 0x38ECB8 | the place in `FC_48` (orange 0x5EA8F2) rolling up or down to a new one, its "st" in gray 0.9 of a digit on |
-| 2 laps | RaceLapDisplay 0x394448 | "Lap" in `DC_12`, the lap in `FC_26`, the slash and the laps at 0.77 |
+| 2 laps | RaceRichCountDisplay 0x394448 | "Lap" in `DC_12` (its width + 10, kept), the lap in `FC_26` (0.3 of the two fonts' line heights' difference lower), the slash in gray at 0.77 at the pen the lap left, the laps at 0.77 at the first lap's width (measured once and kept) + int(15 / 0.77) = 19. ✔ The 2 of "1 / 2" ends at 129.5 against the original's 129 (`14-prologue/20_race_nose_view_2nd_80kmh`; was 4 short) |
 | 3 panel | 0x38D730, two lists of places in its code | view 0 (the car's own views): the tachometer and speedometer (155 x 122 at x 345 and ending at 295), the gear's box, the lamps; view 1: the small panel 0x3928A0 |
 | 8 targets | RaceLicenseDisplay 0x386340 | a test's three times, each with its cup (`mark_1st` ..) |
 | 9 map | RaceMiniMap 0x398958 | the course's map, the other cars' marks at 0.66, the player's pulsing |
