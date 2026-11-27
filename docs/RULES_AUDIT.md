@@ -40,9 +40,13 @@ Captures named are under the reference's folders (`INDEX.md`).
 Lower (items 21 on, in rank order; done ones say so): Arcade's event per car (`MCarData.GetRaceCode`, `IsTireNormal`,
 `IsDirtRunnable` 0x12E150 / 0x12E388 / 0x12E498 through 0x448AD0) **ported ✔**, with the cars' dirt and snow versions
 (`ShiftCarCode` 0x12F3E0: every Arcade entry on a dirt or snow course raced as its ARCADEINFO row's ENEMY_CARS row, menu.md
-"Arcade's dirt and snow versions"); a new game's screen shape
-(`MSystem.GetStaticWideMode` 0x1ACA90 answers 0: 4:3); the slide show's and Photo Lab's music seen as ended at once
-(`MSound.isPlayingStream` 0x23EA18, `MMusic.isPlaying`: 0); the pause's idle time-out (end code 3, `timeout_count_to_topmenu`
+"Arcade's dirt and snow versions"); a new game's screen shape (`MSystem.GetStaticWideMode` 0x1ACA90: the console's screen
+setting, wide for "full" or 16:9 through 0x437928; `MUnit.SetUnitSystemByLanguage` 0x1AEDB8) **not met**: only the show and
+event configs call them (config-august, -e3, -june, -lemans, -mazda, -subaru, -wed), never the retail config-main (ours answers
+0, the setting a computer lacks); the slide show's and Photo Lab's music **ported**: `MSound.isPlayingStream` (0x23EA18) and
+`sound.stream.isPlaying` (0x2C3700) answer whether the stream plays (Runtime::stream_playing, the app's music stream), so
+their music player goes on to the next track (it held on the first while they answered 0; `disc_menu_stream_playing`); the
+pause's idle time-out (end code 3, `timeout_count_to_topmenu`
 600 s copied at 0x3B5070; ❓ its reader); the car's distance added once after a race, not each step (0x35DE20; the oil's run-in
 wrap may fall otherwise); the oil's and the body's life rates as constants in `game_car.cpp` where the program reads its tables
 (0x350808 / 0x3507D0 on 0x620320, 0x366300 on 0x620B00); the Replay Theater's play list (empty) and the replays' SHUFFLE play
@@ -99,7 +103,7 @@ script's calls into the program's classes (US): **1,194 members used, 22,133 use
 | implemented | 985 | most are the game's state as plain values (the rules live in the scripts and run as written); 177 cite the program's routine beside them, the rest are not compared with the program |
 | implemented, compared here | 7 | `MRaceRecord.isLicensePassed`, `isLicenseAllSilver`, `isLicensePerfect` (0x1A63A0, 0x1A6120, 0x1A5FE0 → 0x4312B0, 0x431288, 0x431260: tests 1 .. 16 through the region's label then "jp" 0x430E58; per test 0x430C50, 0x430BC0, 0x430B58), and four with nothing in them |
 | partial | 2 | `MGame.setOption` (gap 4), `MCourseRecord.getMTUnit` (gap 15); `MCarData.GetRaceCode` / `IsTireNormal` / `IsDirtRunnable` now compared (0x12E150, 0x12E388, 0x12E498), and `ShiftCarCode` / `GetDirtCarCode` / `GetSnowCarCode` (0x12F3E0, 0x12F8B8, 0x12FBB0) the program's (they answered the car itself) |
-| stub | 23 | by design: the card's failure and swap states (`isAutoSaveDisabled`, `isChanged`), the printer, the 480p / 1080i modes, the official service; rule-bearing: `setReturnToLastMenuProject` (gap 20), `MDemonstration`'s counts (gap 14), `isPlayingStream` / `isPlaying`, `GetStaticWideMode`, `SetUnitSystemByLanguage` |
+| stub | 23 | by design: the card's failure and swap states (`isAutoSaveDisabled`, `isChanged`), the printer, the 480p / 1080i modes, the official service; rule-bearing: `setReturnToLastMenuProject` (gap 20), `MDemonstration`'s counts (gap 14); `GetStaticWideMode`, `SetUnitSystemByLanguage` only in the show configs; `isPlayingStream` / `isPlaying` now the stream's state |
 | missing | 168 | the official online service 129 (MNetwork's account, lobby, buddies and news, MHttp, MDnas, MNetConf, MComm, MXml, the stats), the Analyzer 19 (gap 8), EyeToy 13, and 7 single uses (`MDatabase.getAllTunerList`, `MGame.checkExistValidGameData`, `MManager.loadProject` / `unloadProject`, `MStorage.getDir`, `MRunViewer.setRaceDebugFlag`, `MSystem.SetLocale`) |
 
 Prologue: 294 members, 3,942 uses; the same gaps where shared, and its own `MGame::setLoadingMode` (the prologue, opening and

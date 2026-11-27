@@ -348,7 +348,8 @@ std::shared_ptr<Object> GameNatives::make_music(const std::string& object) {
             r->sound(object, name, a);
             return Value{};
         });
-    m->method("isPlaying", [](Vm&, const Value&, Args) { return number(0); });
+    // isPlaying (0x2C3700): the stream object's, whether its stream plays (Runtime::stream_playing); the sequences' (midi) 0.
+    m->method("isPlaying", [r, object](Vm&, const Value&, Args) { return number(object == "sound.stream" && r->stream_playing && r->stream_playing()); });
     m->set("volume", Value::number(1)), m->set("repeat", number(0)), m->set("number", number(0));
     return m;
 }
@@ -363,7 +364,9 @@ Value GameNatives::make_sound() {
             r->sound("sound", name, a);
             return Value{};
         });
-    sound->method("isPlayingStream", [](Vm&, const Value&, Args) { return number(0); });
+    // isPlayingStream (0x23EA18): the stream object's isPlaying (the slide show's and Photo Lab's music player waits on it
+    // to start the next track).
+    sound->method("isPlayingStream", [r](Vm&, const Value&, Args) { return number(r->stream_playing && r->stream_playing()); });
     sound->set("midi", object_value(make_music("sound.midi")));
     sound->set("stream", object_value(make_music("sound.stream")));
     return object_value(sound);
