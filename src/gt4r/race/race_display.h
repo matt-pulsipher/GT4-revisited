@@ -48,6 +48,41 @@ void set_half_extra(float units);
 void set_touch_shift(float right, float left);
 DisplayRect take_lower_box(bool right_side);
 
+// The frame the display's text is placed on (docs/formats/race_display.md "Where a text lands"): the display's projection
+// (0x39BB38: an orthographic one from the canvas' left, right, bottom and top) onto a frame of `width` x `height` pixels.
+// `shift_y`: the projection moved that far up (0x39F698: the panel's parts of a stacked half, RaceDisplay + 0x6C, 240).
+struct DisplayFrame {
+    float left = 0, right = 640, top = 0, bottom = 480;
+    int width = 640, height = 448;
+    float shift_y = 0;
+};
+// The one-view display's (RaceDisplay::vf9 0x39BA08): the canvas 0 .. 640, or -106.667 .. 746.667 with the wide flag, over
+// 640 x 448. `side`: the canvas beside the 4:3 page on the picture shown (0 or 106.667 the program's two; ours others).
+DisplayFrame single_frame(float side);
+// A two-player half's (RaceSplitDisplayBase::vf9 0x3A29A0): stacked, the half above (`half` 0: the canvas -10 .. 230) or below
+// (0 .. 240) over 640 x 224; side by side, -106.667 .. 320 over 320 x 448.
+DisplayFrame stacked_frame(int half, float side);
+DisplayFrame side_by_side_frame(float side);
+// A place of the canvas on the frame, as 0x44DCC0 takes it: through the projection on VU0 (each product and sum rounded
+// toward zero), then x = (ndc x + 1) x width x 0.5, y = (1 - ndc y) x height x 0.5 on the FPU. A whole place can come out a
+// hair under its whole pixel (507 -> 506.99997).
+struct FramePlace {
+    float x = 0, y = 0;
+};
+FramePlace frame_place(const DisplayFrame& f, float x, float y);
+// Where a line of text starts on the frame (0x44E1E0 and the text's own alignment, 0x491220): the place's pixel and line are
+// its whole parts; `flags` the pen flags (bits 0-1: 0 from the place, 2 ending at it, 3 centered on it; bits 2-3: 0 the place
+// on the baseline, 4 the line's top, 12 its middle). `width` the line's width in frame pixels (its pen, 0x490A98),
+// `ascent` and `line_height` the font's (+0x0E, +0x0D), `scale_y` its y scale. x: the first glyph's pen; top: the line's top.
+struct TextStart {
+    float x = 0;
+    int top = 0;
+};
+TextStart text_start(const DisplayFrame& f, float x, float y, int flags, float width, int ascent, int line_height, float scale_y);
+// Frame pixels back to the canvas.
+float frame_to_canvas_x(const DisplayFrame& f, float px);
+float frame_to_canvas_y(const DisplayFrame& f, float py);
+
 // The elements of the single race, by their numbers in the program's tables.
 namespace element {
 constexpr u32 kPositionWord = 0x1668, kPosition = 0x1398, kLapWord = 0x1684, kLapCount = 0x1300, kMap = 0x1108;

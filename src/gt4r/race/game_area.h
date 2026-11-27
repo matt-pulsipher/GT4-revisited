@@ -11,8 +11,12 @@ namespace gt4r::race {
 // The race display's canvas (640 x 480) on the picture: UI units a canvas unit. 0.75 (its 480 lines over the 360) on a picture at
 // least 4:3 wide; on a narrower one (fill on a screen squarer than 4:3) the canvas fits the picture's width (ours).
 constexpr float canvas_scale(float picture_width) { return picture_width >= 480.0f ? 0.75f : std::max(picture_width, 1.0f) / 640.0f; }
-// What the canvas has beside it on each side, in its units: 106.667 at 16:9, 0 at 4:3 and narrower.
-constexpr float canvas_side(float picture_width) { return std::max(0.0f, (picture_width * (480.0f / 360.0f) - 640.0f) * 0.5f); }
+// What the canvas has beside it on each side, in its units: 106.667 at 16:9, 0 at 4:3 and narrower (a window's 4:3 picture a
+// float's hair wider is 4:3: the display's places, which go through the projection to whole pixels, would move by it).
+constexpr float canvas_side(float picture_width) {
+    const float side = (picture_width * (480.0f / 360.0f) - 640.0f) * 0.5f;
+    return side < 0.01f ? 0.0f : side;
+}
 // What it has above and below it, in its units: 0 on a picture at least 4:3 wide; on a narrower one the canvas is in the middle
 // and the display's parts at the top and the bottom move this far out to the picture's edges (ours).
 constexpr float canvas_top(float picture_width) { return std::max(0.0f, (360.0f / canvas_scale(picture_width) - 480.0f) * 0.5f); }
