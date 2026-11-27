@@ -43,9 +43,9 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
 // aid (the byte 0x620E0B: 1 with ASM, 2 always).
 u8 aid_switches(Spec& s, const Program& program, bool asm_on, bool tcs_on, bool wheel_aid, bool loose);
 
-// 0x443240: a computed gearbox's ratios from its slider into the equipment's gear words. False (nothing
-// done) for a gearbox with stored ratios. The ratios are made by the shared engine's generator (Gran
-// Turismo 3's: 7 forward gears at most).
+// 0x443240: a computed gearbox's ratios from its slider into the equipment's gear words (Gran Turismo 4's
+// generator 0x354FF8; on Prologue its 0x406190 and 0x3E0BE0). False (nothing done) for a gearbox with stored
+// ratios, more than 7 gears, or a program that is neither's.
 bool computed_gears(db::SpecDb& db, const Program& program, Equipment& eq);
 
 // A car as sold with its settings and a computed gearbox's ratios: stock_equipment, then computed_gears.

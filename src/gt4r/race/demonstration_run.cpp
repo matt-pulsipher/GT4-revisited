@@ -106,7 +106,8 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_back_crossings(i, flow.car(i).back), session.set_rank(i, flow.place(i));
         LicenseJudge judge(rules);
         std::array<u32, 32> soft{};
-        for (u32 m = 0; m < soft.size(); ++m) soft[m] = program.w(sim::Program::kSoft + 4 * m);
+        if (program.known()) // (Gran Turismo 4's soft materials, 0x622430: none known for another program)
+            for (u32 m = 0; m < soft.size(); ++m) soft[m] = program.w(sim::Program::kSoft + 4 * m);
         Gadgets gadgets;
         GadgetBodies bodies;
         if (opt.cones) {

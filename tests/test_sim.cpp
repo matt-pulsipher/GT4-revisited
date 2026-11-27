@@ -177,13 +177,13 @@ TEST(sim_road_distance) {
 }
 
 TEST(sim_program_unknown) {
-    // A program that is not a mapped build serves no tables, and the core runs on its own.
+    // A program that is not a mapped build serves no tables, and the core takes none of Gran Turismo 3's values.
     const sim::Program p = sim::Program::from_image(Bytes(0x1000, 0), 0x100000);
     CHECK(!p.known() && !p.issue().empty());
     CHECK(p.b(0x100010) == 0 && p.b(0x50) == 0 && p.w(sim::Program::kStatic) == 0);
     const gt3r::sim::exact::ProgramData d = sim::core_program(p);
     using T = gt3r::sim::exact::ProgramData::Table;
-    CHECK(d.b(T::Static, 0x0B) == 8); // the engine's own rolling-resistance curve
+    for (u32 i = 0; i < gt3r::sim::exact::ProgramData::size(T::Static); ++i) CHECK(d.b(T::Static, i) == 0);
 }
 
 TEST(sim_core_spec_fields) {
@@ -303,8 +303,7 @@ TEST(sim_disc_car_specs) {
     CHECK(spec_of("civic_r_01", s) && s.drive() == 1);
     CHECK(spec_of("focus_wrc_99", s) && s.drive() == 2 && s.b(0x12A) > 0);
 
-    // Every car builds: a weight, an engine with power, gears, tires of a size, and the core's parameters.
-    const gt3r::sim::exact::ProgramData core = sim::core_program(program);
+    // Every car builds: a weight, an engine with power, gears, tires of a size.
     size_t cars = 0, computed = 0;
     for (const db::CarEntry& c : sdb.cars()) {
         sim::Equipment eq;
@@ -319,16 +318,6 @@ TEST(sim_disc_car_specs) {
         if (!ok) std::printf("  %s: %d kg, %.0f PS, %d gears\n", c.label.c_str(), s.weight_kg(), double(g.ps), s.gears());
         CHECK(ok);
         if (const ByteSpan gear = db::part_row(sdb, eq.part(sim::Equipment::Gear)); gear.size() > 0x25 && gear[0x25]) ++computed;
-        gt3r::sim::exact::Spec cs;
-        sim::core_spec(s, cs);
-        gt3r::sim::exact::ConvertInputs in;
-        in.data = &core, in.base = 0x01000010;
-        in.physics_globals();
-        gt3r::sim::exact::ParamImage p{};
-        gt3r::sim::exact::convert_params(cs, in, p);
-        float mass;
-        std::memcpy(&mass, p.data() + 0x48, 4);
-        CHECK(mass > float(s.weight_kg()) && mass < float(s.weight_kg()) + 200);
         ++cars;
     }
     CHECK(cars > 700 && computed > 50);
@@ -365,6 +354,27 @@ TEST(sim_disc_roads) {
         ++courses;
     }
     CHECK(courses > 100);
+}
+
+// A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing: the session refuses it (no rules or tables
+// of the shared engine stand in).
+TEST(sim_disc_unknown_program_races_nothing) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    sim::Entry e;
+    CHECK(sim::stock_car(sdb, sim::Program::load(*disc), "nsx_r_02", e.equipment));
+    const std::shared_ptr<const course::Runway> road = open_road(*disc, "tsukuba");
+    CHECK(road != nullptr);
+    if (!road) return;
+    const sim::Program unknown = sim::Program::from_image(Bytes(0x1000, 0), 0x100000);
+    std::string what;
+    try {
+        sim::Session s(sdb, unknown, road, std::span<const sim::Entry>(&e, 1));
+    } catch (const std::runtime_error& x) {
+        what = x.what();
+    }
+    CHECK(what.find("not supported") != std::string::npos);
 }
 
 TEST(sim_disc_car_rests) {

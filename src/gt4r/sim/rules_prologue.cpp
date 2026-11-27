@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_input.h"
@@ -26,26 +27,6 @@ const F kHalfPi = F::raw(0x3FC90FD9);
 F speed_of(u8 kmh) { return gt3r::ee::int_to_f(kmh ? kmh : 50) * kKmh; }
 F f_of(u32 v) { return gt3r::ee::int_to_f(s32(v)); }
 } // namespace
-
-F bump_wave(int mode, F x, F z, F freq) {
-    F w = gt3r::ee::sin(freq * x);
-    w = w + gt3r::ee::cos(freq * z);
-    if (mode != 1) return w;
-    const F sq = w * w;
-    return w < F() ? -sq : sq;
-}
-
-F low_speed_hold(const ex::Wheel& w) {
-    if (w.peak_force == F()) return F();
-    const F ws = w.rim_speed, slip = w.hub_vx - ws;
-    if (ws < F::raw(0xBFB1C71B) || F::raw(0x3FB1C71B) < ws) return F();     // |the rim| over 5 km/h
-    if (slip < F::raw(0xBF0E38E3) || F::raw(0x3F0E38E3) < slip) return F(); // the hub off the rim by over 2 km/h
-    F across = gt3r::ee::cos(w.steer) * w.hub_vy;
-    across = across + gt3r::ee::sin(w.steer) * w.hub_vx;
-    if (F::raw(0x3F8E38E3) < across || across < F::raw(0xBF8E38E3)) return F(); // over 4 km/h across the wheel
-    const F s = gt3r::ee::sin(across * F::raw(0x4034F4AB));                     // 0.9 pi
-    return s * gt3r::ee::cos(ws * F::raw(0x3F90C3BC)) * w.peak_force;            // 0.36 pi
-}
 
 void pad_hud(ex::Car& c, const ex::PadFrame& f) {
     if (!(f.flags & 1)) c.steer_pct = gt3r::s8(f.steer == 0 ? 0 : f.steer > 0 ? 100 : -100);
@@ -471,7 +452,7 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool air, const Tables& t) {
         const F cam = tx.camber_force[size_t(i)];
         fa = fa + -cos(w.steer) * cam;
         fb = fb + -sin(w.steer) * cam;
-        const F hold = prologue::low_speed_hold(w); // (0x3BAFE0 = Gran Turismo 4's 0x3522B0 in its layout)
+        const F hold = rules::low_speed_hold(w); // (0x3BAFE0 = Gran Turismo 4's 0x3522B0 in its layout)
         fa = fa - cos(w.steer) * hold;
         fb = fb - sin(w.steer) * hold;
         fa = fa - sin(w.steer) * gx;
@@ -736,7 +717,7 @@ void one_speed_gear(ex::Car& c) {
     } else if (walk < c.speed || F() < c.throttle) {
         if (c.gear == 0) g = 1;
     } else if (c.speed < -walk && c.gear != 0) g = 0;
-    if (g >= 0) ex::set_gear(c, u8(g));
+    if (g >= 0) c.gear = u8(g);
 }
 } // namespace
 
@@ -1149,6 +1130,33 @@ void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t,
     moment = m, lift = up;
 }
 
+bool start_hold(ex::Car& c, F box_heading) {
+    const s32 n = c.hold;
+    if (n == 0) return false;
+    const F zero = F(), height = F::raw(0x3E999999); // 0.3 m
+    // 0x375C40: the height over the ground by the counter (300 steps: rising out of 0.3 m over the first 30, held, 0 the last 30)
+    int mode = 2;
+    F offset = height;
+    if (n >= 270) mode = 1, offset = (gt3r::ee::int_to_f(300 - n) * height) / F::raw(0x41F00000);
+    else if (n < 30) mode = 0, offset = zero;
+    // 0x375CC0: held there unless the body is above it, at rest in pitch and roll.
+    const F target = c.ground_pos.z + offset;
+    if (target < c.pos.z) return false;
+    c.pos.z = target;
+    c.vel.z = zero, c.roll = zero, c.pitch = zero, c.roll_rate = zero, c.pitch_rate = zero;
+    if (mode == 2) { // (turned toward the box at 0.52 rad/s: 0x3B6350, the conductor's box heading)
+        const F d = rules::angle_diff(box_heading, c.heading); // (0x377620 = 0x36CC40)
+        if (!(d == zero)) {
+            const F step = c.dt * F::raw(0x3F060A90);
+            if (step < d) c.heading = c.heading + step;
+            else if (d < -step) c.heading = c.heading - step;
+            else c.heading = box_heading;
+        }
+    }
+    rules::body_axes(c); // (0x377310)
+    return true;
+}
+
 void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_line_lean) {
     using gt3r::ee::cos;
     using gt3r::ee::sin;
@@ -1158,11 +1166,7 @@ void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_lin
     const F dt = c.dt;
     F moment, lift;
     pitch_terms(c, l, t, moment, lift);
-    // The start's hold (0x376330): the engine's settling and turn toward the box, Gran Turismo 4's axes.
-    if (c.hold != 0 && ex::spawn_hold(c, F())) {
-        rules::body_axes(c);
-        return;
-    }
+    if (start_hold(c, c.heading)) return; // (0x376330; ❓ the box's heading: no Prologue race sets a hold)
     // Pitch: the axles' body forces and dampers about their levers, and the tires' moment.
     std::array<F, 4> s{};
     for (int w = 0; w < n; ++w) s[l.axle[size_t(w)] & 3] = s[l.axle[size_t(w)] & 3] + c.body_force[size_t(w)];
@@ -1312,7 +1316,7 @@ void road_bumps(ex::Car& c, const CarPart& x, const ex::SurfaceBumps& b) {
             wh.bump = F();
             continue;
         }
-        F v = bump_wave(b.mode[s], g.x, g.z, b.freq[s]);
+        F v = rules::bump_wave(b.mode[s], g.x, g.z, b.freq[s]); // (0x375340 = 0x369640)
         if (b.scaled[s]) v = v * wh.speed_ramp;
         wh.bump = v * amp;
     }
@@ -1435,8 +1439,16 @@ void bump_nudge(ex::Car& c, const CarPart& x) {
 }
 
 void ground_frame(ex::Car& c) {
-    ex::ground_frame(c);
-    rules::body_axes(c.ground_pitch, c.ground_roll, c.heading, c.ground_fwd, c.ground_lat, c.ground_up);
+    // (the layout's kind 0, the only one Prologue's cars have: its row 0, the special kinds 4 .. 6 that pick the others none)
+    const F g0 = c.w[0].ground, g1 = c.w[1].ground, g2 = c.w[2].ground, g3 = c.w[3].ground;
+    const F w = c.p.rear_weight, half = F::raw(0x3F000000);
+    c.ground_pos.x = c.pos.x, c.ground_pos.y = c.pos.y;
+    const F rise = ((g0 + g1) - (g2 + g3)) * half;
+    const F u = g0 + (g2 - g0) * w, v = g1 + (g3 - g1) * w;
+    c.ground_pitch = ex::atan2(c.behaviour, rise, c.p.wheelbase);
+    c.ground_roll = ex::atan2(c.behaviour, u - v, c.p.track);
+    c.ground_pos.z = (u + v) * half;
+    rules::body_axes(c.ground_pitch, c.ground_roll, c.heading, c.ground_fwd, c.ground_lat, c.ground_up); // (0x377310)
 }
 
 } // namespace gt4r::sim::prologue

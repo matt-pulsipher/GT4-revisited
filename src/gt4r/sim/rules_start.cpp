@@ -148,6 +148,21 @@ void pose(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t, cons
     c.x535 = u8(c.x535 & 0xEF);
     if (pit != 0 && (!h.pit_lane || h.pit_lane())) c.x535 = u8(c.x535 | 0x10);
     x.phases.soft_wheels = soft, x.phases.pit_wheels = pit;
+    pose_wheels(c, x, l, t);
+    ground_frame(c, l);
+    c.pitch = c.ground_pitch, c.roll = c.ground_roll;
+    c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
+    rules::body_axes(c);
+    c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
+    rules::hub_offsets(c, l); // (0x345A20: by the wheel layout)
+    c.f3e4 = h.distance ? h.distance(c) : k0;
+    x.input.line_triangle = u32(c.road_seg);
+    x.input.line_height = c.ground_pos.z;
+    x.input.line_point[0] = c.ground_pos.x, x.input.line_point[1] = c.ground_pos.y;
+    x.near.course_rate = k0;
+}
+
+void pose_wheels(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t) {
     // Each wheel at rest under its axle's share of the load.
     for (int w = 0; w < wheels(l); ++w) {
         ex::Wheel& wh = c.w[size_t(w)];
@@ -161,17 +176,6 @@ void pose(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t, cons
         wh.camber = wheel_camber(c, l, w, k0, k0);
         wh.half_track = wheel_half_track(c, l, w, k0);
     }
-    ground_frame(c, l);
-    c.pitch = c.ground_pitch, c.roll = c.ground_roll;
-    c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
-    rules::body_axes(c);
-    c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
-    rules::hub_offsets(c, l); // (0x345A20: by the wheel layout)
-    c.f3e4 = h.distance ? h.distance(c) : k0;
-    x.input.line_triangle = u32(c.road_seg);
-    x.input.line_height = c.ground_pos.z;
-    x.input.line_point[0] = c.ground_pos.x, x.input.line_point[1] = c.ground_pos.y;
-    x.near.course_rate = k0;
 }
 
 void clear_view_lags(ex::Car& c) { c.lag_heading_diff = k0, c.lag_pitch_diff = k0; }

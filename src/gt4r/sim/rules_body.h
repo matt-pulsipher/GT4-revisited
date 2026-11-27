@@ -115,6 +115,9 @@ void query_points(ex::Car& c, const BodyExtra& x, const WheelLayout& l);
 // 0x35D350 (phase 19, after the body's axes): the ground's frame under the car from the wheels' ground heights, by the
 // wheel layout's kind: its pitch, roll and height (F +0x574, +0x578, +0x38) and axes (F +0x3C, as 0x36C9F8 makes them).
 void ground_frame(ex::Car& c, const WheelLayout& l);
+// 0x369640 (Prologue's 0x375340 is the same routine): a surface's bump wave at (x, z), sin(f x) + cos(f z); mode 1 its
+// square, signed as the wave.
+F bump_wave(int mode, F x, F z, F freq);
 void road_bumps(ex::Car& c, const WheelLayout& l, const BumpTables& t, const std::array<u8, 4>& surface, const std::array<u8, 4>& material);
 
 // 0x36A490: the body's up axis against the ground's (F + 0x5B4: their dot product, into the engine's

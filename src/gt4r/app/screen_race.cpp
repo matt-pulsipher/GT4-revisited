@@ -718,6 +718,10 @@ public:
         ws.pace.solo = setup.solo || setup.sequence == "time_trial" || setup.sequence == "freerun" || setup.sequence == "machinetest" || (is_license(setup.sequence) && !training);
         ws.pace.random_spread = setup.conductor == race::Conductor::Other;
         ws.event_grips = is_license(setup.sequence) || setup.sequence == "mission" || setup.sequence == "practice";
+        if (app.db() && app.db()->prologue()) { // (Prologue's conductors' virtuals 43 and 39: a lesson's no pits and mode 3, a free run's no pits)
+            if (is_license(setup.sequence)) ws.pit_rule = {false, 3};
+            else if (free_run(setup.sequence)) ws.pit_rule = {false, 0};
+        }
         ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;

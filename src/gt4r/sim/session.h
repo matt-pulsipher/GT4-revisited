@@ -185,9 +185,6 @@ public:
     // category (0x34C998: dirt 1, snow 2; the bump tables' surface 5 takes row 15 on snow). The session starts with 2 when its first start place is on a loose surface, else 0.
     void set_course_kind(const Program& program, u8 kind);
     u8 course_kind() const { return course_kind_; }
-    // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
-    // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
-    void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
     // SCPS-17001 v1.05's program: its own rules where they differ from v1.01's.
     bool japan() const { return japan_; }
     bool gt4_rules() const { return gt4_rules_; }
@@ -242,6 +239,10 @@ public:
     // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
     // (new tires take them); all off by default, as in every race seen.
     void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // Prologue's conductor's pit rule (prologue::PitRule: its virtual 43, whether a car may go to the pits, 1 a single race's and
+    // a machine test's, 0 a lesson's (license, training) and a free run's; its virtual 39, the mode, 3 a lesson's). The step's
+    // wear flags (0x3BBD80) and the ground's pit-lane mark (0x3754D8, F +0x535 bit 4) read it. A single race's by default.
+    void set_pit_rule(const prologue::PitRule& r) { pit_rule_ = r; }
     // The race's rules of hits and speed caps (the rule block's +0x46 .. +0x4A, +0x42 / +0x43 and +0x4B, from the race's RACE row:
     // Gran Turismo 4's 0x35E108, Prologue's 0x3C5978): a hit past the limits caps the car's speed at `penalty_cap` km/h for
     // `h.penalty` seconds. All 0 (none) by default; holds until set again.
@@ -436,6 +437,7 @@ private:
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
     prologue::StepTables prologue_step_; // (phases 4 and 22's tables: phases_prologue.h)
+    prologue::PitRule pit_rule_;         // (the conductor's virtuals 43 and 39)
     std::vector<prologue::Collision::Contact> prologue_contacts_;
     std::vector<Spec> specs_;
     std::vector<Equipment> equipment_; // (each entry's)

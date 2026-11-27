@@ -143,6 +143,12 @@ struct SlipForceGlobals {
     u8 mean_on = 0;
 };
 constexpr u32 kSteerMode = 0x845BF0, kCamberRef = 0x620764, kCamberGain = 0x620768, kMeanSlipOn = 0x623E52;
+// 0x352218 (Prologue's 0x3BAF48 the same): a slip angle folded into 0 .. pi / 2, the sign of the side it came from (1 below
+// -pi / 2 and on 0 .. pi / 2, else -1): b + pi, -b, b or pi - b.
+F slip_angle_fold(F b, F& sign);
+// 0x3575E0 (Prologue's 0x3BF4E8 the same): a wheel's slip direction from its hub's speeds, atan2(-vy, vx), and its low-speed
+// fade: 1 from 10 km/h, 0 to 1 km/h, (speed - 1 km/h) x 0.4 between (the direction 0 where the fade is).
+F slip_angle(F vx, F vy, F& fade);
 // 0x352408: each wheel's slip angle and its lateral forces: curve A across the velocity and curve B
 // against it at the folded slip angle, faded at low speed and held in the friction circle; the camber's
 // force for the layout's marked wheels.

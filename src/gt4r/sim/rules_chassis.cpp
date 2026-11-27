@@ -24,6 +24,19 @@ AeroGlobals aero_globals(const Program& program) {
     return g;
 }
 
+F low_speed_hold(const ex::Wheel& w) {
+    const F zero = F();
+    if (w.peak_force == zero) return zero;
+    const F ws = w.rim_speed, slip = w.hub_vx - ws;
+    if (ws < F::raw(0xBFB1C71B) || F::raw(0x3FB1C71B) < ws) return zero;     // 5 km/h
+    if (slip < F::raw(0xBF0E38E3) || F::raw(0x3F0E38E3) < slip) return zero; // 2 km/h
+    F across = gt3r::ee::cos(w.steer) * w.hub_vy;
+    across = across + gt3r::ee::sin(w.steer) * w.hub_vx;
+    if (F::raw(0x3F8E38E3) < across || across < F::raw(0xBF8E38E3)) return zero; // 4 km/h
+    const F s = gt3r::ee::sin(across * F::raw(0x4034F4AB));                      // 0.9 pi
+    return s * gt3r::ee::cos(ws * F::raw(0x3F90C3BC)) * w.peak_force;             // 0.36 pi
+}
+
 void aero(ex::Car& c, const ChassisExtra& x, u8 kind, F lift, const AeroGlobals& g) {
     const F zero = F(), one = F::raw(0x3F800000);
     const F v2 = c.speed * c.speed;
@@ -81,7 +94,7 @@ void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLay
         const F cam = t.camber_force[size_t(i)];
         fa = fa + -cos(w.steer) * cam;
         fb = fb + -sin(w.steer) * cam;
-        const F hold = ex::low_speed_hold(w, true);
+        const F hold = rules::low_speed_hold(w);
         fa = fa - cos(w.steer) * hold;
         fb = fb - sin(w.steer) * hold;
         fa = fa - sin(w.steer) * gx;

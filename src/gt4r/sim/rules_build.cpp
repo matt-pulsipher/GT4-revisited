@@ -27,7 +27,7 @@ F peak_slip(const rules::Tire& t) {
     s32 deg = 90;
     for (s32 d = 0; d < 0x2E; ++d) {
         F sign;
-        const F v = gt3r::sim::exact::slip_angle_fold(rules::behaviour(), int_to_f(d) * kDegree, sign);
+        const F v = rules::slip_angle_fold(int_to_f(d) * kDegree, sign); // (0x352218)
         const F y = rules::table(t.curve_a, v) * sign;
         if (best < y) best = y, deg = d;
     }

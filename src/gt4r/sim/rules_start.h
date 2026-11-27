@@ -111,6 +111,9 @@ struct PoseHooks {
 // wheelbase), the height over the ground's point along the up axis, the hubs again; the distance along the course, and
 // the line's last point F + 0x61C .. + 0x628 the ground's point and triangle, F + 0x650 0.
 void pose(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t, const PoseHooks& h, s32 hint, F px, F py, F pz, F heading);
+// The pose's wheels (0x363B10's loop after the ground records): each wheel's load and peak force, travel, steer angle, offset,
+// camber and half track at rest, as above.
+void pose_wheels(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t);
 // 0x3455F0 (the car's part): the view's heading and pitch lags (F + 0x5FC / + 0x600) cleared. (It also clears the car's
 // record of velocity changes in the conductor, + 0xCAB8 + 0x30 x index: not the car's.)
 void clear_view_lags(ex::Car& c);

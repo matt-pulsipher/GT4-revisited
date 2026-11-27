@@ -480,7 +480,6 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     // Ours on the same course and car with the same pad, from the same first step (no hold).
     const std::vector<std::string> cars{car};
     std::unique_ptr<sim::Session> session = sim::Session::open(disc, course, cars);
-    if (const char* rules = std::getenv("GT4R_PROLOGUE_RULES")) session->set_gt4_rules(std::string(rules) == "gt4");
     for (const std::string& n : session->notes()) std::printf("  ours: %s\n", n.c_str());
     if (ground_check) {
         int same = 0, close = 0, off = 0, miss = 0;
