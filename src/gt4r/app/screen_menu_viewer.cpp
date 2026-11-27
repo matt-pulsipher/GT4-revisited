@@ -13,6 +13,8 @@
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/keyboard_typing.h"
+#include "app/text_keyboard.h"
 #include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_painter.h"
@@ -40,6 +42,7 @@
 #include <cstdlib>
 #include <deque>
 #include <map>
+#include <set>
 
 namespace gt4r {
 
@@ -117,6 +120,19 @@ public:
     }
 
     bool follows_aspect() const override { return runtime_ || player_; }
+    void on_event(App&, const SDL_Event& e) override {
+        if (!typing_on_) return;
+        if (e.type == SDL_EVENT_TEXT_INPUT && e.text.text) typing_.type(e.text.text);
+        if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
+            const SDL_Keycode k = e.key.key;
+            const bool enter = k == SDLK_RETURN || k == SDLK_KP_ENTER, back = k == SDLK_BACKSPACE;
+            if (!enter && !back && !(k >= 0x20 && k < 0x7F)) return; // (arrows, Escape and the rest keep their menu meaning)
+            if (e.type == SDL_EVENT_KEY_UP) return void(typing_held_.erase(int(e.key.scancode)));
+            typing_held_.insert(int(e.key.scancode));
+            if (enter && !e.key.repeat) typing_.type("\n");
+            if (back) typing_.type("\b");
+        }
+    }
     gt3r::TouchLayout touch_layout() const override { return follows_aspect() ? gt3r::TouchLayout::Menu : gt3r::TouchLayout::None; } // (the game's menus: the pad)
 
     // The game's title (Arcade's top page): the update dialog may open over it; the Discord status says which menus run.
@@ -364,6 +380,7 @@ private:
         run(app, true);
     }
     void stop() {
+        typing_stop();
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         if (page_picture_) SDL_DestroyTexture(page_picture_), page_picture_ = nullptr;
@@ -406,9 +423,14 @@ private:
                 hide_key_table();
                 if (keys_on && m.pressed(PadButton::Cross)) return use_button(app);
             }
+            // A page with a keyboard of its own (the name entry): a real keyboard types on it (menu/keyboard_typing.h); a typing key
+            // held is no menu key meanwhile.
+            typing_frame(app);
+            const bool typing_keys = typing_on_ && (!typing_held_.empty() || typing_.pending());
             send_menu_directions(*runtime_, m, keys_on && !key_page);
             for (const auto& [button, key] : keys)
-                if (keys_on && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
+                if (keys_on && !typing_keys && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
+            if (keys_on && typing_on_) typing_.step(*runtime_);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
@@ -817,6 +839,25 @@ private:
     std::vector<std::shared_ptr<LiveWidget>> pages_;
     RowPointer mouse_; // the lists'
     std::unique_ptr<menu::Runtime> runtime_;
+    // Typing on the page's own keyboard: SDL's text input on while the page has one (the engine's start_text_input with the
+    // game's keyboard: the system's screen keyboard stays closed), the letters and the typing keys held.
+    menu::KeyboardTyping typing_;
+    bool typing_on_ = false;
+    SDL_Window* typing_window_ = nullptr;
+    std::set<int> typing_held_;
+    void typing_frame(App& app) {
+        const bool want = runtime_ && menu::KeyboardTyping::keyboard_of(runtime_->current_page()) != nullptr;
+        if (want == typing_on_) return;
+        if (!want) return typing_stop();
+        typing_window_ = SDL_GetRenderWindow(app.renderer());
+        gt3r::start_text_input(typing_window_, true);
+        typing_on_ = true;
+    }
+    void typing_stop() {
+        if (typing_on_) gt3r::stop_text_input(typing_window_);
+        typing_on_ = false, typing_window_ = nullptr;
+        typing_held_.clear(), typing_.clear();
+    }
     std::shared_ptr<int> life_ = std::make_shared<int>(0); // (what outlives this page, such as the transfer's choice, asks it whether it is still there)
     std::unique_ptr<OnlineMenus> online_; // the online races' part of the menus
     std::unique_ptr<PageDrawer> live_drawer_;

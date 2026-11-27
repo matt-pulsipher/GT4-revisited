@@ -59,8 +59,9 @@ Triangle and Square go back). In races, unless you change it:
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter (or W) is Cross, Escape and Backspace Triangle, Space Circle, S Square,
-Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. The name entry's letters are chosen on its own keyboard
-with the arrows and Enter. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
+Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. On the name entry a keyboard types: each letter presses the
+page's own key (the game's capital and small letters as its keyboard gives them), Backspace deletes, Enter is the page's
+Enter; its keys can also be chosen with the arrows, or tapped on a phone (whose own keyboard stays closed). F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
 mouse's arrow goes after two seconds without it.
 
 **The game's own Options** work as the console's, but for the controller pages: the button configurations (every pad's and
@@ -278,7 +279,6 @@ The ones a player meets first:
   Turismo 4 Prologue (Japan, SCPS-15055) are the tested releases. Another release opens with "not a tested release" on
   the home screen, and parts of it may not work. The Japanese release races on the US release's driving, computer-driver
   and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
-- Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.
 - Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.

@@ -354,7 +354,7 @@ std::vector<std::string> App::parse_key_script(std::string_view text) {
     for (std::string_view line : gt3r::split(text, '\n')) {
         if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
         for (std::string_view k : gt3r::split(line, ','))
-            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
     }
     return keys;
 }
@@ -503,6 +503,14 @@ gt3r::PadState App::scripted_keys() {
             const std::string path = k.substr(5);
             ++key_, key_frames_ = 0;
             e.type = SDL_EVENT_DROP_FILE, e.drop.data = path.c_str();
+            event(e);
+            return pad;
+        }
+        if (k.compare(0, 5, "type:") == 0) { // text typed on a keyboard
+            SDL_Event e{};
+            const std::string text = k.substr(5);
+            ++key_, key_frames_ = 0;
+            e.type = SDL_EVENT_TEXT_INPUT, e.text.text = text.c_str();
             event(e);
             return pad;
         }
