@@ -924,7 +924,13 @@ which the game never offers). On "uk" the boot project opens `LanguageRoot` befo
 table 0x6AE404, JP US GB FR DE IT ES PT KR CN TW DB, kept in the game data) and `SyncUnitWithLanguage` (0x4361D0 ->
 0x472528: the units by the language's locale, 0x472408: US mph HP ft.lb; GB mph BHP kgf.m; FR km/h ch kgf.m t/min; DE km/h
 PS kgf.m U/min; IT km/h CV kgf.m G/min; ES and PT km/h CV kgf.m; JP KR CN TW km/h PS kgf.m), then starts `boot` again in
-that language. `GetVideoSystem` answers "PAL" on "uk" (the main script then takes `main_pal`); the race still steps 60
+that language. Japan's program has no `SyncUnitWithLanguage`: its units follow `language_for_unit` (MOption, 0x17E6F0;
+Option +0x10, a u32 language), a new game's the console's language (the reset 0x42EEC0), set by the option's apply (0x42F0E8)
+and a change of language (0x42ECC8 -> 0x42EC28) through 0x46A868 and Japan's own cases (0x46A760): as above but British
+English km/h with BHP and kgf.m (Arcade's OptionPopup offers it, `LanguageForUnit`; no script opens the popup). Ours:
+`GameState::unit_language` / `units_by_language` on Japan's disc only (✔ `disc_menu_japan_language_for_unit`: Japan's
+"JP" km/h PS kgf.m, "GB" applied km/h BHP kgf.m, "US" mph HP ft.lb; the US and European programs have no such option).
+`GetVideoSystem` answers "PAL" on "uk" (the main script then takes `main_pal`); the race still steps 60
 times a second. ✔ Checked: Europe's language page, French menus after choosing Français, the British English Gran
 Turismo mode map (Europe's dealers' places), Japan's menus in Japanese with its kanji font.
 
