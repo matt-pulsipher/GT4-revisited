@@ -217,6 +217,9 @@ public:
         bool firm = false;
     };
     Suggestion suggestion(size_t car) const;
+    // The lesser of the driver's two target speeds (D +0x24, +0x28; +0x24 when equal), as the driver's figure's shift reach
+    // takes it (0x40CA58); none without a driver.
+    std::optional<gt3r::ee::F> least_target(size_t car) const;
     void set_bspec(size_t car);
     // The control source changed in the race (F +0x466 by 0x3F19E0's command 10: 0 the pad, 1 the B-spec driver), its pace as it was.
     void set_control(size_t car, int control);

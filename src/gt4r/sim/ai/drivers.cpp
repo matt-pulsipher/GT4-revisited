@@ -1062,6 +1062,12 @@ Field::Suggestion Field::suggestion(size_t car) const {
     return d ? d->suggest : Suggestion{};
 }
 
+std::optional<F> Field::least_target(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return std::nullopt;
+    return d->v_next < d->v_cur ? d->v_next : d->v_cur;
+}
+
 void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
