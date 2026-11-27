@@ -14,6 +14,7 @@
 
 #include "gt4r/formats/db/specdb_prologue.h"
 
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -286,6 +287,10 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
         w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
     }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
+    // A course visit's one day, put when the sequence ends (GameState::end_race_sequence).
+    const int course_kind = q.sequence == "freerun" ? 1 : q.sequence == "practice" ? 3 : q.sequence == "photo_drive" ? 4 : q.sequence == "machinetest" ? 6 : 0;
+    if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && course_kind && s.race_session.sequence == q.sequence)
+        s.race_session.course_kind = u8(course_kind), s.race_session.course_code = n->db().code(kCourseTable, q.course);
     if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)), w.set("canLoadGhost", 1); // ❓ (Prologue's constructor is not read: dashes, as before; ✔ its card icon is lit on lessons 1 and 2)
     if (q.sequence == "license") {
         // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
@@ -440,9 +445,14 @@ s64 Runtime::race_finished(const RaceResult& r) {
         }
         work.set("numberOfEntries", s32(r.order.size()));
     };
-    // The car's distance: what the race's step adds to the car's condition (0x35DE20).
-    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0)
-        add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
+    // The car's condition: the race's block copied back into the garage car (0x10FA58: the car's +0x6DC into the riding
+    // car's record, Status + 0x13DD8, by the Gran Turismo mode sequences that call it), so its distances and its dirt are
+    // the step's. A run without the block: its distance added (0x35DE20's distances, once for the run).
+    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record) {
+        CarRecord& rec = *s.garage[size_t(r.garage_slot)].record;
+        if (r.condition) std::copy(r.condition->begin(), r.condition->end(), rec.bytes.begin() + 0x498);
+        else if (r.distance_m > 0) add_distance(d, rec, r.distance_m);
+    }
     // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the machine test's 0x115A90, the free run's
     // 0x116E20, practice's 0x1181C8, the championship's 0x118EF0 and photo drive's 0x11ABE0; not by the license tests',
     // the missions' or Arcade's; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's
@@ -450,6 +460,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     const bool counted = r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || (r.kind == RaceResult::Kind::Course && r.course_kind != 7);
     if (counted && r.distance_m > 0) s.bspec_distance += s64(r.bspec_distance_m), s.aspec_distance += s64(r.distance_m - r.bspec_distance_m);
     DayEvent day;
+    bool sequence_day = false; // the day is the sequence's, put when it ends
     s64 prize = 0;
     switch (r.kind) {
     case RaceResult::Kind::Event: {
@@ -624,6 +635,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
         break;
     }
     case RaceResult::Kind::Course:
+        // A course visit's sequence puts its day when it ends (0x1179F8, 0x1184DC, 0x11B0D8, 0x115E90), not by the run.
+        sequence_day = s.race_session.course_kind && s.race_session.course_kind == r.course_kind;
         day.type = 8, day.b3 = u8(r.course_kind), day.b1 = u8(r.finished ? 0 : 15), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime;
         day.code = d.code(kCourseTable, r.course);
         break;
@@ -634,7 +647,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // course's ranking (its unit made when it has none, 0x433C10), and the best is the menus' BestTime. A machine test the car
     // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
     // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
-    // (0x1165B8, 0x433348): not run here (the machine test's own conductor is not built), so not inserted. ❓ The race's kind
+    // (0x1165B8, 0x433348, below). ❓ The race's kind
     // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code: ranking_pass_code.
     if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
         std::string car;
@@ -650,6 +663,18 @@ s64 Runtime::race_finished(const RaceResult& r) {
             const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
             if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, kind == 0x10 ? 3 : 4, r.best_lap_ms));
         }
+    }
+    // The top speed test (kind 0x12): its top speed (car +0x6CC, the float itself) into the machine record's unit 2 by speed
+    // (0x1165B8: 0x433C78 with 2, 0x433348).
+    if (r.kind == RaceResult::Kind::Course && r.course_kind == 6 && r.finished && !r.watched && r.max_speed > 0 && d.db && !d.db->prologue() &&
+        row.size() > 0x10 && u8(row[0x10] - 6) == 0x12) {
+        std::string car;
+        for (const RaceResult::Finisher& f : r.order)
+            if (f.entry == 0) car = f.car;
+        u32 bits;
+        std::memcpy(&bits, &r.max_speed, 4);
+        // (its pass code: the kind 5, the top speed x 1000 truncated as the time, 0x1165B8)
+        ranking_insert(d, s.machine_record, 2 * kCourseUnit, true, bits, car, ranking_pass_code(d, r, 5, u32(s32(r.max_speed * 1000.0f))));
     }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player
     // drove and finished keeps its A-spec points when they are the course's best (0x111E98: the course of the race's row,
@@ -668,7 +693,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // sequence puts it at once. (Gran Turismo 4's: only a graded run's that beat the sequence's best, above.)
     if (r.kind == RaceResult::Kind::License && s.race_session.license_open) {
         if (day.type == 4) s.race_session.license_day = day;
-    } else if (r.kind != RaceResult::Kind::License || day.type == 4)
+    } else if (!sequence_day && (r.kind != RaceResult::Kind::License || day.type == 4))
         s.put_day(day);
     return prize;
 }

@@ -7,6 +7,8 @@
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/race/race_display.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/race_start.h"
+#include "gt4r/race/split_lists.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/program.h"
@@ -172,4 +174,101 @@ TEST(endurance_pit_lane_penalty_mark) {
     session->set_pit_mark(0, 0);
     step();
     CHECK(pits.car(0).pad_state == 0);
+}
+
+// A free practice (DynamicsConductorFreePractice): the player's pit start (kind 6, 0x36437C) behind the line takes its first
+// crossing back (F + 0x4B0 = 1, crossings 0), so its laps count from its second; a car's times from its counted start (vf20
+// 0x3F50F0); no lap time shown before it (0x357830); the places by best laps from the grid's order (vf2 / vf3).
+TEST(endurance_free_practice_flow) {
+    race::StartRace r;
+    course::Runway road;
+    road.length = kLap;
+    r.road = &road;
+    race::PlannedStart pit;
+    pit.start.kind = 6;
+    CHECK(!pit.start.on_line());
+    CHECK(race::planned_crossings(r, pit, 990) == 0 && race::planned_back(r, pit, 990) == 1);
+    CHECK(race::planned_crossings(r, pit, 10) == 0 && race::planned_back(r, pit, 10) == 0);
+    race::PlannedStart grid;
+    CHECK(race::planned_back(r, grid, 990) == 0);
+    for (int k = 1; k <= 5; ++k) CHECK(race::CarStart{k}.on_line());
+    CHECK(!race::CarStart{7}.on_line() && !race::CarStart{8}.on_line());
+
+    // Car 0 (the player, grid place 2) 10 m behind the line at 2 m a step; car 1 (place 0) 300 m behind at 2.5; car 2 (place 1)
+    // 324 m behind at 1.
+    Field f({2.0f, 2.5f, 1.0f}, 10);
+    f.at[1] = -300, f.at[2] = -324;
+    for (size_t i = 0; i < 3; ++i) f.publish(i);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 0, s.lap_length = kLap;
+    s.back = {1, 0, 0};
+    s.crossings = {0, 0, 0};
+    s.practice_grid = {2, 0, 1};
+    race::RaceFlow flow(s, f.cars);
+    CHECK(flow.place(1) == 1 && flow.place(2) == 2 && flow.place(0) == 3); // (the grid's order while nobody has a time)
+    int steps = 0;
+    for (; steps < 20 && flow.car(0).back != 0; ++steps) f.step(), flow.step(f.cars);
+    CHECK(flow.car(0).back == 0 && flow.car(0).counter == 0); // (the first crossing taken back)
+    for (int i = 0; i < 200; ++i) f.step(), flow.step(f.cars);
+    CHECK(flow.lap_ms(0) == 0); // (its out lap: no time)
+    while (flow.car(0).counter == 0) f.step(), flow.step(f.cars);
+    const s64 start0 = flow.car(0).base_ms;
+    CHECK(start0 > 0 && flow.car(1).base_ms > 0 && flow.car(1).base_ms < start0); // (car 1's from its own crossing)
+    while (flow.car(0).laps_done == 0) f.step(), flow.step(f.cars);
+    // 500 steps of 1/60 s a lap: 8,333 ms within a step.
+    CHECK(std::llabs(flow.car(0).best_lap_ms - 8333) <= 17);
+    CHECK(flow.car(1).best_lap_ms > 0 && flow.car(1).best_lap_ms < flow.car(0).best_lap_ms);
+    // Places by the bests: car 1 (fastest), car 0, then car 2 with no time yet.
+    CHECK(flow.car(2).best_lap_ms < 0);
+    CHECK(flow.place(1) == 1 && flow.place(0) == 2 && flow.place(2) == 3);
+}
+
+// Power & Speed (DynamicsConductorMachineTest): the goal and split points by the test's kind from the program's distances
+// (0x622490: vf39, vf42, vf43), the run ended at the goal with its time as the car's best, nothing at the line.
+TEST(endurance_machine_test) {
+    Field f({2.0f}, 10);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 0, s.lap_length = kLap, s.machine_test = 1, s.goal = 400;
+    race::RaceFlow flow(s, f.cars);
+    int steps = 0;
+    for (; steps < 1000 && !flow.player_finished(); ++steps) f.step(), flow.step(f.cars);
+    // 410 m at 2 m a step: 205 steps, the goal 5 steps after the line's crossing (3,416.7 ms).
+    CHECK(flow.player_finished() && steps == 205);
+    CHECK(flow.car(0).best_lap_ms == flow.run_ms(0) && std::llabs(flow.run_ms(0) - 3417) <= 1);
+    CHECK(flow.car(0).laps_done == 0);
+    int ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        ++ran;
+        const sim::Program program = sim::Program::load(*d);
+        const race::MachineTestCourse a = race::machine_test_course(program, 1), b = race::machine_test_course(program, 2),
+                                      c = race::machine_test_course(program, 3), z = race::machine_test_course(program, 0);
+        CHECK(a.goal == 400 && a.splits.empty());
+        CHECK(b.goal == 1000 && b.splits == std::vector<float>({400}));
+        CHECK(c.goal == 6845 && c.splits == std::vector<float>({400, 1000}));
+        CHECK(z.goal == 400 && z.splits.empty());
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
+}
+
+// The lists of the cars through each section's end (vf18 0x3578B0) and the Race Monitor's pace-up mark (0x3FA508).
+TEST(endurance_pace_up_mark) {
+    race::SplitLists l(3); // (two split points and the line)
+    // Round 1: car 1 leads; car 0 passes split 0 2.0 s behind, split 1 1.5 s behind: gaining.
+    l.pass(1, 1, 0, 10'000), l.pass(0, 1, 0, 12'000);
+    l.pass(1, 1, 1, 20'000), l.pass(0, 1, 1, 21'500);
+    CHECK(l.time(1, 0) == 21'500 && l.time(1, 1) == 20'000);
+    CHECK(l.pace_up(0, 1, 2, 1));      // (in section 2: the last end passed 1, the one before 0)
+    CHECK(!l.pace_up(1, 0, 2, 1));     // (the car ahead: not behind)
+    CHECK(!l.pace_up(0, 1, 2, 0));     // (no crossing yet)
+    CHECK(!l.pace_up(0, 1, 0, 1));     // (crossings 1 in section 0)
+    // Losing: at the line 3 s behind.
+    l.pass(1, 1, 2, 30'000), l.pass(0, 1, 2, 33'000);
+    CHECK(!l.pace_up(0, 1, 0, 2));
+    // A new round at split 0 starts the list afresh: car 1 alone there, car 0 not listed: no mark.
+    l.pass(1, 2, 0, 40'000);
+    CHECK(l.time(0, 0) < 0 && !l.pace_up(0, 1, 1, 2));
+    // In time order: a car through earlier than the one listed goes before it; an earlier round's car is not listed.
+    l.pass(2, 2, 0, 39'000), l.pass(3, 1, 0, 41'000);
+    CHECK(l.time(0, 2) == 39'000 && l.time(0, 3) < 0);
 }

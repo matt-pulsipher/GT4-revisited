@@ -49,6 +49,8 @@ struct PitHooks {
     // The stop's hold counter (F +0x4BA) handed to the session each step (0 out of a stop): the session holds the car while it
     // runs (Session::set_pit_hold). Without it the car is braked in its box instead.
     std::function<void(size_t car, u16 hold)> hold;
+    // The hold counter the car's set-up left (a pit start's, start kind 6: 120): the stop's counter starts from it.
+    std::function<u16(size_t car)> start_hold;
     // The pass's flags (F +0x4B1) handed to the session after each step.
     std::function<void(size_t car, u8 flags)> flags;
     // F +0x62E as the session keeps it (the hits' penalty mark), read before the pass and written back after it (pad_state).

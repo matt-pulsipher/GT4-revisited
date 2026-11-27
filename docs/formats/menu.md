@@ -650,10 +650,14 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   after a run that ended under 2 s on the race clock (0x11CE3C); both load the test's settings again (0x1100D0, as at the
   sequence's start: its demonstration file `replay/license/<label>`, the entry's transmission and aids +0x1A0 .. +0x1A4 into the
   race information, its equipment into the player's entry): here the demonstration's entries leave the race as it ends and
-  every START takes the test's car and the player's choices anew (0x10F880). **A course's visit** is one day of the diary, put when its sequence ends whatever the runs
-  (0x42F448, place 15, note 14, no time: the machine test 0x115E90, the practice 0x1184DC, the photo drive 0x11B0D8; the free
-  run 0x1179F8 with the session's best time and note 13 when it beat the course's record, else 14; ours puts one per run:
-  RULES_AUDIT.md); Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
+  every START takes the test's car and the player's choices anew (0x10F880). **A course visit** is one day of the diary, put when its sequence ends whatever its
+  runs (none without a run is still a day): RUN_COURSE (0x42F448) with the course, the kind (the free run 1,
+  practice 3, photo drive 4, machine test 6), place 15 and note 14, no time; the machine test's at 0x115E90,
+  practice's 0x1184DC, photo drive's 0x11B0D8; the free run's (0x1179F8) with the session's best lap (its +0x498, no
+  time when none) and note 13 when that best is the course's record (the ranking's first time and not its second's,
+  0x4334F8; the course's unit made when it has none, 0x433C10). So a visit moves the calendar, and the used cars'
+  weeks, by one day (`GameState::end_race_sequence`; ✔ test `disc_gt_mode_course_visit_is_a_day`).
+  Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 - **The course rankings**: a driven time trial run (0x112620 -> 0x113320) or free run (0x116E20 -> 0x117898, only
   when the run made a best-lap recording, race information +0x98; ❓ here: a lap timed) whose best lap (0x35E3F0) beats
@@ -688,12 +692,21 @@ race_flow.md.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
-the way back, from the records' `present_result`. The car's distance goes on its condition as
-the race's step adds it (0x35DE20): the odometer (whole meters, capped at 100,000,000), and
-unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (from below 0 up
-to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
-read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
-once for the race's whole distance.
+the way back, from the records' `present_result`. **The car's condition** after a run: the race
+starts from the garage car's block (CarGarage +0x498, 0x20 bytes, into the car's +0x6DC), its step
+adds each step's distance (0x35DD00 in 0x35DE20): the odometer (whole meters, capped at
+100,000,000), and unless the car has no wear (+0x14) the engine's distance up to 9,700,000 m, the
+oil's (from below 0 up to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to
+3,000,000 m (the limits from 0x620CD8 +0xD0 on, 0x620AF6); and the dirt (+0x0C) from the smoke and
+dust of the wheels on loose ground (0x367148 -> 0x3438C8: x 4 on a paved course, at most 0.8). The
+Gran Turismo mode sequences copy the block back into the riding car's record after each run
+(0x10FA58: the event's, championship's, free run's, practice's, machine test's and photo drive's;
+not the license tests', missions' or Arcade's, whose cars are not the garage's), so Car Wash's
+gauge (`dirtiness`) shows the dirt (`RaceResult::condition`, ✔ test `disc_car_gets_dirty`: 20 s
+of Grand Canyon 0.016, Tsukuba's road 0). A run without Gran Turismo 4's step (no block kept) has
+its distance added once instead (`add_distance`). ❓ The car's drawing does not read the dirt
+through its scripts (no body script on the US disc reads `dirtiness`, one of the model scripts'
+values, 0x6AAB70); whether the race draws dirt on the car otherwise is not read.
 
 **The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
@@ -779,6 +792,21 @@ Grand Canyon; Arcade's script takes a first character '1' as a rolling start.
 **The options and who reads them** (`game_settings.h`: `GameSettings settings_from(options)`).
 The scripts read and write MOption; `Runtime::on_options(GameSettings)` is called at the end of
 the start, when a game is loaded and when the scripts apply, save or reset the options.
+`main::game.option` (0x161CB0) is the game's own options, written at once. `main::game.getOption()` (0x161B88) is a
+copy (0x18FEE8 copies the block, 0x16B8 bytes, into the object): what is written into it and its `apply` (0x4365B8 on
+the copy's block) are the copy's alone, until `main::game.setOption(copy)` (0x161C38) copies it into the game's
+(0x43A970) and applies it. Prologue's option pages (project `option2`: the Screen, Race, Memory Card and Controller
+panes) and the memory card's autosave switch work on copies: the Screen pane's sliders preview a copy (applyOption),
+Cancel reads `getOption` again and applies it, Confirm is `setOption` (✔ test `disc_prologue_option_screen_cancel`).
+The US disc's option project writes `main::game.option` on OK and reads it again on Cancel. Here: a copy's apply
+hands its settings to `on_options` without keeping them; `setOption` keeps them (the data folder's options file).
+
+**`main::game.setReturnToLastMenuProject()`** (0x166398 -> 0x42FC50 with the last project's name; the menus' names at
+Status + 0x3A368: +0x34 the last project, +0x54 the next): the next project is the one the menus came from, the one
+asked for until then (here the running one when none was asked) becomes the last. The option project's Exit when
+`major_menu_project` is empty, the slide show's exit, the memory card's pages after a save (with `next_sequence`
+"menu"), the Analyzer's exit and load and the network's LAN pages leave by it (✔ test
+`disc_menu_options_back_to_last_project`: the options from the title, no major project: the title again).
 
 | Options | GameSettings | Read by | How |
 |---|---|---|---|
@@ -969,10 +997,27 @@ frame is submitted, so two faces of one size through one view showed the same pi
 picture's texture is kept by what the picture holds (pictures are freed with their pages).
 
 The title page left alone for the option `timeout_count_to_autodemo` (20 s) asks for the
-sequence `autodemo` (its `onTick`, `context.time_after_last_input`): the opening movie
-(`demo_movie` with `opening`, after the Polyphony logo), then back to the title with its focus
-on Arcade Mode, as the original's capture shows (reference 28: no demo race plays from the
-title; the configuration's demo replays, `Rdemo0`.., are the Replay Theater's Demo tab).
+sequence `autodemo` (its `onTick`, `context.time_after_last_input`). **The title's
+demonstrations** (0x10BE20; MDemonstration at Status + 0x3B018, made by 0x434590): the
+configuration's `demonstration.initialize(13, 150, 3)` (0x4345D8) sets the list's length (+0x4C),
+a recorded run's time (+0x44) and the tries a time-out makes (`repeat_time`, +0x50); the movie's
+count (+0x6C) starts at the option `demo_movie_interval` (Option +0x116C, 3) less 1. A time-out
+(0x434638: the tries anew; with `restart_from_beginning` +0x60 the list and the count from their
+start) tries one after another (0x434770): when the count has run out and the option is above 0,
+the movie (kind `menu`: the project `demo_movie` with `opening`, after the Polyphony logo; the
+count from the option less 1 again); else the configuration's `setNextDemo(index)` sets the list's
+entry (+0x48, round), the count down one. A try that spends the time-out's tries, or whose script
+answered 0, is the last; the movie skipped (`menu_result` "terminate") ends it too; then the last
+project again (0x42FC50: the title, focus on Arcade Mode). The kinds by name (0x622D90): none,
+autodemo (an Arcade demo race, 0x10BA28), menu (a project), replay (the card's replays 0x4349A8,
+then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text, so
+the US and European lists' `Demo(2, "Rdemo0")` .. (a number) are kind none and play nothing: with
+the option at 3 every time-out plays the movie once (✔ reference 01-boot, 28's attract cycle: the
+movie, no demo race), at 5 every other time-out, at 1 three times running, at 0 never.
+`resetMovieCount` (the Misc options' OK) sets the count to 0: the movie at the next time-out.
+Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ test
+`disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
+kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
 
 ❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).
@@ -1300,7 +1345,13 @@ GT4's own routines, checked against the user's program where the note says so:
   a sibling's free name (0x206888, 0x25ADF8), a replay's particulars on the card (0x1CF628, 0x1CF400);
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
-  0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
+  0x119CB8, 0x11C328, 0x1105A8);
+- the car's condition block back into the garage car after each Gran Turismo mode run (0x10FA58: the step's
+  distances and dirt; a run without Gran Turismo 4's step adds its distance once, `add_distance`), each run of a
+  sequence starting from it (0x10F948); a course visit's one diary day at its sequence's end (0x1179F8, 0x1184DC,
+  0x11B0D8, 0x115E90); the options' copies (getOption 0x161B88, setOption 0x161C38); setReturnToLastMenuProject
+  (0x166398); the title's demonstrations' counts (MDemonstration, 0x10BE20, 0x434770; the kinds no disc script sets
+  play nothing).
 
 - **A stream's level**: `startStreamEx`'s code is turned into a kind (0x4607A0: "pcm" -2, "narration" -3, else a
   sequence, -1), and 0x4608C8 branches on it. A stream (-2 -> 0x460220 -> 0x45FFF8 -> 0x45FFC0) plays at the script's

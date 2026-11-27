@@ -1012,6 +1012,23 @@ TEST(disc_menu_course_rankings) {
     const Value mt = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), name);
     std::printf("  the 1000 m test: %d ranked\n", int(vm.call(vm.attribute(mt, "getRankNum"), {}).i));
     CHECK(vm.call(vm.attribute(mt, "getRankNum"), {}).i == 2);
+    // The top speed test: its top speed (m/s) into unit 2 by speed (0x1165B8), the faster first.
+    auto top = [&](float v) {
+        menu::RaceResult r;
+        r.kind = menu::RaceResult::Kind::Course, r.course_kind = 6, r.course = "testcourse", r.race = "mtmax_testcourse";
+        r.best_lap_ms = 87'000, r.time_ms = 87'000, r.max_speed = v;
+        menu::RaceResult::Finisher me;
+        me.car = car;
+        r.order.push_back(me);
+        f.rt->race_finished(r);
+    };
+    top(80.0f), top(88.97f);
+    const Value max_name[1] = {Value::string("max")};
+    const Value mtmax = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), max_name);
+    const Value first[1] = {Value::integer(0)};
+    const std::string fastest = vm.call(vm.attribute(mtmax, "getBestSpeed"), first).as_string();
+    std::printf("  the top speed test: %d ranked, the first %s\n", int(vm.call(vm.attribute(mtmax, "getRankNumMaxSpeed"), {}).i), fastest.c_str());
+    CHECK(vm.call(vm.attribute(mtmax, "getRankNumMaxSpeed"), {}).i == 2 && (fastest.rfind("320", 0) == 0 || fastest.rfind("199", 0) == 0));
     CHECK(f.clean());
 }
 

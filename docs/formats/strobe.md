@@ -415,8 +415,9 @@ course map). Here (`screen_race.cpp` `fill_monitor`): the followed car's name, l
 pace's word and lit key, the total time `h:mm'ss`, the lap, a row per car in race order (its short name, its
 grid letter, its best lap, its gap to the leader: the time since the leader was where it is ❓), the
 player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's grid letter at its place
-(the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip and
-the pit panel are not filled (hidden). The
+(the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip with its
+pace-up marks, the pit panel, and with Show Map (Cross) the rows' `LAP`, `PIT`, `BEST`, `BESTMARK` in place of `MAP_PANEL`
+(race_flow.md "What runs where"). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
 **The view's speed** (`SPEED`, `"x %d"` 0x3DBBD0 of the monitor's +0x74): the monitor's keys (0x3D95F0) with the race pad's bit
 0x80 held (L1, the help line's "L1 + ◁▷ Change View Speed") take Left (0x100) one slower down to 1 (0x3DA008) and Right (0x200) one
