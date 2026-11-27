@@ -68,6 +68,8 @@ struct DriveExtra {
     F top_speed;                 // P + 0xFD8 the converter's top speed (0x360520)
     HybridState hybrid;          // car + 0x788 the hybrid one-speed box's state (gearbox kind 3)
     u8 shift_factor = 128;       // car +0x83: a B-spec driver's shift speeds x this / 128 (0x3F1E30; Session::set_shift_factor)
+    // A build's own hybrid box in place of this block's (Prologue's 0x3CC448: its fuel an hour's and its mileage; null: this one).
+    const HybridCar* hybrid_car = nullptr;
 };
 
 // Every member of DriveExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).

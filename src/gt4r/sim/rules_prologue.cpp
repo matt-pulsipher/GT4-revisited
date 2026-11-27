@@ -673,13 +673,14 @@ u16 mileage(F fuel, F distance) {
 }
 
 namespace {
-// The axles with the hybrid's box in place of the engine and clutch (0x3CEAE0 with 0x3CC448): the engine's axle step with the
-// box's torque given it as a slipping clutch's, the engine's speed the box's and its inertia not on the axle.
-void hybrid_axles(ex::Car& c, CarPart& x, const ex::Statics& s, const Tables& t) {
+// The axles of the hybrid (0x3CEAE0 = Gran Turismo 4's 0x36D818) with its box 0x3CC448: Gran Turismo 4's 0x368628 on the engine's
+// torque at a throttle (0x3BD6F8 = 0x3554A0), the engine's speeds by power from the parameter block's curve, the fuel an hour's
+// and the mileage counted every 30 steps.
+void hybrid_axles(ex::Car& c, CarPart& x, const Tables& t) {
     ex::Driveline& d = c.p.d;
     rules::HybridCar k;
     k.shift_class = x.shift_class, k.driven_axle = u8(d.driven_axle), k.ratio = d.ratio[c.gear];
-    k.torque = [&](F throttle) { return ex::engine_torque(c, throttle); };
+    k.torque = [&](F throttle) { return rules::engine_torque(c, x.drive, throttle); };
     k.speed = [&](F power) { // (0x3CBF50)
         ex::Table<24> e;
         e.n = c.p.e.torque.n;
@@ -693,17 +694,9 @@ void hybrid_axles(ex::Car& c, CarPart& x, const ex::Statics& s, const Tables& t)
         x.mileage = mileage(x.hybrid_fuel - x.hybrid_fuel_mark, c.dist_total - x.hybrid_odo_mark);
         x.hybrid_odo_mark = c.dist_total, x.hybrid_fuel_mark = x.hybrid_fuel, x.mileage_steps = 30;
     };
-    const F torque = rules::hybrid_box(c, k, x.hybrid, t.hybrid, c.p.e.idle);
-    const u8 clutch = c.clutch;
-    const F omega = c.omega, shift = d.shift_clutch_torque, ce = c.clutch_engine, cw = c.clutch_wheel;
-    const F load = c.turbo_load, load_prev = c.turbo_load_prev;
-    const auto spool = c.turbo_spool;
-    const auto limiter = c.rev_limiter;
-    if (clutch != 0) c.clutch = 3, d.shift_clutch_torque = torque, c.clutch_engine = c.clutch_wheel = F();
-    ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
-    c.clutch = clutch, c.omega = omega, c.clutch_engine = ce, c.clutch_wheel = cw;
-    d.shift_clutch_torque = shift;
-    c.turbo_load = load, c.turbo_load_prev = load_prev, c.turbo_spool = spool, c.rev_limiter = limiter; // (what its own engine torque left)
+    x.drive.hybrid = x.hybrid, x.drive.hybrid_car = &k;
+    rules::axle_step(c, x.drive, x.layout, t.drive);
+    x.hybrid = x.drive.hybrid, x.drive.hybrid_car = nullptr;
 }
 
 // 0x3BABC8: the gearbox without steps: forward or reverse alone (the engine's for a stepless box, which also slips its clutch).
@@ -740,7 +733,7 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     rules::wheel_torques(c, dx, x.layout);
     rules::vectoring(c, dx, x.layout);
     const bool hybrid = c.p.d.kind == 3;
-    if (hybrid) hybrid_axles(c, x, s, t);
+    if (hybrid) hybrid_axles(c, x, t);
     else rules::axle_step(c, dx, x.layout, t.drive);
     rules::wheel_speeds(c, dx, x.layout);
     if (hybrid) {
