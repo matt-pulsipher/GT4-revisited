@@ -244,7 +244,17 @@ no fade). The rows appear one frame after the panel.
   3D view's grade, its tables our own (the engine's `PostGrade::own_table`), in the EE's arithmetic (`base/ee_float.h`) in
   the program's order. ✔ `gt4r_diff <disc> grade`: 0x4A8CB8 in the interpreter against ours on 1,353 tables of the
   screen settings and 300 made-up corrections (any gammas, black and white levels, most 220 / 235 / 255): every level the
-  program's. A new table costs ~110 µs here (Apple M4 Pro); the last four are kept. (It was taken for a gain and a stretch
+  program's. A new table costs ~110 µs here (Apple M4 Pro); the last four are kept.
+  ✔ **Against the original** (PCSX2, Clubman Stage Route 5's tunnel at night, the race paused on its Screen Settings page
+  and the brightness moved from +3 to 0 on the same frozen frame): the original's levels at 0 map to its levels at +3 by
+  exactly this table (the median at every level), so the screen setting is this one stage. Ours from the original's own
+  eye (`eye=`, `picture=` of `GT4R_RACE`) with the picture's scale on (the engine's #497/#498), per channel mean R/G/B
+  outside the display and the car: at +3 55.1/36.5/22.8 against the original's 55.5/35.7/21.8, at 0 41.3/24.8/14.1
+  against 41.8/24.3/13.4 (without the picture's scale 57.6/38.9/25.1 and 43.4/26.6/15.6; with the engine's earlier GT3
+  curve in place of the table, at the same place in the reference's state: 53.6/34.6/21.2 against 59.9/39.8/25.0, now
+  57.3/39.2/25.4). By day ours stays a little lighter before the correction: Tsukuba (`03-race` state before the first
+  corner) 118.2/130.7/142.5 against 115.2/127.3/139.0, Grand Canyon 121.6/119.2/117.8 against 118.8/116.7/116.0 (🔎 the
+  scene's daylight, not this pass). (It was taken for a gain and a stretch
   about the middle before, then computed in host floats, a level under the program's at places: wrong.)
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
