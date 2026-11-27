@@ -276,7 +276,11 @@ scrambled, icon) made again the same; developed here, its photo has the original
     7 f32; a StickBone, 18 of them, 0x41BCC0: and its vector, 3 f32; a PlateBone, the pelvis and the scapula, 0x41C0B8: and its two
     joints, 6 f32), in course space; then the figure's 4 f32 at +0x680 (1, 1, 0, 0.5 in the original's), and the posture caller's
     bool, 4 bytes, bool, f32, f32, a 4 x 4 matrix, bool, 8 bytes (❓ not followed: 1, a word that changes a frame, 1, 0, 0, identity,
-    0, 0 in the original's).
+    0, 0 in the original's). The bones are the car's figure turned by the car (each quaternion the car's turn times the bone's:
+    the Ford GT's pelvis (0, 0.709, 0.018, 0.705) heading along +x) about a point 0.108 m above CPRM's body point, which is where
+    the film's road point (virtual 5) lies: the still posture of this board car (0x3B4040) put there gives the original's spine,
+    neck and head within 1 mm (its hands, forearms and shanks are posed otherwise). ❓ What the two points are in the car's state
+    (ours writes both as the car's place) is not read, so DRVR is not written here.
   Here the pause's film carries the cameras (L1 + Cross's two), every car's parameters from its drawn state (the body, the
   wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), an empty `SMOK`, the cones
   and boards (`GDGT`, ✔ the original's bytes at Tsukuba: 18 in use, none moving) and no particle emitter (`PTCL` empty: the race's
