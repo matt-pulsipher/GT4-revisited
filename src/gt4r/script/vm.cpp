@@ -1,5 +1,7 @@
 #include "gt4r/script/vm.h"
 
+#include "base/ee_float.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -8,6 +10,8 @@
 #include <cstring>
 
 namespace gt4r::script {
+
+namespace ee = gt3r::ee;
 
 namespace {
 
@@ -80,12 +84,89 @@ Value Value::array(std::vector<Value> items) {
     return of(Kind::Array, std::move(a));
 }
 
-bool Value::truthy() const {
-    switch (kind) {
-    case Kind::Nil: return false;
-    case Kind::Int: return i != 0;
-    case Kind::Float: return f != 0;
-    default: return true;
+// JUMP_ZERO, JUMP_NOT_ZERO, LOGICAL_AND and LOGICAL_OR ask the value its integer (0x31C858, ...): a float between -1 and 1,
+// a text that does not start with a number and every value but a number or a text (an array, an object, a function) are
+// false. (The program reads nil's through a null pointer; it is false here.) Nothing is known of a stand-in's value.
+bool Value::truthy() const { return is_stub(*this) || value_int(*this) != 0; }
+
+namespace {
+
+// The program's atof (0x5A2F70) and the double made a float: decimal only (no "0x", "inf" or "nan"): the longest start that
+// is a decimal number.
+float decimal_float(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size() && std::isspace(u8(s[i]))) ++i;
+    const size_t from = i;
+    if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
+    size_t digits = 0;
+    while (i < s.size() && std::isdigit(u8(s[i]))) ++i, ++digits;
+    if (i < s.size() && s[i] == '.')
+        for (++i; i < s.size() && std::isdigit(u8(s[i])); ++i) ++digits;
+    if (!digits) return 0;
+    if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+        size_t j = i + 1;
+        if (j < s.size() && (s[j] == '+' || s[j] == '-')) ++j;
+        if (j == s.size() || !std::isdigit(u8(s[j]))) return 0; // an "e" with no digits: nothing
+        while (j < s.size() && std::isdigit(u8(s[j]))) ++j;
+        i = j;
+    }
+    // The double made a float by the program's own conversion (0x57FA48): chopped, the exponent 255 an ordinary one.
+    return ee::fast::host(ee::from_double(std::strtod(s.substr(from, i - from).c_str(), nullptr), ee::Round::Chop));
+}
+
+// fmodf (0x57D788) on the EE's floats: x when |x| < |y| (as the FPU compares), a zero of x's sign when y is 0, else the
+// exact remainder of the two mantissas (the exponent 255 an ordinary one).
+u32 ee_fmod(u32 a, u32 b) {
+    const u32 sign = a & 0x80000000u, ax = a & 0x7FFFFFFFu, bx = b & 0x7FFFFFFFu;
+    if (ee::fast::key(ax) < ee::fast::key(bx)) return a;
+    const s32 eb = s32(bx >> 23), ea = s32(ax >> 23);
+    if (eb == 0) return sign;
+    const u32 mb = (bx & 0x7FFFFFu) | 0x800000u;
+    u32 r = (ax & 0x7FFFFFu) | 0x800000u;
+    if (r >= mb) r -= mb;
+    for (s32 n = ea - eb; n > 0; --n) {
+        r <<= 1;
+        if (r >= mb) r -= mb;
+    }
+    if (r == 0) return sign;
+    s32 e = eb;
+    while (r < 0x800000u) r <<= 1, --e;
+    if (e <= 0) return sign;
+    return sign | (u32(e) << 23) | (r & 0x7FFFFFu);
+}
+
+} // namespace
+
+std::map<std::string, size_t>* mixed_notes = [] {
+    static std::map<std::string, size_t> notes;
+    static std::string file;
+    const char* to = std::getenv("GT4R_VM_NOTES");
+    if (!to || !*to) return static_cast<std::map<std::string, size_t>*>(nullptr);
+    file = to;
+    std::atexit([] {
+        if (FILE* out = std::fopen(file.c_str(), "a")) {
+            for (const auto& [where, n] : notes) std::fprintf(out, "%zu\t%s\n", n, where.c_str());
+            std::fclose(out);
+        }
+    });
+    return &notes;
+}();
+
+s32 value_int(const Value& v) {
+    switch (v.kind) {
+    case Kind::Int: return v.i; // hInt 0x2FE260
+    case Kind::Float: return ee::fast::to_int(ee::fast::bits(v.f)); // hFloat 0x2F9340: cvt.w.s
+    case Kind::String: return s32(std::strtol(v.as_string().c_str(), nullptr, 10)); // hString 0x314A40
+    default: return 0; // hObject 0x30B3F8
+    }
+}
+
+float value_float(const Value& v) {
+    switch (v.kind) {
+    case Kind::Int: return ee::fast::host(ee::fast::from_int(v.i)); // hInt 0x2FE268: cvt.s.w
+    case Kind::Float: return v.f;
+    case Kind::String: return decimal_float(v.as_string()); // hString 0x314A88: atof, to a float
+    default: return 0; // hObject 0x30B400
     }
 }
 
@@ -101,8 +182,8 @@ std::string Value::to_string() const {
     switch (kind) {
     case Kind::Nil: return "nil";
     case Kind::Int: return std::to_string(i);
-    case Kind::Float:
-        std::snprintf(b, sizeof b, "%g", double(f));
+    case Kind::Float: // hFloat's toString (0x2F90B0): "%f"
+        std::snprintf(b, sizeof b, "%f", ee::F::raw(ee::fast::bits(f)).value());
         return b;
     default: return p ? p->describe() : "nil";
     }
@@ -282,16 +363,10 @@ std::string format(const std::string& f, Args args) {
 std::shared_ptr<Reference> value_method(const Value& self, const std::string& name) {
     if (name == "toString") return method("toString", self, [](Vm&, const Value& v, Args) { return Value::string(v.to_string()); });
     if (name == "toInt")
-        return method("toInt", self, [](Vm&, const Value& v, Args) {
-            // A string's: decimal, as atoi (hString's 0x314A40 -> 0x5A2F88: strtol base 10), so "0008" is 8.
-            if (v.kind == Kind::String) return Value::integer(s32(std::strtol(v.as_string().c_str(), nullptr, 10)));
-            return Value::integer(v.kind == Kind::Float ? s32(v.f) : v.i);
-        });
+        // A string's: decimal, as atoi (hString's 0x314A40 -> 0x5A2F88: strtol base 10), so "0008" is 8.
+        return method("toInt", self, [](Vm&, const Value& v, Args) { return Value::integer(value_int(v)); });
     if (name == "toFloat")
-        return method("toFloat", self, [](Vm&, const Value& v, Args) {
-            if (v.kind == Kind::String) return Value::number(std::strtof(v.as_string().c_str(), nullptr));
-            return Value::number(v.as_float());
-        });
+        return method("toFloat", self, [](Vm&, const Value& v, Args) { return Value::number(value_float(v)); });
     return nullptr;
 }
 
@@ -1029,6 +1104,7 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
             }
             case Op::BinaryOperator: {
                 Value b = deref(*this, pop()), a = deref(*this, pop());
+                if (mixed_notes) note_mixed(f, pc, in.text, a, b);
                 st.push_back(binary(in.text, a, b));
                 break;
             }
@@ -1039,7 +1115,9 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 const Value b = deref(*this, pop()), to = pop();
                 if (to.kind != Kind::Reference) fail(f, pc, "assignment to a value");
                 Reference* r = static_cast<Reference*>(to.p.get());
-                Value v = binary(in.text, deref(*this, r->get(*this)), b);
+                const Value was = deref(*this, r->get(*this));
+                if (mixed_notes) note_mixed(f, pc, in.text, was, b);
+                Value v = binary(in.text, was, b);
                 r->set(*this, v);
                 st.push_back(std::move(v));
                 break;
@@ -1060,7 +1138,10 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 break;
             case Op::StringPush: {
                 std::string s;
-                for (const Value& v : pop_many(in.value)) s += v.to_string();
+                for (const Value& v : pop_many(in.value)) {
+                    if (mixed_notes && v.kind == Kind::Float) note_test(f, pc, v, "text of a float");
+                    s += v.to_string();
+                }
                 st.push_back(Value::string(std::move(s)));
                 break;
             }
@@ -1074,20 +1155,32 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
             case Op::Jump:
                 pc = size_t(in.value) - 1;
                 break;
-            case Op::JumpZero:
-                if (!deref(*this, pop()).truthy()) pc = size_t(in.value) - 1;
+            case Op::JumpZero: {
+                const Value v = deref(*this, pop());
+                if (mixed_notes) note_test(f, pc, v);
+                if (!v.truthy()) pc = size_t(in.value) - 1;
                 break;
-            case Op::JumpNotZero:
-                if (deref(*this, pop()).truthy()) pc = size_t(in.value) - 1;
+            }
+            case Op::JumpNotZero: {
+                const Value v = deref(*this, pop());
+                if (mixed_notes) note_test(f, pc, v);
+                if (v.truthy()) pc = size_t(in.value) - 1;
                 break;
-            case Op::LogicalAnd: // a && b: a false value stays as the result; else POP and b follow
+            }
+            case Op::LogicalAnd: { // a && b: a false value stays as the result; else POP and b follow
                 if (st.empty()) fail(f, pc, "the value stack is empty");
-                if (!deref(*this, st.back()).truthy()) pc = size_t(in.value) - 1;
+                const Value v = deref(*this, st.back());
+                if (mixed_notes) note_test(f, pc, v);
+                if (!v.truthy()) pc = size_t(in.value) - 1;
                 break;
-            case Op::LogicalOr:
+            }
+            case Op::LogicalOr: {
                 if (st.empty()) fail(f, pc, "the value stack is empty");
-                if (deref(*this, st.back()).truthy()) pc = size_t(in.value) - 1;
+                const Value v = deref(*this, st.back());
+                if (mixed_notes) note_test(f, pc, v);
+                if (v.truthy()) pc = size_t(in.value) - 1;
                 break;
+            }
             case Op::ModuleDefine:
                 f.scopes.push_back(module_at(f, in.symbols, false, {}, {}));
                 break;
@@ -1156,6 +1249,43 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
 // Operators
 // ---------------------------------------------------------------------------------------------
 
+namespace {
+
+const char* kind_word(const Value& v) {
+    switch (v.kind) {
+    case Kind::Nil: return "nil";
+    case Kind::Int: return "int";
+    case Kind::Float: return "float";
+    case Kind::String: return "text";
+    case Kind::Array: return "array";
+    case Kind::Function: return "function";
+    case Kind::Module: return "module";
+    default: return "object";
+    }
+}
+
+void note(const Frame& f, size_t pc, const std::string& what) {
+    const u32 line = pc < f.code->instructions.size() ? f.code->instructions[pc].line : 0;
+    ++(*mixed_notes)[f.code->source + ":" + std::to_string(line) + " " + what];
+}
+
+} // namespace
+
+void Vm::note_mixed(const Frame& f, size_t pc, const std::string& op, const Value& a, const Value& b) {
+    if (is_stub(a) || is_stub(b) || op == "[]") return;
+    const bool fraction = b.kind == Kind::Float && b.f != std::trunc(b.f);
+    if ((a.kind == Kind::Int && (fraction || b.kind == Kind::String || b.kind == Kind::Array || b.kind == Kind::Object || b.kind == Kind::Module)) ||
+        (a.kind == Kind::String && b.kind != Kind::String && b.kind != Kind::Nil && op != "+") || (a.kind == Kind::String && b.kind == Kind::Float))
+        note(f, pc, std::string(kind_word(a)) + " " + op + " " + kind_word(b));
+}
+
+void Vm::note_test(const Frame& f, size_t pc, const Value& v, const char* what) {
+    if (what) return note(f, pc, what);
+    if (v.kind == Kind::Int || v.kind == Kind::Nil || is_stub(v)) return;
+    if (v.kind == Kind::Float && v.f == std::trunc(v.f)) return;
+    note(f, pc, std::string("test of a ") + kind_word(v));
+}
+
 Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
     if (op == "[]") {
         if (a.kind == Kind::Array && b.kind == Kind::Int) {
@@ -1173,43 +1303,37 @@ Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
         if (is_stub(a)) return reference(a.p->member(*this, a, "[]"));
         throw ScriptError("no [" + b.to_string() + "] in " + a.to_string());
     }
-    if (op == "==") return Value::integer(equal(a, b));
-    if (op == "!=") return Value::integer(!equal(a, b));
+    // The program asks the left value's class (each operator is a slot of its vtable, 22 to 49: the table 0x619CA8 the loader
+    // reads an operator's name into, US v1.01); a nil on either side asks nil's, and nil's == is both nil.
     if (is_stub(a) || is_stub(b)) {
-        // Nothing is known of a stand-in's value: comparisons are false, arithmetic is another.
+        // Nothing is known of a stand-in's value: it equals itself only, comparisons are false, arithmetic is another.
+        if (op == "==") return Value::integer(a.p == b.p);
+        if (op == "!=") return Value::integer(a.p != b.p);
         if (op == "<" || op == ">" || op == "<=" || op == ">=") return Value::integer(0);
         return is_stub(a) ? a : b;
     }
-    if (op == "+" && (a.kind == Kind::String || b.kind == Kind::String)) return Value::string(a.to_string() + b.to_string());
-    if (a.kind == Kind::String && b.kind == Kind::String) {
-        const int c = a.as_string().compare(b.as_string());
-        if (op == "<") return Value::integer(c < 0);
-        if (op == ">") return Value::integer(c > 0);
-        if (op == "<=") return Value::integer(c <= 0);
-        if (op == ">=") return Value::integer(c >= 0);
+    if (a.kind == Kind::Nil || b.kind == Kind::Nil) { // hNil 0x3008B8, 0x300938
+        if (op == "==") return Value::integer(a.kind == b.kind);
+        if (op == "!=") return Value::integer(a.kind != b.kind);
+        throw ScriptError("no " + a.to_string() + " " + op + " " + b.to_string()); // (the program calls through nothing)
     }
-    if (op == "+" && a.kind == Kind::Array && b.kind == Kind::Array) {
-        std::vector<Value> v = *a.items();
-        v.insert(v.end(), b.items()->begin(), b.items()->end());
-        return Value::array(std::move(v));
-    }
-    // An integer's operators take the other value's integer (hInt's operators ask it of the operand, its vtable +0x58: a
-    // string's is strtol(text, 0, 10), hString 0x314A40 -> 0x5A2F88): the regulations compare a length limit with the car's
-    // getLength text (share/regulation.ad).
-    if (a.kind == Kind::Int && b.kind == Kind::String && op != "+")
-        return binary(op, a, Value::integer(s32(std::strtol(b.as_string().c_str(), nullptr, 10))));
-    if (!a.is_number() || !b.is_number()) throw ScriptError("no " + a.to_string() + " " + op + " " + b.to_string());
-    if (a.kind == Kind::Int && b.kind == Kind::Int) {
-        const s32 x = a.i, y = b.i;
+    if (a.kind == Kind::Int) {
+        // hInt (0x2FCA50...): the operator on the other value's integer, an integer (a float's truncated, a text's strtol, an
+        // object's 0): the regulations compare a length limit with the car's getLength text (share/regulation.ad).
+        const s32 x = a.i, y = value_int(b);
         const u32 ux = u32(x), uy = u32(y);
         if (op == "+") return Value::integer(s32(ux + uy));
         if (op == "-") return Value::integer(s32(ux - uy));
         if (op == "*") return Value::integer(s32(ux * uy));
         if (op == "/" || op == "%") {
-            if (y == 0) throw ScriptError("division by zero");
+            if (y == 0) throw ScriptError("division by zero"); // (the program traps: break 7)
             if (x == INT32_MIN && y == -1) return Value::integer(op == "/" ? x : 0);
             return Value::integer(op == "/" ? x / y : x % y);
         }
+        if (op == "**") // ❓ powf of the two as floats, truncated (0x2FCDA8 -> 0x57D6C0); the host's powf here
+            return Value::integer(ee::fast::to_int(ee::fast::bits(std::pow(value_float(a), value_float(Value::integer(y))))));
+        if (op == "==") return Value::integer(x == y);
+        if (op == "!=") return Value::integer(x != y);
         if (op == "<") return Value::integer(x < y);
         if (op == ">") return Value::integer(x > y);
         if (op == "<=") return Value::integer(x <= y);
@@ -1219,17 +1343,49 @@ Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
         if (op == "^") return Value::integer(x ^ y);
         if (op == "<<") return Value::integer(s32(ux << (uy & 31)));
         if (op == ">>") return Value::integer(x >> (uy & 31));
-    } else {
-        const float x = a.as_float(), y = b.as_float();
-        if (op == "+") return Value::number(x + y);
-        if (op == "-") return Value::number(x - y);
-        if (op == "*") return Value::number(x * y);
-        if (op == "/") return Value::number(x / y);
-        if (op == "%") return Value::number(std::fmod(x, y));
+    } else if (a.kind == Kind::Float) {
+        // hFloat (0x2F7D48...): the EE's arithmetic and comparisons with the other value's float; no bit operators.
+        const ee::F x = ee::F::raw(ee::fast::bits(a.f)), y = ee::F::raw(ee::fast::bits(value_float(b)));
+        const auto number = [](ee::F v) { return Value::number(ee::fast::host(v.bits)); };
+        if (op == "+") return number(x + y);
+        if (op == "-") return number(x - y);
+        if (op == "*") return number(x * y);
+        if (op == "/") return number(x / y);
+        if (op == "%") return number(ee::F::raw(ee_fmod(x.bits, y.bits)));
+        if (op == "**") return Value::number(std::pow(a.f, ee::fast::host(y.bits))); // ❓ the host's powf (0x57D6C0)
+        if (op == "==") return Value::integer(x == y);
+        if (op == "!=") return Value::integer(x != y);
         if (op == "<") return Value::integer(x < y);
         if (op == ">") return Value::integer(x > y);
         if (op == "<=") return Value::integer(x <= y);
         if (op == ">=") return Value::integer(x >= y);
+    } else if (a.kind == Kind::String) {
+        // hString (0x3124F8...): the other value as text (an int "%d", a float "%f"): joined, taken out, compared.
+        const std::string& x = a.as_string();
+        const std::string y = b.kind == Kind::String ? b.as_string() : b.to_string();
+        if (op == "+") return Value::string(x + y);
+        if (op == "-") { // the first place it is found taken out; the text itself when it is not there
+            const size_t at = x.find(y);
+            return at == std::string::npos ? a : Value::string(x.substr(0, at) + x.substr(at + y.size()));
+        }
+        const int c = x.compare(y);
+        if (op == "==") return Value::integer(c == 0);
+        if (op == "!=") return Value::integer(c != 0);
+        if (op == "<") return Value::integer(c < 0);
+        if (op == ">") return Value::integer(c > 0);
+        if (op == "<=") return Value::integer(c <= 0);
+        if (op == ">=") return Value::integer(c >= 0);
+    } else {
+        // Any other value (an array, an object, a module, a function): == and != are the same value or not (hObject's,
+        // 0x309A50 / 0x309AD0).
+        if (op == "==") return Value::integer(equal(a, b));
+        if (op == "!=") return Value::integer(!equal(a, b));
+        // ❓ Two arrays joined: the program's arrays have no + of their own (hObject's names one with no function).
+        if (op == "+" && a.kind == Kind::Array && b.kind == Kind::Array) {
+            std::vector<Value> v = *a.items();
+            v.insert(v.end(), b.items()->begin(), b.items()->end());
+            return Value::array(std::move(v));
+        }
     }
     throw ScriptError("no operator " + op + " for " + a.to_string() + " and " + b.to_string());
 }

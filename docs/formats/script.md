@@ -107,11 +107,11 @@ declares, and the interpreter runs the scripts themselves.
 | `ARRAY_PUSH n` | Pops n values, pushes an array of them |
 | `STRING_PUSH n` | Pops n values, pushes them joined as text |
 | `PRINT n` | Pops n values and writes them; pushes nil |
-| `BINARY_OPERATOR` | Pops two values, pushes the result. `[]` gives a reference: an array's element (assigning past the end grows the array), or an object's or module's member by name (`page["open"]`; nil for a widget that has nothing of that name). `+` with a string joins text |
+| `BINARY_OPERATOR` | Pops two values, pushes the result: the left value's operator on the right one (below). `[]` gives a reference: an array's element (assigning past the end grows the array), or an object's or module's member by name (`page["open"]`; nil for a widget that has nothing of that name) |
 | `UNARY_OPERATOR` | `!`, `-@`, `+@`, `~` on the top value |
 | `BINARY_ASSIGN_OPERATOR` | `a += b`: pops the value and the reference, stores, pushes the result |
 | `UNARY_ASSIGN_OPERATOR` | `@++`, `@--` push the value before; `++@`, `--@` the value after |
-| `JUMP`, `JUMP_ZERO`, `JUMP_NOT_ZERO` | The conditional ones pop the value they test |
+| `JUMP`, `JUMP_ZERO`, `JUMP_NOT_ZERO` | The conditional ones pop the value they test: its integer (below), 0 or not |
 | `LOGICAL_AND`, `LOGICAL_OR` | `a && b`: when the top value settles the result it stays and the jump is taken; otherwise the `POP` that follows drops it and `b` is evaluated |
 | `MODULE_DEFINE` | Enters a module: the one of that name in reach, or a new one in the current module. A path names nested ones (`BootProject`, `MovieRoot`, `Mpeg`) |
 | `CLASS_DEFINE` | Enters a class of the current module, with its base class |
@@ -122,6 +122,52 @@ declares, and the interpreter runs the scripts themselves.
 | `ATTRIBUTE_DEFINE` | An attribute every object of the current class gets |
 | `IMPORT` | Brings one name of a module, or all (`*`), in reach of the block and of the module's other functions (Prologue's `onLoad` imports `MMovieFace` for its pages) |
 | `REQUIRE` | Pops a name. `menu`, `gt4app`: one of the program's own modules, filled into the current module. `/config/course`: a script file (`config/course.adc`), run in the current module; a bare name is a file beside the one running. Names are in any case (`us_carlist` for `US_carlist.adc`) |
+
+## Values of two kinds
+
+Read from the program's value classes (US v1.01) and checked in the interpreter: `gt4r_diff <disc> script` runs their
+operators on ints, floats and texts made up there against ours (19,516 of 19,516 equal), and each value's integer and float.
+
+An operator is a slot of the left value's vtable (22 to 49, in the order `+ - * / % ** == != > >= < <= ! || && -@ +@ ++@
+--@ @++ @-- & | ^ << >> ~ []`: the table at 0x619CA8 the loader reads an operator's name into, 0x30B358); the
+`BINARY_ASSIGN_OPERATOR`s (`+=`) are the same operators. Nil is a null value: when either side is nil, nil's operators
+answer, and its `==` is true when both are nil (`!=` the opposite); nil's other operators, and an operator a value's class
+does not have (a text's `*`, a float's `&`), call through nothing on the console (here: the script stops). An object, an
+array, a module or a function has `==` and `!=` only: the same value or not (❓ here two arrays' `+` joins them; no
+script was seen to ask it).
+
+| Left | Right side taken as | Operators |
+|---|---|---|
+| int (hInt 0x2FCA50...) | its integer | all but `[]`; an int: 32-bit wrapping, `/` and `%` truncate, by 0 the console traps (here: the script stops), shifts by the low 5 bits, `>>` arithmetic; `**` is powf of the two as floats, truncated (❓ our host's powf; no script on the discs uses `**`) |
+| float (hFloat 0x2F7D48...) | its float | `+ - * /` the EE's (chopped, no infinity: a division by 0 is ±max), `%` fmodf (0x57D788: the left when it is the smaller, a zero of its sign by 0, else the exact remainder), comparisons as the FPU compares (+0 = −0); no bit operators |
+| text (hString 0x3124F8...) | its text | `+` joins, `-` takes out the first place the right text is found (the left text when it is not there), `== != < <= > >=` compare the bytes |
+
+A value's integer (vtable slot 11, +0x58): an int's own; a float's truncated (cvt.w.s, saturating); a text's strtol base 10
+(64 bits, the low 32 kept: "12abc" is 12, " 42" 42, "0x10" 0); any other value's 0. Its float (slot 12): an int converted
+(cvt.s.w); a text's atof (0x5A2F70), decimal only ("0x10", "inf" and "nan" are 0; a number followed by an `e` with no
+digits is 0: "1e" is 0), the double made a float by chopping (0x57FA48: "0.1" is 0x3DCCCCCC, not the nearest ...CD; past
+the largest float the exponent 255 is an ordinary one); any other value's 0. Its text (slot 3): an int's `%d`, a float's
+`%f` (below).
+
+So the left side decides: `5 + "12"` is 17 and `"5" + 12` is "512"; `2 == 2.5` is 1 and `2.5 == 2` is 0; `1 + 0.5` is 1.
+
+**A test** (`JUMP_ZERO`, `JUMP_NOT_ZERO`, `LOGICAL_AND`, `LOGICAL_OR`; 0x31C858...) is the value's integer: a float between
+−1 and 1, a text that does not start with a number, and every array, object, module and function are false. `!` is the
+int's or the float's integer being 0 (on other values the console calls through nothing; here it is the test's opposite).
+(On the console nil's integer is read through a null pointer; here nil is false.)
+
+`gt4tool script-ops <disc>` counts the operators the disc's scripts use (no `**`; 803 `!`) and lists their float formats;
+`gt4tool script-ops <disc> sweep` runs the script functions the Car database's pages call (the dealers' spec sheet, the
+tune shops' parts, every event's regulations) on every car: no script error on the four discs (722 / 730 / 711 cars, about
+100,000 regulation checks each; Prologue's 83 cars have no events). With `GT4R_VM_NOTES=<file>` (or `script::mixed_notes`)
+the interpreter counts the places where an operator or a test meets kinds a native of ours giving another kind than the
+program's would explain (an int times a fraction, an int against a text, a test of a float or an object).
+
+❓ **A float as text.** The program's sprintf (0x57DA20, its own vsprintf 0x57DD28) prints a float made a double
+(0x57FB50) one place low where the host's rounds: in the interpreter `%f` of 0.5 is "0.499999", `%.2f` of 1.25 "1.24",
+`%.1f` of 0.75 "0.7", `%g` of 100 "1e+02" (`gt4r_diff <disc> script`, "float texts"). Ours prints the host's (`toString`,
+`STRING_PUSH`, a text's `+`, `format`). The discs' scripts have one float format, `"%.2f"` (option's `setupSliderFloat`
+of the Pane's Zoom and Aspect sliders); not checked against the original's screen.
 
 A compiled statement can leave a value behind on the stack (an expression whose result is not
 used and not popped), so the stack is the call's own and is dropped with it.

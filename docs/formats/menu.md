@@ -1378,9 +1378,10 @@ menus' natives on a new game (the save editor's `SaveEditor`, no page shown, not
 - **Words**: the menus' language's; where the app's font cannot draw them (the Japanese release's kana) the database's
   American car names (the Japanese discs carry them), makers by the words their cars' names share, and our own words.
 
-The scripts compare a length limit with `getLength`'s text: an integer's operators take the other value's integer (hInt
-asks it of the operand, vtable +0x58; a string's is strtol base 10, hString 0x314A40 -> 0x5A2F88), as the VM now does for
-the comparisons and the arithmetic but `+` (❓ `int + string` and an integer with a float: hFloat's +0x58 not read).
+The scripts compare a length limit with `getLength`'s text: an integer's operators take the other value's integer (a
+text's strtol base 10), as every operator of the interpreter takes its right side ([script.md](script.md), "Values of two
+kinds"): the Light-weight K-Car Cup refuses a car over 3400 mm and takes a Honda BEAT
+(`tests/test_menu_run_regulations.cpp`).
 
 ### What runs where (the drawing)
 
