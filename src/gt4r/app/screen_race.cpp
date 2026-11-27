@@ -2747,6 +2747,21 @@ public:
                 fr.cars.push_back(std::move(c));
             }
         }
+        // The last frame's cones and boards (GDGT) and particle emitters (PTCL), as the original writes them after the cars.
+        if (!f.frames.empty()) {
+            std::vector<photo::film::GadgetSlot> slots(photo::film::kGadgetSlots);
+            const std::vector<race::GadgetBodies::Body>& bodies = world_->gadget_bodies().bodies();
+            for (size_t i = 0; i < bodies.size() && i < slots.size(); ++i) {
+                const race::GadgetBodies::Body& b = bodies[i];
+                photo::film::GadgetSlot& g = slots[i];
+                g.used = !b.removed;
+                g.moving = std::count(b.contact.begin(), b.contact.end(), u8(2)) < 3;
+                g.kind = u8(b.kind), g.angles = b.angles, g.pos = {b.pos.x, b.pos.y, b.pos.z};
+            }
+            f.frames.back().gadgets = photo::film::gadgets_payload(slots);
+            // (no emitter written: the race's smoke is drawn by the shared engine, not by the program's emitters)
+            f.frames.back().particles = photo::film::no_particles();
+        }
     }
     // The followed car's label and the course's file (the photo's record on the card).
     std::string photo_car_label() const {

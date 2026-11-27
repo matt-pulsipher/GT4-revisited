@@ -20,7 +20,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
 | The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎 |
-| Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the frames' drivers, skid marks, gadgets and particles not written (DRVR, SMOK's marks, GDGT, PTCL: read and kept, not drawn) |
+| Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the cones and boards (GDGT) as the program writes them, ✔ the same bytes as the original's film at Tsukuba; no particle emitter written (PTCL empty: the race's smoke is the shared engine's); the drivers' figures and skid marks not written (DRVR, SMOK's marks: read and kept, not drawn) |
 
 ## The sequence
 
@@ -256,8 +256,7 @@ scrambled, icon) made again the same; developed here, its photo has the original
     display state, not in the pause's films), then a `CDTL` a car (0x33A1B0): u8 1, four texts (the driver's two looks
     "pdi_0014", two "default"), u8 (the entry's +0x345C).
   - `SFRM` a frame (0x33A018), two for a shutter with time (the step before at time 1, the step shown at 0; here the step shown and
-    the next): `PCAM` (0x33AEA0 -> 0x33ADE8): u8 1, the eye, a target the focus distance (at least 1 m) along the view, the up axis,
-    the angle across a 4:3 width (2 atan of the projection's x scale: 13.02 at 140 mm), the scales' ratio 0.75, the near plane
+    the next): `PCAM` (0x33AEA0 -> 0x33ADE8): u8 1, the eye, a target the focus distance (at least 1 m) along the view, the up axis (upright: the view's right, the camera turned a quarter; ✔ the original's upright film), the angle across a 4:3 width (2 atan of the projection's x scale: 13.02 at 140 mm), the scales' ratio 0.75, the near plane
     (0.818 at 140 mm: 0.07 / tan of half the angle over the height, CameraVariable::vf12 0x3794A8), the far (5,000), the f-number,
     the shutter (s), EV, K. A `CARD` a car (0x339F38): `CPRM` (0x459E30, 370 bytes with its head): u8 0, then the car model's
     parameter sponsor (CarParamSponsor; the race's RaceCarParamSponsor 0x3D6F40 ..) at the frame's time: virtuals 4, 5 the road's
@@ -269,10 +268,21 @@ scrambled, icon) made again the same; developed here, its photo has the original
     wheel each (-1), 23 the engine's rpm, 27 a vector a wheel. Then the driver's and co-driver's figures (`DRVR` / `NAVI`, 0x339AD0:
     960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
     0x3C2990), the last frame.
+  - `GDGT` (0x3E5408), the last frame: u8 0, u16 160 (the rigid bodies' slots, RigidBodyManager 0x3E4CE0, the course's cones and
+    boards in them in order, 0x3E4E50), each slot a bool in use (on the manager's list, 0x3E4F60), for one in use a bool moving
+    (0x3E31E0: fewer than three of its hull points' counts at 2), for a moving one u8 its kind, its angles as u8 of trunc(a x 128 /
+    pi) and its place (0x3E55F8). `PTCL` (0x3C2990): u8 0, each emitter's kind + 1 and its record, u8 0. `DRVR` (0x339AD0, 960
+    bytes): u8 1, the figure's 20 bones in the name table's order (0x41A988; pdiRiderman's Bone 0x41B678: its place and quaternion,
+    7 f32; a StickBone, 18 of them, 0x41BCC0: and its vector, 3 f32; a PlateBone, the pelvis and the scapula, 0x41C0B8: and its two
+    joints, 6 f32), in course space; then the figure's 4 f32 at +0x680 (1, 1, 0, 0.5 in the original's), and the posture caller's
+    bool, 4 bytes, bool, f32, f32, a 4 x 4 matrix, bool, 8 bytes (❓ not followed: 1, a word that changes a frame, 1, 0, 0, identity,
+    0, 0 in the original's).
   Here the pause's film carries the cameras (L1 + Cross's two), every car's parameters from its drawn state (the body, the
-  wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), an empty `SMOK`; no
-  `DRVR`, `GDGT`, `PTCL`. What it reads of them is kept and written again as it was.
-- **Developing** (Photo Lab's Film folder, the third button "Develop the selected film", "Do you wish to develop the selected
+  wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), an empty `SMOK`, the cones
+  and boards (`GDGT`, ✔ the original's bytes at Tsukuba: 18 in use, none moving) and no particle emitter (`PTCL` empty: the race's
+  smoke is the shared engine's, not the program's emitters); no `DRVR` (the figure is solved in the car's frame here: its bones
+  would need putting in course space). What it reads of them is kept and written again as it was.
+- **Developing** (Photo Lab's Film folder, the first of its buttons, "Develop the selected film", "Do you wish to develop the selected
   film?"): the film is loaded (`load`), `photo_labo`'s result is `develop`, and 0x1C7BF8 runs `RacePhotoDevelop` (0x335248 reads
   the film into a race of its course and cars, steps it until loaded, 0x3C8AA8 draws the photo at the film's settings): black
   while it is drawn, then `photo_save` without an argument (the photo saved as a photo: START Save, Square Return), then the lab
@@ -280,7 +290,8 @@ scrambled, icon) made again the same; developed here, its photo has the original
   header's byte), each frame's cars set from their parameters as a replay's two steps, the photo pause's photo at once with the
   last frame's camera (the first's when it differs: the camera between them, as L1 + Cross's), the film's settings and car frame.
   ✔ Both ways by picture: the original's film gives its photo; ours develops to the photo it was saved with (mean difference 0.65
-  of 255).
+  of 255). An upright film's camera carries the quarter turn (its up the view's right) and develops upright: ✔ the original's
+  upright film (Tsukuba, 115 mm) to its photo's framing, ours to its own.
 
 ## Checked against the original
 
