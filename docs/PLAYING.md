@@ -565,9 +565,10 @@ GT4R_DATA_DIR=<a scratch folder> GT4R_RACE="course=nurburgring,car=ford_gt_05,ca
   (`Screen::touch_top_row`: its pause, replays; clear of the place and the lap times at the corners); the race display's lower corner parts (meters, signs, fuel) moved
   sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); the race's pause, PIT STOP menu and
   split-screen pause take a tap on a row (the first focuses it, the second chooses it; a mouse's hover focuses); their settings in Settings › Controls
-  (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
+  (the engine's TouchConfig, and its phone vibration; steering by the Left / Right buttons until another is chosen); Android's back button as one press of Start while driving (the pause),
   else of Triangle (`Screen::back_is_start`). The engine's layout editor on our screens (`app/screen_touch_editor.cpp`,
-  Settings › Controls › Touch screen › Layout: drag, pinch or - / +, hide; kept in config.ini's [touch]). The controls fade
+  Settings › Controls › Touch screen › Layout: drag, pinch or - / +, hide; a moved control may go up to the screen's edges, beside a
+  cutout or into a rounded corner, which the default layout keeps clear of; kept in config.ini's [touch]). The controls fade
   3 s after the last touch while a replay, a demonstration or Prologue's guide film is watched (`Screen::touch_fades`, the
   engine's TouchControls fade); a tap brings them back and presses nothing. The game's pages take taps and drags
   (`menu/pointer.*`, `app/menu_pointer.h`; the hit test is the page drawer's boxes, `PageDrawer::boxes`).

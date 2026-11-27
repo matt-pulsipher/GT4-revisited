@@ -3,6 +3,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/net/identity.h"
 #include "gt4r/net/presence_text.h"
 #include "gt4r/net/version_check.h"
 #include "gt4r_version.h"
@@ -212,4 +213,71 @@ TEST(updates_relay_holds_us_to_our_versions) {
     CHECK(s.host_via(at, "One", "", 0));
     run(s);
     CHECK(s.update_required() && s.update_required()->url == "https://example.org/ours");
+}
+
+TEST(updates_relay_joins_our_own_line) {
+    // The engine's relay lets a player join only a host of the same x.y of this game (its game tag's version), and the
+    // lobby words the refusal as ours (refusal_text): an older player of a host on our latest line is told to update, a
+    // newer one that the host must, an older one of a host on a newer line both versions.
+    const rv::GameVersion ours = net::this_version();
+    const auto at_version = [](u16 major, u16 minor, u16 patch) {
+        rv::GameVersion v;
+        v.major = major, v.minor = minor, v.patch = patch;
+        return v;
+    };
+    const rv::GameVersion patch = at_version(ours.major, ours.minor, u16(ours.patch + 3));
+    const rv::GameVersion next = at_version(ours.major, u16(ours.minor + 1), 0);
+    rv::RelayServer server;
+    rv::RelayServer::Versions v;
+    v.latest = v.min_online = ver("99.0.0");
+    v.release_url = "https://example.org/main";
+    list_game(v, ours.number().c_str(), "0.0.0"); // no oldest version: only the lines decide
+    if (!test::on_free_port([&](u16 port) { return server.open(port); })) SKIP("no UDP sockets here");
+    server.set_versions(v);
+    const std::string at = "127.0.0.1:" + std::to_string(server.port());
+    const auto as = [](rv::Session& s, const rv::GameVersion& ver) {
+        rv::GameTag t = net::game_tag();
+        t.version = ver;
+        s.set_game_tag(t);
+        s.set_game_version(ver);
+    };
+    // Host at `host`, a player at `player`: "" when the player joined, else the lobby's text for the refusal.
+    const auto meet = [&](const rv::GameVersion& host, const rv::GameVersion& player) -> std::optional<std::string> {
+        rv::Session h, j;
+        as(h, host), as(j, player);
+        if (!h.host_via(at, "One", "", 0)) return std::nullopt;
+        const auto pump = [&](auto done) {
+            for (int t = 0; t < 5000; t += 2) {
+                server.step(0), h.poll(), j.poll();
+                if (done()) return true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            return false;
+        };
+        if (!pump([&] { return !h.code().empty(); })) return std::nullopt;
+        if (!j.join_code(at, h.code(), "Two", "", 0)) return std::nullopt;
+        std::optional<std::string> result;
+        pump([&] {
+            while (std::optional<rv::Event> e = j.next_event()) {
+                if (e->kind == rv::Event::Kind::Joined) result = "";
+                else if (e->kind == rv::Event::Kind::Disconnected || e->kind == rv::Event::Kind::Rejected)
+                    result = net::refusal_text(e->text, j.update_required().has_value());
+            }
+            while (h.next_event()) {
+            }
+            return result.has_value();
+        });
+        return result;
+    };
+    CHECK(meet(ours, ours) == std::string());
+    CHECK(meet(ours, patch) == std::string());
+    CHECK(meet(patch, ours) == std::string());
+    const std::optional<std::string> newer = meet(ours, next);
+    CHECK(newer && *newer == "The host has version " + ours.number() + " (you have " + next.number() + "): the host needs to update.");
+    const std::optional<std::string> older = meet(next, ours);
+    CHECK(older && *older == "The host has version " + next.number() + " (you have " + ours.number() + "): update to join.");
+    if (ours.minor > 0) {
+        const std::optional<std::string> old_line = meet(ours, at_version(ours.major, u16(ours.minor - 1), 1)); // (0.0.0 is "unknown")
+        CHECK(old_line && *old_line == "This copy of the game is out of date: it must be updated to play online.");
+    }
 }

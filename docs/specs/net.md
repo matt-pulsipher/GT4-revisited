@@ -411,9 +411,12 @@ The disc's id is `gt4` for a release as it shipped (US SCUS-97328, Europe SCES-5
 steps 60 times a second and runs its own car by its own release's rules), and their differences are met car by car
 (below: a car one disc lacks, or whose parameter block differs, such as a car Europe's inertia floor changes, is named
 with the reason and does not race); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
-calls our disc "another game", whichever side hosts. The version in the relay's requests is the shared engine's (the relay
-holds it to its main game's oldest version). A relay server that asks for a newer one is answered on the page by a text of
-ours with no other name and no download; the relay's own update notices are not used.
+calls our disc "another game", whichever side hosts. Through a relay server a player joins only a host of the same x.y
+of this game (the version in our game tag, below: 0.1.0 and 0.1.4 meet, 0.1.x and 0.2.x do not): an older player of a host on
+the relay's latest release line is told this copy must be updated, otherwise the page says both versions and which side
+must update ("The host has version 0.2.0 (you have 0.1.0): update to join."; test `updates_relay_joins_our_own_line`). A
+relay server that asks for a newer version is answered on the page by a text of ours with no other name and no download;
+the relay's own update notices are not used.
 
 ### The car
 

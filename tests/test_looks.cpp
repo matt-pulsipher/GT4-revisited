@@ -8,6 +8,7 @@
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/display_mode_prologue.h"
 #include "gt4r/race/glow_filter.h"
+#include "gt4r/race/light_model.h"
 #include "gt4r/race/picture_settings.h"
 
 using gt3r::race::HudMode;
@@ -80,6 +81,14 @@ TEST(disc_sheen_exponent_is_this_games) {
 }
 
 // The correction's levels (0x4A8CB8): t^(1 / gamma) over the levels, held to `most`; the racing views' default brightness +3.
+// The road sheen's viewer: the camera itself (0x4A0080's +0xAB0, never moved), not the shared renderer's 2 m above it.
+TEST(race_sheen_seen_from_the_camera) {
+    gt3r::render::DrawOptions o;
+    CHECK(o.sheen_viewer_up == 2.0f); // (the engine's default: Gran Turismo 3's)
+    race::use_gt4_light_model(o);
+    CHECK(o.sheen_viewer_up == 0.0f);
+}
+
 TEST(race_correction_levels) {
     const float plain[3] = {1, 1, 1};
     const auto id = race::correction_levels(plain, 0, 1, 255);
