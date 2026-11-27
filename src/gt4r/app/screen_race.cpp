@@ -83,6 +83,7 @@
 #include "gt4r/net/net_race.h"
 #include "gt4r/net/online_race.h"
 #include "race/controls.h"
+#include "race/race_audio.h"
 #include "race/interp.h"
 #include "gt4r/race/car_pose.h"
 
@@ -732,6 +733,7 @@ public:
         ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;
+        ws.remember_song = !setup.demo_run; // (a demonstration's songs are not the next race's)
         // The grid: the player at the back, the others ahead of him in entry order.
         std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
         if (setup.grid_slots.size() == places.size()) places = setup.grid_slots;
@@ -3160,6 +3162,7 @@ public:
                 test_car(app, setup_, q);
                 entry_row_car(app, setup_, q);
                 draw_grid(app, setup_, q);
+                if (!chosen->grid_slots.empty() && chosen->grid_slots.size() == setup_.opponents.size() + 1) setup_.grid_slots = chosen->grid_slots;
                 arcade_tires(app, setup_, q);
                 if (sequence_ == "single_race") apply_arcade_options(setup_);
                 if (sequence_ == "photo_develop") develop_setup();
@@ -3595,10 +3598,7 @@ public:
             race_->set_look(false, false, 0, 0);
         }
         look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
-        // (Settings > Controls: the songs' own controls)
-        for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p)
-            if (const int song = int(app.input().action_pressed(p, gt3r::PadAction::NextSong)) - int(app.input().action_pressed(p, gt3r::PadAction::PreviousSong)))
-                if (audio::RaceSound* sound = race_->world().sound()) sound->skip_song(song);
+        song_controls(app, dt);
         run_steps(app, dt);
     }
 
@@ -3885,6 +3885,9 @@ public:
                 ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
                 ui.text_center(Ui::kHeight / 2 + 6, Ui::expand_prompts("{Start}: go on   {Triangle}: leave the race"), colors::kDim);
             }
+            if (!online_) draw_song(app, ui, true);
+        } else if (song_shown_ > 0) {
+            draw_song(app, ui, false);
         }
         // Frame times: the work of this frame, and the time from the last frame to this one.
         const Uint64 now = SDL_GetTicksNS();
@@ -4356,11 +4359,65 @@ private:
         }
     }
 
+    // ---- Ours: the race songs' controls (Settings > Controls: the songs' own chords; the on-screen song buttons), held to
+    // skip again every 0.3 s; the pause's L1 / R1 under the song's title (Settings > Audio: Song on the race's pause).
+
+    void song_controls(App& app, double dt) {
+        int pressed = 0, held = 0;
+        for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p) {
+            if (!pressed) pressed = app.input().action_pressed(p, gt3r::PadAction::NextSong) ? 1 : app.input().action_pressed(p, gt3r::PadAction::PreviousSong) ? -1 : 0;
+            if (!held) held = app.input().action_held(p, gt3r::PadAction::NextSong) ? 1 : app.input().action_held(p, gt3r::PadAction::PreviousSong) ? -1 : 0;
+        }
+        const auto [touch_pressed, touch_held] = app.touch_song_buttons();
+        if (!pressed) pressed = touch_pressed;
+        if (!held) held = touch_held;
+        if (pressed) held = pressed; // (the press's own direction is the one that repeats)
+        if (const int dir = song_hold_.update(pressed, held, dt)) skip_song(dir);
+        song_shown_ = std::max(0.0, song_shown_ - dt);
+    }
+    void skip_song(int dir) {
+        audio::RaceSound* sound = race_ ? race_->world().sound() : nullptr;
+        if (!sound || !sound->skip_song(dir)) return;
+        song_shown_ = paused_ ? 0.0 : kSongShown;
+    }
+    // The song playing: on the pause with its keys (under the pause's entries), else for a moment after a skip while driving
+    // (at the top, under the mirror's place).
+    void draw_song(App& app, Ui& ui, bool controls) {
+        if (!app.show_song() || !race_) return;
+        audio::RaceSound* sound = race_->world().sound();
+        const audio::RaceSong song = sound ? sound->now_playing() : audio::RaceSong{};
+        std::string title, artist;
+        if (!song.valid() || !sound->song_info(song, title, artist)) return;
+        if (title.empty()) title = artist, artist.clear();
+        const float W = ui.width();
+        const std::string prev = controls ? Ui::expand_prompts("{L1}  Previous") : "", next = controls ? Ui::expand_prompts("Next  {R1}") : "";
+        const float side = controls ? std::ceil(std::max(Ui::text_width(prev), Ui::text_width(next))) + 14 : 0;
+        const float text_w = std::max(Ui::text_width(title), Ui::text_width(artist));
+        const float pw = std::min(W - 24, std::max(controls ? 300.0f : 160.0f, std::ceil(text_w) + 2 * side + 32));
+        const float ph = artist.empty() ? 22.0f : 32.0f, px = std::floor((W - pw) / 2);
+        const float py = std::floor(controls ? Ui::kHeight * 0.78f : Ui::kHeight * 0.2f);
+        ui.fill_round(px, py, pw, ph, 6, Color{12, 14, 20, 215});
+        ui.frame_round(px, py, pw, ph, 6, 1, Color{255, 255, 255, 40});
+        const float ty = std::floor(py + ph / 2 - Ui::kChar / 2.0f);
+        if (controls) {
+            ui.text(px + 10, ty, prev, colors::kDim);
+            ui.text_right(px + pw - 10, ty, next, colors::kDim);
+        }
+        const float cw = pw - 2 * side - 16, cx = px + side + 8;
+        if (artist.empty()) {
+            ui.text_center_in(cx, cw, ty, Ui::elide(title, cw), colors::kText);
+        } else {
+            ui.text_center_in(cx, cw, py + 5, Ui::elide(title, cw), colors::kText);
+            ui.text_center_in(cx, cw, py + 18, Ui::elide(artist, cw), colors::kDim);
+        }
+    }
+
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
 
     void open_pause(App& app) {
         paused_ = true;
         pause_result_.clear();
+        pause_song_hold_ = {}; // (L1 / R1 repeat only after a press on this pause)
         if (online_) { // (a window over the race, which goes on and is heard)
             pause_leaving_ = false;
             return;
@@ -4430,6 +4487,12 @@ private:
                 pause_leaving_ = true;
             }
             return;
+        }
+        // Ours: L1 / R1 skip the race song shown under the entries (the paused music stays silent until the race goes on).
+        if (app.show_song()) {
+            const int pressed = m.pressed(PadButton::R1) ? 1 : m.pressed(PadButton::L1) ? -1 : 0;
+            const int held = pressed ? pressed : m.held(PadButton::R1) ? 1 : m.held(PadButton::L1) ? -1 : 0;
+            if (const int dir = pause_song_hold_.update(pressed, held, dt)) skip_song(dir);
         }
         if (!pause_) {
             // No movie: Start goes on, Triangle leaves.
@@ -5118,6 +5181,10 @@ private:
         audio::AppSound* app_sound = app.sound();
         caption_for_ = sound ? sound->report().music : std::string();
         if (caption_for_.empty()) caption_for_ = "-";
+        if (sound && sound->now_playing().yours()) { // (one of the player's songs: its tags)
+            sound->song_info(sound->now_playing(), caption_title_, caption_artist_);
+            return;
+        }
         if (!sound || !app_sound) return;
         const std::string& file = sound->report().music;
         const std::string base = file.substr(file.find_last_of('/') + 1);
@@ -5795,6 +5862,9 @@ private:
     s64 targets_[3] = {-1, -1, -1}; // a test's gold, silver and bronze times from its event (ms)
     std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
+    gt3r::race::SongSkipHold song_hold_, pause_song_hold_; // (ours: the song controls held)
+    double song_shown_ = 0;                                // a skip while driving shows the song this long more
+    static constexpr double kSongShown = 4.0;
     int last_can_replay_ = 0;
     bool quick_tune_filled_ = false; // the Quick Tune's values filled for this sequence (fill_quick_tune)
     std::shared_ptr<const race::StrobeMovie> result_movie_;

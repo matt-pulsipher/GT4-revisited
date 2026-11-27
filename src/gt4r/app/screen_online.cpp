@@ -9,6 +9,7 @@
 // relay server; `paint`, `tire`, `mt=1`, `races=2` more; `port`). The race itself reads GT4R_RACE as Drive does.
 
 #include "gt4r/app/online.h"
+#include "gt4r/app/car_picker.h"
 #include "gt4r/net/presence_text.h"
 #include "gt4r/net/version_check.h"
 #include "gt4r/app/page.h"
@@ -20,6 +21,7 @@
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/net/identity.h"
+#include "gt4r/script/vm.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/session.h"
 #include "net/relay_server.h"
@@ -28,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <set>
 
 namespace gt4r {
 
@@ -44,6 +47,7 @@ bool loopback_only() {
 // The disc's side of the lobby.
 struct OnlineDisc {
     std::string key;
+    db::SpecDb* db = nullptr; // the database the builder is of (the mods' cars change it)
     sim::Program program;
     std::unique_ptr<net::CarBuilder> builder;
 };
@@ -112,14 +116,14 @@ bool online_setup(App& app) {
     if (!disc) return false;
     OnlineDisc& d = online_side();
     net::Lobby& l = net::lobby();
-    if (d.key != app.disc()->info().digest) {
+    if (d.key != app.disc()->info().digest || d.db != app.db()) {
         d.builder.reset();
-        d.key = app.disc()->info().digest;
-        try {
-            d.program = sim::Program::load(*app.disc());
-        } catch (const std::exception& e) {
-            LOG_WARN("Online: the program: %s", e.what());
-        }
+        if (d.key != app.disc()->info().digest) try {
+                d.program = sim::Program::load(*app.disc());
+            } catch (const std::exception& e) {
+                LOG_WARN("Online: the program: %s", e.what());
+            }
+        d.key = app.disc()->info().digest, d.db = app.db();
         if (d.program.known()) {
             gt3r::Vfs* vfs = app.vfs();
             d.builder = std::make_unique<net::CarBuilder>(*app.db(), d.program, [vfs](const std::string& path) { return vfs->read(path); });
@@ -137,6 +141,7 @@ bool online_setup(App& app) {
         const std::optional<sim::CourseRow> row = sim::course_row(*sdb, course);
         return b->raced(c, row ? row->kind : 0);
     };
+    online_mod_cars(app, l);
     return true;
 }
 
@@ -483,6 +488,9 @@ bool OnlineMenus::frame(App& app, const MenuInput& m) {
     }
     if (!l.active()) return false;
     const std::string page = rt_.current_page() ? rt_.current_page()->name : std::string();
+    // Any car (the host's rule): the app's car picker over the makers' page; Triangle there leaves the page's own makers.
+    if (page == "MakerRoot" && l.host_member().limits.any_car && !picker_offered_) picker_offered_ = true, offer_car_picker(app);
+    if (page != "MakerRoot") picker_offered_ = false;
     const bool matching = page == "MatchingRoot";
     if (matching && l.host() && l.count() >= 2 && m.pressed(PadButton::Start)) {
         // The host begins with the players who are there.
@@ -507,6 +515,45 @@ bool OnlineMenus::frame(App& app, const MenuInput& m) {
     if (m.pressed(PadButton::Start)) confirm_ = 100;
     if (m.pressed(PadButton::Triangle) || m.pressed(PadButton::Circle)) open_ = false;
     return true;
+}
+
+// The car picker (car_picker.h) over the makers' page: the cars the page's makers list (Arcade's car lists, the cars open in the
+// game: MethodRoot.getCurrentCarList), every maker's at once; the car picked is listed alone on the car page, where its colors and
+// the driving options are chosen as before (menu::set_lan_pick). What is sent to the lobby is unchanged.
+void OnlineMenus::offer_car_picker(App& app) {
+    menu::set_lan_pick(rt_, "");
+    std::shared_ptr<CarCatalog> cars;
+    try {
+        cars = CarCatalog::of(app);
+    } catch (const std::exception& e) {
+        LOG_WARN("Online: the car picker: %s", e.what());
+        return;
+    }
+    script::Vm& vm = rt_.vm();
+    const script::Value lists = vm.lookup("ArcadeProject::CarData");
+    std::set<std::string> listed;
+    std::set<std::string> keys;
+    for (const CarCatalog::Car& c : cars->cars()) keys.insert(c.maker_key);
+    for (const std::string& k : keys)
+        if (!k.empty())
+            if (const std::vector<script::Value>* items = vm.attribute(lists, k + "_carlist").items())
+                for (const script::Value& v : *items) listed.insert(v.to_string());
+    const std::set<std::string>& open = rt_.game().available_cars;
+    CarPickerOptions o;
+    o.title = "LAN BATTLE: YOUR CAR", o.colors = false;
+    if (const std::optional<net::CarChoice> now = menu::choice_of_pages(rt_)) o.now.label = now->label;
+    // (the lobby kept going while the picker is shown; the picker closes when the lobby ends or leaves the makers' page)
+    menu::Runtime* menus = &rt_;
+    o.keep_open = [menus](App&) {
+        net::Lobby& l = net::lobby();
+        l.poll();
+        return l.active() && !l.closed() && !l.menus_ended() && menus->current_page() && menus->current_page()->name == "MakerRoot";
+    };
+    o.allowed = [listed, open](const CarCatalog::Car& c) { return listed.count(c.label) && open.count(c.label); };
+    menu::Runtime* rt = &rt_;
+    app.push(make_car_picker(app, cars, o, [rt, cars](const PickedCar& c) {
+        if (const CarCatalog::Car* car = cars->find(c.label)) menu::pick_lan_car(*rt, c.label, car->maker_key);
+    }));
 }
 
 bool OnlineMenus::finished(App& app) {

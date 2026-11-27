@@ -978,7 +978,11 @@ page fades out in 0.25 s. The tachometer is a picture of the program (a Tex1 at 
 (320, 341) of the 640 x 448 frame buffer, coloured (130, 130, 150), turning clockwise 720 degrees
 a second (0x104150). The program shows it while the disc loads; here the next project starts
 once the black is whole, the page holds 0.5 s after the picture is in (❓ judged) and takes no
-keys. Before a race the scripts set the mode "capture" (MSystem.SetLoadingMode): the last picture is
+keys. Settings > Display "Loading pages" chooses the style (`[video] loading_page`, `app/loading_timing.h`): "Quick" (the default) is
+a dip to black, 0.25 s in and 0.25 s out, with no picture and no hold (the next project starts at once under the black); before a
+race it shows the held page for one frame and reads the race, the tachometer fading in only if the reading takes over 0.25 s
+(the race is read in one step of the app thread today, so it does not show). "Original" is the sequence above. Before a race
+the scripts set the mode "capture" (MSystem.SetLoadingMode): the last picture is
 kept (here: the pages are drawn into a picture of their own from the call on, since the menus close their pages as they
 end) and the tachometer fades in over it in 1 s; the race is then read, in which the picture stands
 still, and takes the screen at once (❓ the program fades the page out in 0.25 s). ❓ Not done: "snow",
@@ -1368,6 +1372,40 @@ way a picture; `stopRotate()` stops at home. The Gran Turismo mode map's 37 face
 icons (`image/gtmode/map/panel_*.mdl` of the page's pack); entering a place sets
 `rotate_v = [0, 2, 0]`, leaving it `target_mode = 1` (nine places stop where they are). Here each
 face is drawn over a part of the page three times its rectangle around it.
+
+### The Car database
+
+The home screen's Car database (`menu/car_database.*`, `app/screen_database.cpp`; `gt4tool cardb <disc> list | <car>`)
+takes its facts from the game's own code and data; on a Gran Turismo 4 disc Gran Turismo mode's project runs behind the
+menus' natives on a new game (the save editor's `SaveEditor`, no page shown, nothing kept).
+
+- **The spec sheet**: the rows of the dealer's purchase dialog (`BuyCarDialog`: Type, Displacement, Power, Torque,
+  Dimensions, Weight, Drivetrain, Price) as the car's natives write them (`getCatEngineType` + `:` + `getCatEngineCam`,
+  `getCatPs` 0x445EE8 and `getCatTq` 0x445F70 truncated in the unit, with `%d%s/%s%s`, `getCatLength` x `getCatWidth` x
+  `getCatHeight`); the units are a new game's for the disc's region (`GameState::option_defaults`). ✔ The MOVE Custom RS
+  Limited '02's sheet and the Copen Active Top '02's strip equal the original's (reference `05-gtmode`
+  `18_purchase_spec_sheet.png`, `17_dealer_new_car_copen.png`). What the page adds below (wheelbase, tread, gears, tires,
+  rev limit, weight over power) is read from the parts' rows (database.md).
+- **The curves**: `buildEngineCurveData`'s figures (sim::Showroom::charts, the car as sold, a new engine), in the page's
+  units. Prologue's program is not one the showroom car is built for: there the ENGINE row's own curve with its output
+  factor (❓ not the program's chart).
+- **The parts**: the tune shop's groups (TuningRoot's widgets' `parts_types`: Muffler 20; Brake 1, 2; Engine 12, 13, 15,
+  16, 17, 18, 27; DriveTrain 11, 21, 22, 24, 23; Turbo 14, 19, 28; Suspension 3; Tire 25; Others 10, 7, 8, 31, 32), each
+  stage the scripts' `TuningApplyRoot::getPartsCondition(car, type, category)` says exists ([exists, owned, allowed, price];
+  type 32, the rigidity refresh, Cr. 50,000), named by `getPartsShopName` in TuningApplyRoot's text. Category 0 (the part
+  as sold or none) is left out but for the tires (the standard tires, free).
+- **The events**: `EventData::AllEvents` (the halls' lists, as the save editor reads them) and, for each, the scripts'
+  `getViolatedRegulatoin(car, race)` (`share/regulation.ad`) on the event's first race, as the event's page asks it of the
+  car driven: a `Regulation` whose `violated` is set, and each of `drivetrain`, `aspiration`, `cartype`, `tiretype`,
+  `need_ps`, `need_price`, `weight`, `length`, `country`, `year`, `carlist` non-nil when that rule is broken. The rows are the
+  event page's (`EventInfoDialog`'s texts and the race's `getNeed*` / `getLimited*`, a row only where the rule is set). The
+  car is the car as sold (`set_car`); the license an event asks is the driver's, not the car's, and is not counted.
+- **Words**: the menus' language's; where the app's font cannot draw them (the Japanese release's kana) the database's
+  American car names (the Japanese discs carry them), makers by the words their cars' names share, and our own words.
+
+The scripts compare a length limit with `getLength`'s text: an integer's operators take the other value's integer (hInt
+asks it of the operand, vtable +0x58; a string's is strtol base 10, hString 0x314A40 -> 0x5A2F88), as the VM now does for
+the comparisons and the arithmetic but `+` (❓ `int + string` and an integer with a float: hFloat's +0x58 not read).
 
 ### What runs where (the drawing)
 

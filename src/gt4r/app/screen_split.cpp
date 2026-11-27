@@ -373,7 +373,7 @@ public:
             if (!replaying_ && half_[i].mount == race::DriveCamera::kInCar && pose.body_hidden && !half_[i].look_back && !half_[i].start_camera.active()) {
                 const float kx = side_by_side() ? rect.w / view.picture[0] : std::min(whole.h * 4 / 3, whole.w) / view.picture[0], ky = rect.h / view.picture[1];
                 const float x = side_by_side() ? rect.x + view.mirror[0] * kx : rect.x + rect.w / 2 + (view.mirror[0] - view.picture[0] / 2) * kx;
-                world_->render_mirror(ui, {x, rect.y + view.mirror[1] * ky, view.mirror[2] * kx, view.mirror[3] * ky}, cars, pose, int(i), int(i), view.mirror_zoom);
+                world_->render_mirror(ui, {x, rect.y + view.mirror[1] * ky, view.mirror[2] * kx, view.mirror[3] * ky}, cars, pose, int(i), int(i), view.mirror_zoom, view.mirror[3]);
             }
         }
         const float line = whole.h * 2 / 448;

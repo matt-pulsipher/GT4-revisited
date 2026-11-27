@@ -383,7 +383,11 @@ player's car, the barrier's round, and the host's settings.
 - **What is added on the pages**, by functions of the scripts given another body when the arcade project is read
   (`adapt_lan_pages`): after the course the makers' page as the 2-Player Battle has it (every car; the garages of the two
   card slots), when the host lets every car race (else the favorites alone, as the original); Triangle on a maker's cars
-  goes back to the makers; the driving options' OK says at once why a car may not race and stays. `isClientDisconnected` and
+  goes back to the makers; the driving options' OK says at once why a car may not race and stays. Over the makers' page the
+  app's car picker opens (`app/car_picker.h`, as Quick race's: by maker or every car by name, the cars the page's makers list,
+  open in the game); the car picked is the car page's list alone (`set_lan_pick`, `pick_lan_car`: `getCurrentCarList`
+  answers it, the makers' page's choice its maker), where its colors and the driving options are chosen as before;
+  Triangle in the picker leaves the page's own makers. What goes to the lobby is the pages' choice as before. `isClientDisconnected` and
   `isDisconnected` answer no: a player who leaves ends nothing for the others, and the lobby's own window says what ended.
 - **The host's rules**: the 2-Player Battle's options (laps, tire wear, boost) as the original's, and ours: a power limit (the
   car's as it races), garage cars or cars as sold, every car or the favorites, contact by round trip. The course is the
@@ -421,6 +425,18 @@ condition; a car whose digest differs here, whose parts are another car's or do 
 fit any car), or which the disc lacks, is named on the panel with the reason, and the host's race does not start with it. ❓
 A garage car's settings are not checked against the ranges the settings page gives: a setting no page gives would race
 as sent (on every machine alike).
+
+### Mod cars
+
+`net/mod_car_package.*`, `app/online_mod_cars.cpp`. A mod car (docs/formats/database.md "Mod cars") travels as any car,
+with its package's SHA-256, size and donor after the rest of the record (`u8 'P'`, the hash, u32 the size, the donor; a
+record without them ends before). The package is the car's file and the pictures it names, in the shared engine's
+package layout, offered to the session; a machine that lacks the car and has its donor asks the owner for it (the shared
+session's package transfer, through the host: nothing is added to its protocol). The package is checked (one car file of
+the label named, its donor a car of this disc, values a car can have, its other files exactly the PNG pictures it names, at
+most 2048 a side), installed as `mods/dl-<the hash's first 12 digits>/` with the pictures encoded again by our encoder,
+and the database read again; the car is then checked as any other (its digest the owner's). Until then the panel says
+its files are on their way, or why they were refused.
 
 ### Finding a lobby
 

@@ -27,9 +27,11 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
    memory card image*.
 4. GT4 Revisited's own menu, the home screen, is underneath the game: press **Select** on the title (on a keyboard Tab),
-   or click or tap the **GT4R menu** button beside it. (On Prologue's board, Select stays the board's while a sign has the
+   or click or tap the **GT4R menu** button beside it. The button is beside Gran Turismo mode's map too (there Select is
+   the map's own: a pad reaches the home screen through the title). Leaving saves the game first, as it saves itself
+   (Options, Miscellaneous, Autosave). (On Prologue's board, Select stays the board's while a sign has the
    focus: Triangle first goes back to its menu.) The home screen: *Play* (the game from the start: the opening movie, then
-   the title), *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
+   the title), *Quick race*, *Saved games*, *Settings*, *Controls*, *Mods*, the *Car database*, the *Save editor*, *Discs...* (the disc library: switch to
    another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
    race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
@@ -39,10 +41,29 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    moves the focus there and a second one chooses it (a mouse's hover focuses, so one click chooses); a list or a row of
    cars or courses follows a drag or the wheel, a scroll box's arrows step it, Gran Turismo mode's map follows a drag;
    the right button goes back, and a tap on a page with nothing to choose (the opening movie) is Start.
-5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
+5. The *Car database* lists every car of the disc (by maker, name, power, price or year: Square, or the *Order* button) with
+   its picture and four tabs: *Specifications* (the dealer's spec sheet in the game's units for the disc's region, then the
+   wheelbase, gears, tires and more), *Power & torque* (the engine's curves as the settings pages chart them), *Tune shop
+   parts* (what the tune shops sell for it, with prices) and *Events* (which of Gran Turismo mode's events the car as sold
+   may enter, and the rules it breaks in the others). Up and down choose a car, left and right the tab, Cross moves into the
+   details to scroll them; a click or tap chooses, the wheel or a finger's drag scrolls. Prologue's has the first two tabs.
+6. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
    save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
    images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
+7. *Quick race* races any event of the game with any car, with nothing to unlock and nothing saved to your game: every race
+   of Gran Turismo mode's event lists (a championship's races one at a time), the license tests (the test, or a free run on
+   its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
+   then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
+   pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for. The last
+   choices are kept (`config.ini` `[quickrace]`). On Prologue, Quick race is its arcade's single race on any of its courses
+   with any of its arcade's cars, at its three difficulties (no custom race).
+   Its first item, *Custom race*, is your own race: any course, the laps, your car and color and your place on the grid, and
+   up to as many opponents as the course's field holds, each any car in any color. *Fill the grid like Arcade* draws the
+   opponents as Arcade does for your car at its difficulty level (-10 to +10); then change any of them. The race is Arcade's
+   single race (its start, tires and pages). Gran Turismo 4 sets no skill per driver (Arcade's difficulty only chooses which
+   cars race), and no race of the game has a catch-up: the opponents drive as Arcade's do. *Save as...* keeps a race under a
+   name (the same name replaces it); saved races follow *Custom race* in the list ({Square} deletes one).
 
 ## Controls
 
@@ -115,7 +136,7 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   console's 640x448; the 3D renderer.
 - *Audio*: the output device; the music's and the effects' volume, on top of the game's own options (both at 100% to start, so the
   game's own option levels are what plays); whether sounds behind you
-  are sent as the console sends them (one side turned over, for a surround decoder) or plain.
+  are sent as the console sends them (one side turned over, for a surround decoder) or plain. *Your music* (below).
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
 - *Views & replays*: the views the change-view control goes through and whether the in-car view shakes; in replays the
@@ -159,6 +180,12 @@ device =                 ; an output device's name; empty: the system's
 music_volume = 1.00
 effects_volume = 1.00
 rear_cue = on            ; on | off
+[music]
+folder =                 ; empty: the data folder's music/
+source = yours           ; game | yours | both (unset: yours, the game's until a song is found)
+next_race = next         ; next | same
+show_song = on           ; on | off (the song on the race's pause, L1 / R1 there)
+race_song =              ; the song the last race ended on (disc:<piece> or yours:<id>)
 [saves]
 folder =                 ; empty: the data folder
 [game]
@@ -172,8 +199,73 @@ used or not for each disc, and where two change the same file the upper one of t
 down* on a mod's page write its `priority`). A texture pack's pictures (PNG, any size up to 4096 a side) are named by
 the texture they replace: *Save the game's textures* writes every car's, course's and figure's texture under that name
 (`gt4tool textures <disc> <folder> car/lod/fdeu0006` a few of them). Packs change what is loaded from then on. They replace
-the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods'
-cars, events and liveries are not read.
+the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods' cars are
+below; their events and liveries are not read.
+
+**Mod cars** are text files, `mods/<name>/cars/<label>.ini`, each naming a car of the disc it is made from (its donor)
+and what is different; the file format is GT3 Revisited's (its MODDING.md, "Adding cars"), with this game's limits:
+
+```ini
+[car]
+label = my_coupe_26          ; a-z, 0-9 and _, at most 40; not a car of the disc
+name = My Coupe `26          ; as the menus and the race show it
+maker = Mazda                ; a maker of the game: its dealer sells the car (else the donor's maker)
+year = 2026
+price = 31500                ; credits (the donor's when left out)
+category = tuning            ; normal | racing | tuning | concept
+donor = impreza_wrx_sti_00   ; needed: every part the file leaves out is the donor's (gt4tool car <disc> lists the labels)
+model = rx8_03               ; optional: another car of the disc whose body and paints it has (else the donor's)
+[body]
+weight_kg = 1180             ; also front_weight_pct, length_mm, width_mm, height_mm, wheelbase_mm,
+front_track_mm = 1500        ;   rear_track_mm, ride_height_mm, cd, frontal_area_m2;
+                             ;   scale_suspension, scale_brakes = yes | no (springs and brakes for the new weight)
+[powertrain]
+power_kw = 220               ; or power_hp / power_ps: the donor's curve made this strong; or torque_nm / torque_lbft
+max_rpm = 8000               ; the rev limit; also idle_rpm, output_pct, sound_id (an engine sound of the disc),
+; curve = 1000:200 4000:260  ;   layout, aspiration, displacement (the specs' texts); curve: rpm:Nm, up to 24 points
+[drivetrain]
+drive = FR                   ; FF | FR | MR | RR | AWD; front_torque_pct for AWD
+gears = 3.2 2.1 1.5 1.15 0.92 0.78   ; up to 11
+final_drive = 4.1            ; and reverse
+[tires]
+front = 225/40R18            ; rear = ..., or size = ... for both; width and aspect in fives
+grip_pct = 105               ; its tires as sold
+[dealer]
+for_sale = yes               ; at its maker's dealer in Gran Turismo mode
+thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's; logo = the name's artwork (PNG)
+[raw.CHASSIS]                ; bytes of the car's own rows of BRAKE, SUSPENSION, CHASSIS, RACINGMODIFY, DRIVETRAIN,
+0x1D = 120                   ;   GEAR, ENGINE, FRONTTIRE or REARTIRE (docs/formats/database.md): 0x30:u16 = 1000
+```
+
+The car is made of the donor's rows of the game's own database (docs/formats/database.md "Mod cars"), so it races,
+is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model and pictures, or
+the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
+there). The Mods page lists each mod's cars, and why one is not in the game; `gt4tool modcar <disc> <mods folder>
+[disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
+gives: removing the mod leaves a garage place for a car the game no longer has. In a Multi-LAN Race a player who lacks
+another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
+their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
+an electric drive (a file with `type = electric` is not loaded), mods' makers (`makers/`).
+
+**Your music.** MP3, FLAC, WAV and Ogg Vorbis files in the music folder (by default `music/` in the data folder, any
+depth; on Android the Files app shows it as *GT4 Revisited > music*) play as race songs. Settings > Audio > *Race songs*:
+the game's music list (the jukebox's, on Gran Turismo mode's map), *Your songs*, or *Both, mixed* (shuffled, each song
+drawn from both lists by how many each has left in its round; in order, one of each in turn). The order or shuffle is the
+game's list's own (the jukebox's play mode), for yours too. *Your songs' list* checks songs on and off; songs added to the
+folder are checked. Each of your songs plays as loud as the game's list's pieces on average (measured as it first plays,
+and once for eight of the game's list's pieces between races; songs not measured yet start as they are and ease in). *Music folder*
+chooses another folder (on Android the system's folder picker, after allowing music access; a folder in a cloud drive's app
+does not work), *Songs* reads it again. Other formats (AAC, Opus, WMA) and damaged files are counted and skipped. *Next
+race starts with*: the next song of the list, or the song the last race ended on. The race's pause shows the song's title
+and artist with L1 / R1 to skip (held, every 0.3 s; the song waits silent until the race goes on); the songs' controls
+(Settings > Controls) and the on-screen song buttons (shown from the layout's settings) skip while driving, and show the
+new song for a moment. The replay's caption names your song by its tags.
+
+A mod's recording of the menus' music plays in place of a piece of the sequenced music: `files/music/<region>/<piece>.wav`
+(or `.flac`, `.ogg`, `.mp3`; also `files/music/<piece>.<ext>`), `<piece>` being the piece's file name in the disc's
+`mid.inf` without `.mid` (`gt4mn-02` for the map's second piece, `gt4ac-01` for Arcade's: `gt4tool sound <disc> music`).
+It loops at its own loop points (a WAV's `smpl` loop, or `LOOPSTART` with `LOOPEND` or `LOOPLENGTH` tags in a FLAC or Ogg
+file), else from its start, at the level the game streams its music at; a fade out of the menus' music stops it at once.
 
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
@@ -284,7 +376,8 @@ The ones a player meets first:
   and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.
-- Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
+- Mods: files, textures, texture packs and cars are used; mods' events, liveries and makers are not read yet, and a mod
+  car has no body or electric drive of its own yet.
 
 ## Scripted play (for checks)
 
@@ -313,6 +406,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   what the menus do (`calls`: each script call too).
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
+- `--screen quickrace` with `GT4R_QUICKRACE="event=am_sunday_0002,car=ford_gt_05,start"` starts a Quick race at once
+  (`event=arcade:tsukuba`, `license:l0b0001`, `mission:<label>`; a custom race `page=custom,course=tsukuba,grid=ka_01:2/cobra_67:0,place=1`;
+  the top of `src/gt4r/app/screen_quick_race.cpp`).
 - Scripted runs (`--shot`, `--sweep`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
   nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
   driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
@@ -359,11 +455,25 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
-  title's GT4R menu button and the Controller Settings button in place of the Options' controller pages
-  (`screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what they set: `app/game_options.*` into the game's
-  own options)
+  GT4R menu button beside the title and Gran Turismo mode's map and the Controller Settings button in place of the Options'
+  controller pages (which pages: `menu/app_button.h`; `screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what
+  they set: `app/game_options.*` into the game's own options)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
+- Quick race (`screen_quick_race.cpp`) and the car picker (`car_picker.*`) are the app's pages. What they list is the
+  disc's, read by the game's own code (`menu/save_editor.h`: Gran Turismo mode's event lists, the license tests, the
+  missions, the courses, the cars and makers, the colors). The race is the game's: menus of a new game of their own (never
+  saved; the player's options read from the data folder) given the request the game's pages give: an event's race as the
+  event page's entry (its race label, `solo_event`; tests `license`, missions `mission`, a test's course `freerun`), and
+  Arcade's single race through Arcade's own script (`GameRoot.set_enemy_cars`, then `MCarData.ShiftCarCode` on each entry,
+  as `doGame`); the race sequence's pages (quick-event, quick-arcade, ...) run before and after it. A custom race is
+  Arcade's single race on its row `sample_entry_6` with the entry table set as `doGame` leaves it (the cars chosen, each
+  through `ShiftCarCode`) and the grid's places ours (`RaceStart::grid_slots`); *Fill the grid like Arcade* runs
+  `set_enemy_cars` at the level chosen; the course's field is `MCourseData.GetMaxCarNum`. Ours (judged): the open
+  car's two-car field is applied for model type 2 only (Arcade's open-top option page is not asked), and the tire is the
+  setting page's default. Prologue's: its arcade's lists (the configuration script's `ArcadeCourseList`, `ArcadeCarList`) and
+  its `setupRace` (the dirt race and the car's dirt version on a dirt course, else the car's own race; `_h` / `_p` after it at
+  the second and third difficulty). Names the app's pages cannot show (Japanese) are the database's American names or labels.
 - The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
   `game::app_bundle_folder`, else SDL's preference folder) is ours (`app.cpp` `user_data_dir`). The update check and the
   online session's relay requests are the shared engine's (`net::VersionCheck`, `net::Session`) carrying our game tag
@@ -413,6 +523,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The movies are the shared engine's player (`video::MoviePlayer`, its MPEG-2 decoder and PSS demuxer); which of a movie's
   sound tracks plays is ours, as the game's player picks it (`formats/movie_tracks.*`, [formats/menu.md](formats/menu.md)
   "Sound tracks").
+- The Car database (`app/screen_database.cpp`) is the app's page; its facts are the game's (`menu/car_database.*`): the
+  spec sheet as the car's natives write it, the settings pages' chart, the tune shops' parts and prices and the events'
+  regulations by Gran Turismo mode's own scripts run behind the menus' natives (formats/menu.md "The Car database").
+  On the Japanese release the page's words are the database's American names and ours, since the app's font has no kana.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

@@ -10,6 +10,7 @@
 #include "base/config.h"
 #include "gt4r/app/pipeline_warm.h"
 #include "gt4r/audio/app_sound.h"
+#include "gt4r/audio/your_music.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/settings/run_mode.h"
@@ -122,6 +123,22 @@ public:
     const Sound& sound_settings() const { return sound_settings_; }
     void set_sound(const Sound& s);
 
+    // Ours: the player's own race music (audio/your_music.h). [music] folder: the music folder, by default the data folder's
+    // music/ (made at the start); read at the start, when the game comes back to the foreground and when another is chosen.
+    // [music] source, next_race, show_song.
+    audio::YourMusic& your_music() { return music_; }
+    std::string default_music_dir() const { return data_dir_ + "music/"; }
+    std::string music_folder() const;
+    bool music_folder_chosen() const;
+    void set_music_folder(const std::string& path); // (empty: the default again)
+    void follow_music_folder(bool rescan);
+    bool music_access() const { return music_access_; } // Android: the folder may be read
+    // The song's title and artist on the race's pause, with L1 / R1 to skip ([music] show_song, on unless "off").
+    bool show_song() const;
+    // The game's racing pieces measured for the player's songs' level: eight of those the game's list `enabled` (of all when
+    // none), between races, remembered in music_songs.txt.
+    void measure_disc_music(const std::vector<int>& enabled);
+
     // Where the saved games, the replays and the photos are: [saves] folder, by default the data folder; ends with a separator.
     std::string save_dir() const;
     bool save_dir_chosen() const;
@@ -157,6 +174,14 @@ public:
     // The on-screen controls' overlay: a screen's own button moved clear of them (clear_above) or drawn in the window's bars
     // beside the game area (draw_whole_window).
     const gt3r::TouchOverlay& touch_overlay() const { return touch_; }
+    // The on-screen song buttons (drive.music, shown from the layout editor): the direction pressed now and the one held (1 next,
+    // -1 the song before, 0 none).
+    std::pair<int, int> touch_song_buttons() {
+        gt3r::TouchControls& c = touch_.controls();
+        const int pressed = c.action_pressed(gt3r::TouchAction::NextSong) ? 1 : c.action_pressed(gt3r::TouchAction::PreviousSong) ? -1 : 0;
+        const int held = c.action_held(gt3r::TouchAction::NextSong) ? 1 : c.action_held(gt3r::TouchAction::PreviousSong) ? -1 : 0;
+        return {touch_ui_ ? pressed : 0, touch_ui_ ? held : 0};
+    }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
@@ -293,6 +318,10 @@ private:
     std::unique_ptr<gt3r::Vfs> vfs_;
     std::unique_ptr<db::SpecDb> db_;
     std::unique_ptr<audio::AppSound> sound_; // (after audio_ and vfs_: gone before them)
+    audio::YourMusic music_;                 // (its measuring reads vfs_: stopped before a disc goes)
+    bool music_access_ = true;
+    std::string measured_key_;               // the disc's pieces given to music_ to measure
+    void forget_disc_music();
     bool db_tried_ = false;
     gt3r::IniDocument config_;
     std::string data_dir_, config_path_;
@@ -335,6 +364,8 @@ std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
 std::unique_ptr<Screen> make_hub_screen(bool developer = false); // developer: its Developer tools
+// Quick race (screen_quick_race.cpp): any event of the game with any car, nothing saved. Throws FormatError without the disc's lists.
+std::unique_ptr<Screen> make_quick_race_screen(App& app);
 // --sweep: the races of a list run one after another in this window, a picture of each
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
@@ -353,6 +384,7 @@ std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::
 std::unique_ptr<Screen> make_touch_editor_screen();
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
+std::unique_ptr<Screen> make_database_screen(App& app); // the Car database (screen_database.cpp)
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
@@ -392,6 +424,8 @@ struct RaceStart {
     // game's options (menu::GameState::options; empty: a new game's).
     std::shared_ptr<const net::OnlineRace> online;
     std::map<std::string, std::variant<s32, float, std::string>> options;
+    // Each entry's start place (0 the front) by the entry's number, 0 the player's (Quick race's custom race); empty: the race's own.
+    std::vector<int> grid_slots;
 };
 std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
 // The photo shoot the menus ask for (the sequence "photo_shoot"): the location and the car of the running menus' request; it runs the

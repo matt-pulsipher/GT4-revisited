@@ -5,6 +5,7 @@
 // values behind them are the runtime's GameState and the disc's car database.
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
+#include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/earlier_saves.h"
@@ -183,6 +184,7 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
         language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
+        db->set_makers(names.makers); // (a mod car's maker by its name)
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
         courses = db->courses();
@@ -958,7 +960,12 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         return Value{};
     });
     // What arcade mode has unlocked: a car or a course by its label.
-    g.method("isCarAvailable", [s](Vm&, const Value&, Args a) { return number(s->all_available || s->available_cars.count(arg_text(a, 0)) > 0); });
+    // (A mod car always is: formats/db/mod_cars.h.)
+    g.method("isCarAvailable", [s, self = this](Vm&, const Value&, Args a) {
+        const std::string label = arg_text(a, 0);
+        const bool mod = self->database->db && self->database->db->mod_cars().def(label);
+        return number(s->all_available || s->available_cars.count(label) > 0 || mod);
+    });
     g.method("setCarAvailable", [s](Vm&, const Value&, Args a) {
         if (arg_int(a, 1, 1)) s->available_cars.insert(arg_text(a, 0));
         else s->available_cars.erase(arg_text(a, 0));
@@ -1471,6 +1478,17 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     rt.keep_alive(n);
     Runtime* r = &rt;
     GameState* s = &rt.game();
+    // A mod car's pictures by its label: the body car's of the disc stand in (their sizes place the faces; mod_cars.h).
+    rt.reader() = [read = rt.reader(), g = n.get()](const std::string& path) -> std::optional<Bytes> {
+        std::optional<Bytes> file = read(path);
+        if (file || path.find("piece/") == std::string::npos || !g->database->db) return file;
+        if (const std::optional<db::ModCars::Picture> p = g->database->db->mod_cars().picture(path); p && !p->disc.empty()) return read(p->disc);
+        return file;
+    };
+    // The dealers' lists with the mods' cars as the file is read (mod_car_lists.cpp).
+    rt.vm().after_load = [g = n.get()](Vm&, const std::string& name, const std::shared_ptr<script::Module>& into) {
+        if (name.size() >= 8 && name.compare(name.size() - 8, 8, "_carlist") == 0) add_mod_cars_to_lists(*g, into);
+    };
     // Japan's program keeps the units by a language (GameState::unit_language): a new game's the console's language.
     if (const Database& d = n->db(); d.program.known() && d.program.release() == sim::Release::Japan) {
         // (the console's language: the menus')

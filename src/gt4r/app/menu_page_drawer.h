@@ -6,6 +6,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_image_key.h"
+#include "gt4r/app/mod_car_pictures.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -66,7 +67,7 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
 public:
-    explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()) {
+    explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()), app_(&app) {
         for (const char* path : {"font/system.fnt", "font/menu.fnt", "font/race.fnt"}) { // (Prologue's lesson pages: FC_16 ..)
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
@@ -255,7 +256,7 @@ private:
     // whole picture. `held`: the picture itself; else `path`'s of the page, or with `from_disk` of the disc.
     void image(const std::string& path, const Rect& at, const std::vector<Rgba>& colors, float opacity, bool add, const SDL_FPoint* uv = nullptr,
                bool from_disk = false, const gt3r::Tex1::Image* held = nullptr) {
-        const gt3r::Tex1::Image* img = held ? held : path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
+        const gt3r::Tex1::Image* img = held ? held : path.empty() ? nullptr : from_disk ? disk_image(path) : pack_image(path);
         SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
@@ -279,6 +280,20 @@ private:
         }
         quad(t, at, uv ? uv : whole, c, blend);
     }
+    // A picture of the page's packs; a mod car's stands in by its body car's (mod_car_pictures.h).
+    const gt3r::Tex1::Image* pack_image(const std::string& path) {
+        const gt3r::Tex1::Image* img = project_->image(page_, path);
+        if (img || path.find("piece/car_") == std::string::npos) return img;
+        const std::string key = page_ + "|" + path;
+        if (const auto it = mod_pack_images_.find(key); it != mod_pack_images_.end()) return it->second.get();
+        std::unique_ptr<gt3r::Tex1::Image>& slot = mod_pack_images_[key];
+        if (std::optional<gt3r::Tex1::Image> own = mod_car_picture(*app_, path, [this](const std::string& other) -> std::optional<gt3r::Tex1::Image> {
+                const gt3r::Tex1::Image* i = project_->image(page_, other);
+                return i ? std::optional<gt3r::Tex1::Image>(*i) : std::nullopt;
+            }))
+            slot = std::make_unique<gt3r::Tex1::Image>(std::move(*own));
+        return slot.get();
+    }
     // A picture face's `from_disk` picture: a Tex1 file of the disc (`piece/nation_bg/japan.img`).
     const gt3r::Tex1::Image* disk_image(const std::string& path) {
         std::unique_ptr<gt3r::Tex1::Image>& slot = disk_images_[path];
@@ -296,6 +311,12 @@ private:
                     slot = std::make_unique<gt3r::Tex1::Image>(set.decode(gs, 0));
                 }
             }
+            if (!data) // a mod car's (mod_car_pictures.h)
+                if (std::optional<gt3r::Tex1::Image> own = mod_car_picture(*app_, name, [this](const std::string& disc) -> std::optional<gt3r::Tex1::Image> {
+                        const gt3r::Tex1::Image* i = disk_image(disc);
+                        return i ? std::optional<gt3r::Tex1::Image>(*i) : std::nullopt;
+                    }))
+                    slot = std::make_unique<gt3r::Tex1::Image>(std::move(*own));
         } catch (const std::exception& e) {
             LOG_WARN("Menu picture %s: %s", path.c_str(), e.what());
         }
@@ -958,6 +979,8 @@ private:
     float ox_ = 0, oy_ = 0, scale_ = 1;
     Affine m_; // the transforms of the widgets being drawn
     gt3r::Vfs* vfs_ = nullptr;
+    App* app_ = nullptr;
+    std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>> mod_pack_images_; // (pack_image: by page and path)
     struct Flash {
         bool tried = false, ok = false;
         menu::FlashMovie movie;

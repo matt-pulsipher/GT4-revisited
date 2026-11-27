@@ -23,6 +23,9 @@ inline constexpr const char* kOfferedServer = "gt3r.gameversions.com";
 // The disc's side of the lobby (cars built, digests made): set up for the open disc; the lobby's session named for it.
 // False when this disc has no online races (Prologue, a program whose tables are not mapped).
 bool online_setup(App& app);
+// The lobby's part for mod cars (online_mod_cars.cpp): ours described with their packages and offered, another player's that
+// this disc lacks fetched, checked and installed as a mod.
+void online_mod_cars(App& app, net::Lobby& lobby);
 
 // The lobby while the menus run.
 class OnlineMenus {
@@ -40,6 +43,8 @@ public:
 private:
     void panel(App& app, Ui& ui, float x, float y, float w, float h, bool compact);
     void leave();
+    void offer_car_picker(App& app);
+    bool picker_offered_ = false; // on this showing of the makers' page
     menu::Runtime& rt_;
     net::Discovery discovery_;
     bool connecting_ = false, racing_ = false, open_ = false;

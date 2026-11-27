@@ -33,5 +33,11 @@ std::optional<net::CarChoice> choice_of_pages(Runtime& rt);
 
 // The pages left from outside: the lobby gone, the arcade's first page next (a lost connection, the lobby's Leave).
 void leave_lan_pages(Runtime& rt);
+// The app's car picker in place of the makers' page (any car, the host's rule): the car the player picked there, which the car page
+// then lists alone (its colors and the driving options are the page's own); "" clears it (the makers' page shown again).
+void set_lan_pick(Runtime& rt, const std::string& car);
+// The car picked on the makers' page (shown): `maker` its maker's key ("ford"), whose pictures the car page loads; the car page
+// opens with that car alone. False when the makers' page is not shown.
+bool pick_lan_car(Runtime& rt, const std::string& car, const std::string& maker);
 
 } // namespace gt4r::menu
