@@ -37,17 +37,38 @@ Captures named are under the reference's folders (`INDEX.md`).
 | 19 | **Arcade's penalty "Passing pit lane"**: the mark is set (rule +0x4A 0xFF → F +0x62E); what it asks of the driver (a drive through the pit lane) and how it clears are not read. | 0x34CA20 | **ported**: the mark (F +0x62E) is the pit pass's pad visit (`Session::pit_mark`, `PitHooks::mark`): a drive-through, cleared at the lane's end; ✔ in a race (`GT4R_RACE="course=tsukuba,race=sample_entry_6,cars=2,laps=3,penalty=2,drive=pad,auto_after=1500"`, full throttle into turn 1's wall): the mark 1 at the hit (236.9 m, 10.5 s), 2 at 1362.9 m, the car down the lane (stage 1 at 1738 m, out at stage 5) without a stop, the mark 0 at 147.5 m after the lane's end, the crossing counted (lap 2, 1'26.186); the display has no line of its own for the mark (✔ program: F +0x62E's only readers are the pit pass 0x35AF18 / 0x35B060, the penalty vf50 and the set-up 0x363B10; the lane's own messages, e.g. `PitSpeedLimit`, as for any car on it) | low |
 | 20 | **`setReturnToLastMenuProject`** (0x166398: the next project the last one, 0x42FC50), how the option, memory card, logger, network and slide projects leave when `major_menu_project` is empty. | 0x166398 | does nothing; ❓ whether our fallback lands on the same page is not checked | low |
 
-Lower: Arcade's event per car (`MCarData.GetRaceCode`, `IsTireNormal`, `IsDirtRunnable`, 0x12E150: the tire and dirt checks
-judged; they choose which opponents an Arcade race draws and whether a car may enter a dirt race); a new game's screen shape
-(`MSystem.GetStaticWideMode` 0x1ACA90 answers 0: 4:3); the slide show's and Photo Lab's music seen as ended at once
-(`MSound.isPlayingStream` 0x23EA18, `MMusic.isPlaying`: 0); the pause's idle time-out (end code 3, `timeout_count_to_topmenu`
-600 s copied at 0x3B5070; ❓ its reader); the car's distance added once after a race, not each step (0x35DE20; the oil's run-in
-wrap may fall otherwise); the oil's and the body's life rates as constants in `game_car.cpp` where the program reads its tables
-(0x350808 / 0x3507D0 on 0x620320, 0x366300 on 0x620B00); the Replay Theater's play list (empty) and the replays' SHUFFLE play
-(`replay_play_mode`, read, unused); the time trial's `ranking` project after a run with a time (0x108354: the online
-leaderboard); the event Preview (`race_view` 0x10BB80 → 0x10BA28, a RaceArcadeDemo: ours the event's field driven by the
-computer in the TV view, ❓ the demo's length and camera not read); a free run's pause Exit after a lap (RaceFreeRun::vf77
-0x3BA260: the car to its driver first, ❓).
+Lower (items 21 on, in rank order; done ones say so): Arcade's event per car (`MCarData.GetRaceCode`, `IsTireNormal`,
+`IsDirtRunnable` 0x12E150 / 0x12E388 / 0x12E498 through 0x448AD0) **ported ✔**, with the cars' dirt and snow versions
+(`ShiftCarCode` 0x12F3E0: every Arcade entry on a dirt or snow course raced as its ARCADEINFO row's ENEMY_CARS row, menu.md
+"Arcade's dirt and snow versions"); a new game's screen shape (`MSystem.GetStaticWideMode` 0x1ACA90: the console's screen
+setting, wide for "full" or 16:9 through 0x437928; `MUnit.SetUnitSystemByLanguage` 0x1AEDB8) **not met**: only the show and
+event configs call them (config-august, -e3, -june, -lemans, -mazda, -subaru, -wed), never the retail config-main (ours answers
+0, the setting a computer lacks); the slide show's and Photo Lab's music **ported**: `MSound.isPlayingStream` (0x23EA18) and
+`sound.stream.isPlaying` (0x2C3700) answer whether the stream plays (Runtime::stream_playing, the app's music stream), so
+their music player goes on to the next track (it held on the first while they answered 0; `disc_menu_stream_playing`); the
+pause's idle time-out (`timeout_count_to_topmenu`, the option's +0x1154, 600 from the options' maker 0x436488) **not met**:
+nothing in the program reads it but the scripts' attribute (0x186530) and the race's copy of the options, which keeps its own
+(0x3B5070), and no retail script reads it (Prologue's title counts its own `timeout_count`); the car's distance **ported**:
+added each step by the step (0x35DD00 in 0x35DE20, `sim/rules_speeds.cpp`) and the block carried back to the garage car
+(`RaceResult::condition`), `add_distance` only for a run without that step; the oil's and the body's life rates **ported**
+(`game_car.cpp`: getOilLifeRate 0x3437F0, oil 0x343698, replaceOil 0x343928 on the engine condition's limits 0x350678;
+getBodyLifeRate 0x343A80 -> 0x366300, bodyLife 0x343978 on the body's table 0x366100 from 0x620AF4 / 0x620AF6; dirtiness at
+most 0x3F4CCCCC, 0x3438A0; the US disc's values as the constants were, the body's setter now without a least and the rates in
+the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list **missing**: the
+Play List folder (labomode `initCommands` folder 2: Play, Trash, PlayMode) keeps a list of the card's replays in the card's
+`replaylist` file (ToListMov adds the selected, `autoloadPlayList.save`), Play hands the list to the sequence
+(`menu_result` "list", `MMemoryCardManager.setAction(1)`), PlayMode switches `replay_play_mode` STRAIGHT / SHUFFLE and restarts
+the count (`MDemonstration.resetPlayListCounter` 0x15E488); ours: the list's object answers an empty list and `save` OK, so
+ToListMov adds nothing (`game_replays.cpp` `install_replay_list`); the time trial's `ranking` project **not met**: the
+sequence goes there after a run (0x108354) only when `MGame.last_record` (Status +0x3A43C) holds a time, and the program only
+ever sets it to no time (359,999,999 at 0x111504, 0x112688; no script writes it), so it never opens (it is a show machine's
+online leaderboard: `svo::LoginE3`); the event Preview: `race_view` (0x10BB80) runs 0x10BA28 with no demo arguments, a
+RaceArcadeDemo, which is RaceArcade with vf93 answering 0 (RaceBase's reads the information's +0x70 byte +0x43) and the
+game's options copied in and out (+0xD6C, RacePS2Base vf103 / vf104); no length or camera of its own (❓ what +0x43 decides);
+ours the event's field driven by the computer in the TV view; a free run's pause Exit (RaceFreeRun::vf77 0x3BA260 -> 0x3BA3E8):
+ends the run with code 2 at once like the other races, except once the car has a lap counted (0x343B50 >= 2, or the flag
++0x24694 already set) when it first sets that flag, hands the car to the computer (0x343D78 with 4) and runs 0x3B76F0,
+0x346498, 0x426C78 (❓ what they keep) before the same end; ours ends with code 2 either way.
 
 ## The race sequences
 
@@ -96,8 +117,9 @@ script's calls into the program's classes (US): **1,194 members used, 22,133 use
 |---|---|---|
 | implemented | 985 | most are the game's state as plain values (the rules live in the scripts and run as written); 177 cite the program's routine beside them, the rest are not compared with the program |
 | implemented, compared here | 7 | `MRaceRecord.isLicensePassed`, `isLicenseAllSilver`, `isLicensePerfect` (0x1A63A0, 0x1A6120, 0x1A5FE0 → 0x4312B0, 0x431288, 0x431260: tests 1 .. 16 through the region's label then "jp" 0x430E58; per test 0x430C50, 0x430BC0, 0x430B58), and four with nothing in them |
-| partial | 5 | `MGame.setOption` (gap 4), `MCarData.GetRaceCode` / `IsTireNormal` / `IsDirtRunnable` (judged tire and dirt checks), `MCourseRecord.getMTUnit` (gap 15) |
-| stub | 23 | by design: the card's failure and swap states (`isAutoSaveDisabled`, `isChanged`), the printer, the 480p / 1080i modes, the official service; rule-bearing: `setReturnToLastMenuProject` (gap 20), `MDemonstration`'s counts (gap 14), `isPlayingStream` / `isPlaying`, `GetStaticWideMode`, `SetUnitSystemByLanguage` |
+| implemented, compared in the second pass | 60 | `MCarData`: `GetRaceCode`, `IsTireNormal`, `IsDirtRunnable`, `ShiftCarCode`, `GetDirtCarCode`, `GetSnowCarCode`, `GetOpenModelType` (0x12E150 .. 0x12FBB0, 0x12E5A8; the row reader 0x448AD0 / 0x448B48, the GENERIC_CAR accessors 0x448868 ..); `MRaceData`'s 18 getters (`gold/silver/bronze_time`, `entry_num`, `getNeedLicense` .. `getLimitedLength`, `getNeedCountryID`, `getNumberOfLaps`, `getLimitTime`, `getPrize`, `getPrizeGC`: 0x1A0F80 .. 0x1A2E30, each the RACE row's byte at the program's offset less 0x10 and its scale); `MCarGarage`: `getOilLifeRate`, `oil`, `replaceOil`, `dirtiness`, `getBodyLifeRate`, `bodyLife`, `refreshBody` (0x14E9C0 .. 0x14EDD8), `getDTrainType` (0x13CC28: the sheet's drivetrain through the names 0x6188B0), `getCurrentPower` (0x1412A8, now in the EE's arithmetic); `MCalendar.dateToDay` / `dayToDate` (0x5797A8 / 0x579898: equal on every day 1950 .. 2049 in the program, `gt4r_diff <disc> natives`, `sim_program_calendar_natives_equal`); `MRandom.GetValue` (0x2CB888, now in the EE's arithmetic); `MGame`: `menuPop` / `menuRef` (0x42FD78 / 0x42FDF0), `isCourseAvailable` (0x166670: by the course's id, 0x42EAE8), `setEntryCarCode` / `getEntryCarCode` (0x161A50: an ENEMY_CARS row kept), `enemy_level` (0x160410: an int at Status +0xD0); `MSound.isPlayingStream`, `sound.stream.isPlaying` (0x23EA18, 0x2C3700); `MSystem.GetStaticWideMode`, `MUnit.SetUnitSystemByLanguage` (show configs only); every default of MOption (the constructor 0x4363A0, the LAN block 0x438C20, the event block 0x439840) |
+| partial | 2 | `MGame.setOption` (gap 4), `MCourseRecord.getMTUnit` (gap 15); `MCarData.GetRaceCode` / `IsTireNormal` / `IsDirtRunnable` now compared (0x12E150, 0x12E388, 0x12E498), and `ShiftCarCode` / `GetDirtCarCode` / `GetSnowCarCode` (0x12F3E0, 0x12F8B8, 0x12FBB0) the program's (they answered the car itself) |
+| stub | 23 | by design: the card's failure and swap states (`isAutoSaveDisabled`, `isChanged`), the printer, the 480p / 1080i modes, the official service; rule-bearing: `setReturnToLastMenuProject` (gap 20), `MDemonstration`'s counts (gap 14); `GetStaticWideMode`, `SetUnitSystemByLanguage` only in the show configs; `isPlayingStream` / `isPlaying` now the stream's state |
 | missing | 168 | the official online service 129 (MNetwork's account, lobby, buddies and news, MHttp, MDnas, MNetConf, MComm, MXml, the stats), the Analyzer 19 (gap 8), EyeToy 13, and 7 single uses (`MDatabase.getAllTunerList`, `MGame.checkExistValidGameData`, `MManager.loadProject` / `unloadProject`, `MStorage.getDir`, `MRunViewer.setRaceDebugFlag`, `MSystem.SetLocale`) |
 
 Prologue: 294 members, 3,942 uses; the same gaps where shared, and its own `MGame::setLoadingMode` (the prologue, opening and
@@ -120,9 +142,9 @@ dealers, the presents): they run as written on our natives. The program's side:
 | Endurance | a save in the middle of a race | none (the save's `suspended_*` are a championship left between races, 0x119BD8) | `GameState::suspend_series` | the game has none |
 | Endurance | fuel (tank, burn P +0x104C, 0.74 kg/l, out of fuel), tire wear and the event's curve (only on a course counting fuel), pit stops (request, lane, crew, refuel, the PIT STOP menu) | 0x354B78, 0x352EA0, 0x34CCD4, 0x35B060, 0x3DCC50 | `sim/rules_fuel.*`, `sim/rules_wear.*`, `pit_flow.*`, `update_pit_menu` | ported ✔ (26-endurance `fc_pitwindow_*`) |
 | Car condition | the block (odometer, engine distance, oil, dirt, body); the engine's factor on torque by its distance and the oil's | 0x43DC20, 0x350868 | `CarRecord::condition`, `sim::engine_condition` | ported ✔ (05-gtmode: the Panda 40 → 44 HP after an oil change) |
-| Car condition | distance added each step to the odometer, engine, oil (its run-in wrap), body | 0x35DE20 | `game_race.cpp` `add_distance`: once after the race | judged |
+| Car condition | distance added each step to the odometer, engine, oil (its run-in wrap), body | 0x35DD00, 0x35DE20 | `sim/rules_speeds.cpp`, the block back by `RaceResult::condition`; `add_distance` once only for a run without the step | ported |
 | Car condition | dirt from the race | 0x3438C8 | gap 12 | missing |
-| Car condition | oil change, car wash, body refresh, the life rates | 0x14EB38, 0x14EB80, 0x14EDD8, 0x3437F0, 0x343A80 | `game_car.cpp`; the rates' limits as constants | ported; the rates judged |
+| Car condition | oil change, car wash, body refresh, the life rates | 0x14EB38, 0x14EB80, 0x14EDD8, 0x3437F0, 0x343A80 | `game_car.cpp` on the program's limits (0x350678, 0x366100) | ported |
 | Used cars | makeUsed, the price by odometer | 0x440FB8, 0x441128, 0x4411F0 | `game_car.cpp` | ported ✔ |
 | Used cars, legend cars, presents | the week's line-up (`usedcar/US_used%04d`, 400 lists), the sold marks, the legend dealer, presents by race and by date | scripts, MUsedCar 0x1B21A0, MPresent 0x19FE18 | natives in `game_records.cpp` | script ✔ (21-gtmode-deep: two weeks); the legend dealer not compared |
 | Calendar | a day per diary event (kept 2,922); the weeks from 2005-04-02 | 0x42F0E0, 0x42F530 | `GameState::put_day`, `game_records.cpp` | ported ✔ |

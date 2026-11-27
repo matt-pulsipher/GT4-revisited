@@ -285,6 +285,7 @@ private:
             if (credits_ >= 0) runtime_->game().money = credits_;
             app_ = &app;
             online_ = std::make_unique<OnlineMenus>(app, *runtime_);
+            runtime_->stream_playing = [&app] { return app.sound() && app.sound()->menu().is_playing_stream(); };
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
                 audio::AppSound* sound = app.sound();
                 // (The photo mode's camera: its shutter's effect bank.)
