@@ -1972,7 +1972,10 @@ public:
         }
         // The racing views' screen settings; the replays' and the B-spec race's their own.
         const bool dive = diving() && tv_valid_;
-        const auto grade = picture_settings(replaying_ || watched_).grade();
+        // (0x33F680: the camera manager's own colors, else the course's (Env0 bit 7, at most 235), else the screen settings.)
+        auto grade = picture_settings(replaying_ || watched_).grade();
+        if (const gt3r::race::SunParams& env = world_->course().env(); env.has_env && env.grade)
+            grade = race::correction_grade(env.grade_g.data(), env.grade_black, env.grade_white, env.saturation, 235), grade.on = true;
         world_->set_grade(dive ? dive_.grade(grade) : grade);
         world_->set_trail(dive && effect_settings_.trail ? std::min(dive_.trail(), 0.8f) : 0.0f);
         race::ViewPose pose = current_pose(shown(), look_back);
