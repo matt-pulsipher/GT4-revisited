@@ -319,13 +319,19 @@ engine's builder has it as its later builds' constant.) `GT4R_START=1` with it c
 - **The car's set-up** (0x3C93A0, `Session::place`): the place's heading turned by 0x40490FDA (0x388138), the body's front on the
   place, the pose 0x3C89D8 (the height under the place, Gran Turismo 4's axes, the wheels' points on the GTRW road, their loads at
   rest, Prologue's ground frame, the pitch of the ride heights), the view's lags at rest (0x3B41E8), the standing start 0x3C8E10
-  (the engine's but F + 0x420 and the steering force's byte at 0). The wheel type is the entry's +0x3FB4 + 1 (0x3DDC30).
+  (`prologue::standing_start`: Gran Turismo 4's 0x363560 in Prologue's record, over the wheel layout, the mean slip angle F + 0x424
+  at 0, the pad's vibration block in the conductor). The pose's wheels (`prologue::pose_wheels`, over the layout): each at rest under
+  half its axle's load (+0xE6C + 4 a) and its axle's preload, its angle at no command (0x3B5898), its steering offset 0 (with the
+  steering mode 2 its angle), camber and half track Gran Turismo 4's 0x36A578 / 0x36A690 in its layout (0x375D78 / 0x375E90). The
+  wheel type is the entry's +0x3FB4 + 1 (0x3DDC30).
 - **Starts on the move**: kind 2 (behind the line) or 1 (past it), the license's 0x3B6888 and 0x3B67B0: the place on the main
   line at the distance (0x3B61F0, at most the lap less 20 m; 0x429860: the line's place there and 10 m on, the road under it from
   the segment of the point there), the body's middle on it; the line by the kind (2 .. 5 the main line, 8 the nearest, else the
   pad's line 7, a computer's by its grid place % 6 and the table 0x504518, lines 1 and 2 changed over by the side of the grid's
   second place); a pad's car of kinds 2 .. 4 driven by its driver (0x3B3FD0: kind 1, onto the main line, its shift lock 12); the
-  moving start 0x3C9108, the engine's but for its gear (0x3CD4C0: 2,000 rpm under the up-shift in first, 500 in the others).
+  moving start 0x3C9108 (`prologue::moving_start`: Gran Turismo 4's 0x363868 without its top speed's cap, the stepless box 0x3DB670
+  on the record's driveline, the boost 0x3B7DC8 = Gran Turismo 4's 0x34ECF0, the throttle open for a driver on a straight
+  (0x424B68), the layout's wheels; its gear 0x3CD4C0: 2,000 rpm under the up-shift in first, 500 in the others).
   `prologue::moving_start`, `CourseLines::start_place`; equal to the program's field for field on every lesson's start.
 - **A computer's car** takes the axles' grips of the rule block (+0x04 / +0x08 + class), and in a race (the conductor's virtual
   11: the single player's and the training's) every car but the reference its band's time scale, the overall percent's
@@ -354,8 +360,10 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
 - *Prologue's own, ported from its program* (`phases_prologue.*`): phase 4's preparation 0x3BF608 whole (its aerodynamics,
   torques, wear grip and peak force), phases 20 .. 22 (the tire wear, the wear flags with the conductor's pit rule, the flaps),
   the steering angles of 0x3B5A20 (`prologue::wheel_angle`), the aids' indicators 0x3E02A0, phase 19's suspension 0x375F58, phase 14's pairs 0x3DC1C8, at the set-up new tires 0x3C8878 over the layout and the step's length 0x3C9F00, the hybrid's axles (Gran Turismo 4's 0x36D818 with Prologue's box on the engine torque 0x3BD6F8 = 0x3554A0).
-- *The engine's (Gran Turismo 3's) still, each equal to Prologue's at every call*: at the start the
-  standing start (0x3C8E10; the set-up equal field for field, `GT4R_START=1`), the moving start's engine part.
+- *At the start* (`start_prologue.cpp`): the pose's wheels, the standing start 0x3C8E10 and the moving start 0x3C9108,
+  Prologue's own (the set-up equal field for field, `GT4R_START=1`, on the Civic, Impreza WRC, Prius, SL55 AMG, `mtr_gmv_04`,
+  GT-One and Viper, but for what no step reads: the plan of a car no driver was made for, the Prius's hybrid box over two
+  of the engine record's places, the lap and pit box of a course with pits).
 
 Still not run, or not Prologue's own:
 
