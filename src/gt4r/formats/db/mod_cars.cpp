@@ -986,8 +986,12 @@ void ModCars::extend(const std::string& pool, Strings& s) const {
 }
 
 std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
+    // "piece/<folder>/<label>.img" of the disc, "image/piece/<folder>/<label>.png" of a page's pack.
     while (!path.empty() && path[0] == '/') path.remove_prefix(1);
-    if (path.rfind("piece/", 0) != 0 || path.size() < 10 || path.substr(path.size() - 4) != ".img") return std::nullopt;
+    const bool pack = path.rfind("image/", 0) == 0;
+    if (pack) path.remove_prefix(6);
+    const std::string_view ext = pack ? ".png" : ".img";
+    if (path.rfind("piece/", 0) != 0 || path.size() < 10 || path.substr(path.size() - 4) != ext) return std::nullopt;
     const size_t slash = path.find('/', 6);
     if (slash == std::string_view::npos) return std::nullopt;
     const std::string folder(path.substr(6, slash - 6)), label(path.substr(slash + 1, path.size() - 4 - slash - 1));
@@ -998,9 +1002,10 @@ std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
     if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
     auto own = [&](const std::string& p) { return p.empty() ? std::string() : p[0] == '/' ? p : root + p; };
     const std::string body = d->body.empty() ? d->donor : d->body;
+    const std::string stand_in = (pack ? "image/piece/" : "piece/") + folder + "/" + body + std::string(ext);
     Picture out;
-    if (folder == "car_mini") out.disc = "piece/car_mini/" + body + ".img", out.png = own(d->thumb);
-    else if (folder == "car_pict") out.disc = "piece/car_pict/" + body + ".img", out.png = own(d->picture);
+    if (folder == "car_mini") out.disc = stand_in, out.png = own(d->thumb);
+    else if (folder == "car_pict") out.disc = stand_in, out.png = own(d->picture);
     else if (folder == "car_logo" || folder == "car_logo2") out.png = own(d->logo);
     else return std::nullopt;
     return out;

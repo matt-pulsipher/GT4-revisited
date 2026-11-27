@@ -960,7 +960,12 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         return Value{};
     });
     // What arcade mode has unlocked: a car or a course by its label.
-    g.method("isCarAvailable", [s](Vm&, const Value&, Args a) { return number(s->all_available || s->available_cars.count(arg_text(a, 0)) > 0); });
+    // (A mod car always is: formats/db/mod_cars.h.)
+    g.method("isCarAvailable", [s, self = this](Vm&, const Value&, Args a) {
+        const std::string label = arg_text(a, 0);
+        const bool mod = self->database->db && self->database->db->mod_cars().def(label);
+        return number(s->all_available || s->available_cars.count(label) > 0 || mod);
+    });
     g.method("setCarAvailable", [s](Vm&, const Value&, Args a) {
         if (arg_int(a, 1, 1)) s->available_cars.insert(arg_text(a, 0));
         else s->available_cars.erase(arg_text(a, 0));
