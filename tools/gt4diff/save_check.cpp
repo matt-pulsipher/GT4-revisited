@@ -24,9 +24,9 @@ SaveCheck check_save(Disc& disc, const Bytes& game, const Bytes& garage, const s
     Ee ee;
     boot(ee, disc, sdb);
     r.ran = true;
-    ee.hle(0x5B8450, [](Ee& e) { e.set_v0(12345); }, "clock"); // (the console's timer, which the constructors read)
-    // The kernel calls (a wrapper of 16 bytes each) the constructors make for their locks.
-    for (u32 call = 0x5AD880; call < 0x5ADF70; call += 16) ee.hle(call, [](Ee& e) { e.set_v0(1); }, "kernel");
+    ee.hle(pa(0x5B8450), [](Ee& e) { e.set_v0(12345); }, "clock"); // (the console's timer, which the constructors read)
+    // The kernel calls (a wrapper of 16 bytes each, in the same order in each release) the constructors make for their locks.
+    for (u32 call = 0x5AD880; call < 0x5ADF70; call += 16) ee.hle(pa(0x5AD880) + (call - 0x5AD880), [](Ee& e) { e.set_v0(1); }, "kernel");
     // The game data file: deciphered in place (0x1D4E60: the buffer, its size, the key, no second seed, the swaps' factors);
     // it gives the payload's size, -1 when the CRC is wrong.
     const u32 file = ee.alloc(u32(game.size()) + 64, 64);
@@ -34,29 +34,34 @@ SaveCheck check_save(Disc& disc, const Bytes& game, const Bytes& garage, const s
     float f12, f13;
     const u32 b12 = 0x3E0B0C88, b13 = 0x3F27A4E7;
     std::memcpy(&f12, &b12, 4), std::memcpy(&f13, &b13, 4);
-    const s32 n = ee.call(0x1D4E60, {Arg::ptr(file), Arg::integer(s32(game.size())), Arg::integer(0), Arg::integer(0), Arg::flt(f12), Arg::flt(f13)}).v0_s32();
+    const s32 n = ee.call(pa(0x1D4E60), {Arg::ptr(file), Arg::integer(s32(game.size())), Arg::integer(0), Arg::integer(0), Arg::flt(f12), Arg::flt(f13)}).v0_s32();
     r.decoded = n > 0;
     if (!r.decoded) return r;
+    r.payload = size_t(n);
     // (The caller, 0x1CDAC8, moves the payload to the buffer's start.)
-    const u32 payload = ee.alloc(save::kPayloadSize + 64, 64), back = ee.alloc(save::kPayloadSize + 64, 64);
-    std::memcpy(ee.host_ptr(payload, save::kPayloadSize), ee.host_ptr(file + 8, save::kPayloadSize), save::kPayloadSize);
+    const size_t size = save::payload_size(japan() ? save::Layout::Japan : save::Layout::Us); // (the release's Status)
+    const u32 payload = ee.alloc(u32(size) + 64, 64), back = ee.alloc(u32(size) + 64, 64);
+    std::memcpy(ee.host_ptr(payload, u32(size)), ee.host_ptr(file + 8, u32(size)), size);
+    // (Japan's Status constructor reaches 0x5AA4B0's call of a library routine, 0x5A8BE8, that reads the DMA registers:
+    // passed over; the US program's does not get there.)
+    if (japan()) ee.hle(0x5A8BE8, [](Ee& e) { e.set_v0(0); }, "dma");
     const u32 status = ee.alloc(0x50000, 64);
-    ee.call(0x43A528, {Arg::ptr(status)});
-    r.valid = ee.call(0x43AA68, {Arg::ptr(status), Arg::ptr(payload)}).v0_s32() != 0;
+    ee.call(pa(0x43A528), {Arg::ptr(status)});
+    r.valid = ee.call(pa(0x43AA68), {Arg::ptr(status), Arg::ptr(payload)}).v0_s32() != 0;
     if (!r.valid) return r;
-    ee.call(0x43ABA0, {Arg::ptr(status), Arg::ptr(payload)});
-    std::memset(ee.host_ptr(back, save::kPayloadSize), 0, save::kPayloadSize);
-    ee.call(0x43AAF0, {Arg::ptr(status), Arg::ptr(back)});
-    const u8* a = ee.host_ptr(payload, save::kPayloadSize);
-    const u8* b = ee.host_ptr(back, save::kPayloadSize);
-    for (size_t i = 0; i < save::kPayloadSize; ++i)
+    ee.call(pa(0x43ABA0), {Arg::ptr(status), Arg::ptr(payload)});
+    std::memset(ee.host_ptr(back, u32(size)), 0, size);
+    ee.call(pa(0x43AAF0), {Arg::ptr(status), Arg::ptr(back)});
+    const u8* a = ee.host_ptr(payload, u32(size));
+    const u8* b = ee.host_ptr(back, u32(size));
+    for (size_t i = 0; i < size; ++i)
         if (a[i] != b[i] && !r.differ++) r.first = i;
     // The garage's header (0x1CB9B8) against the game's key and serial.
     const u32 key = get32(a + save::kGarageKeyAt), serial = get32(a + save::kGarageSerialAt);
     if (garage.size() < 0x40) return r;
     const u32 header = ee.alloc(0x40, 64);
     std::memcpy(ee.host_ptr(header, 0x40), garage.data(), 0x40);
-    ee.call(0x1CB9B8, {Arg::ptr(header), Arg::integer(s32(key))});
+    ee.call(pa(0x1CB9B8), {Arg::ptr(header), Arg::integer(s32(key))});
     const u8* h = ee.host_ptr(header, 0x40);
     r.garage = get32(h + 0x38) == key && (get32(h + 0x2C) == serial || get32(h + 0x30) == serial);
     r.money = s64(u64(get32(h)) << 32 | get32(h + 4));
@@ -67,13 +72,13 @@ SaveCheck check_save(Disc& disc, const Bytes& game, const Bytes& garage, const s
         bool good = garage.size() >= at + save::kSlotSize;
         if (good) {
             std::memcpy(ee.host_ptr(slot, save::kSlotSize), garage.data() + at, save::kSlotSize);
-            ee.call(0x579420, {Arg::ptr(mt), Arg::integer(s32(key + u32(i)))});
-            ee.call(0x1D4BA0, {Arg::ptr(slot), Arg::integer(s32(save::kSlotSize)), Arg::ptr(mt)});
+            ee.call(pa(0x579420), {Arg::ptr(mt), Arg::integer(s32(key + u32(i)))});
+            ee.call(pa(0x1D4BA0), {Arg::ptr(slot), Arg::integer(s32(save::kSlotSize)), Arg::ptr(mt)});
             const u32 t = ee.r32(slot), crc = ee.r32(slot + 4);
-            ee.call(0x579420, {Arg::ptr(mt), Arg::integer(s32(key ^ t))});
-            ee.call(0x5792E8, {Arg::ptr(lcg), Arg::integer(s32(crc))});
-            ee.call(0x5D2750, {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotSize - 8)), Arg::ptr(mt), Arg::ptr(lcg)});
-            good = u32(ee.call(0x572C90, {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotChecked))}).v0_s32()) == crc;
+            ee.call(pa(0x579420), {Arg::ptr(mt), Arg::integer(s32(key ^ t))});
+            ee.call(pa(0x5792E8), {Arg::ptr(lcg), Arg::integer(s32(crc))});
+            ee.call(pa(0x5D2750), {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotSize - 8)), Arg::ptr(mt), Arg::ptr(lcg)});
+            good = u32(ee.call(pa(0x572C90), {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotChecked))}).v0_s32()) == crc;
         }
         if (!good) r.slots_bad.push_back(i);
     }

@@ -611,7 +611,7 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
     }
     if (d.kind == 3) {
         // 0x368628: the hybrid one-speed box's torque (none to the driveline while the clutch is open).
-        tc = hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
+        tc = x.hybrid_car ? hybrid_box(c, *x.hybrid_car, x.hybrid, t.hybrid, x.e.idle) : hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
         if (c.clutch == 0) tc = k0;
     } else if (c.clutch != 0) {
         F te;

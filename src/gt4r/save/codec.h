@@ -15,14 +15,20 @@ namespace gt4r::save {
 // The standard reflected CRC-32 (polynomial 0xEDB88320, start and end inverted).
 u32 crc32(ByteSpan data);
 
+// How the program's float products (the shuffles' draws times a count, a file's head swaps) are made: on the console's EE
+// multiplier (what is written), or as the exact product chopped, as an emulator without the EE's multiplier makes them
+// (tried when reading, after the console's way fails a file's check).
+enum class Product : u8 { Console, Exact };
+
 // MT19937, 32 bit, seeded as the standard init_genrand.
 class Mt19937 {
 public:
     explicit Mt19937(u32 seed);
     u32 next();
     // The draw as the program's float in [0, 1) times n, whole: the top 24 significant bits
-    // of the draw over 2^32 (single precision, toward zero), then truncated.
-    u32 below(u32 n);
+    // of the draw over 2^32 (single precision, toward zero), times n on the EE's multiplier (the
+    // chopped product or, now and then, one below it), then truncated.
+    u32 below(u32 n, Product how = Product::Console);
 
 private:
     std::array<u32, 624> mt_{};
@@ -51,12 +57,12 @@ std::optional<Bytes> unscramble(ByteSpan file, u32 key, FileKind kind = FileKind
 
 // The bits of `data` shuffled / put back by a generator seeded with `seed` (the garage file's
 // header and slots).
-void shuffle_bits(u8* data, size_t bytes, u32 seed);
-void unshuffle_bits(u8* data, size_t bytes, u32 seed);
+void shuffle_bits(u8* data, size_t bytes, u32 seed, Product how = Product::Console);
+void unshuffle_bits(u8* data, size_t bytes, u32 seed, Product how = Product::Console);
 
 // The garage file's 64-byte header, in place.
 void encode_header(u8* h, u32 key);
-void decode_header(u8* h, u32 key);
+void decode_header(u8* h, u32 key); // (the exact product's shuffle when the console's leaves another key at +0x38)
 
 // A garage file slot (0x500 bytes) holding a car's record (0x4B8 bytes; 0x4C0 are checked).
 constexpr size_t kSlotSize = 0x500, kSlotChecked = 0x4C0;

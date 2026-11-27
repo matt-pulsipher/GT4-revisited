@@ -687,6 +687,40 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
         }
     }
 
+    // The sheen (kind 4) programs of this game's renderer (0x49EB90) take their exponent from the material's shininess as 8
+    // below 12 and 16 from 12 (no 4); the shared engine picks 4 / 8 / 16 at 6 / 12, as Gran Turismo 3's did. A material only
+    // kind 4 shapes light gets a shininess of 6 when it has less, so the engine's choice is this game's (one also lighting
+    // kind 1 shapes keeps its own: those pick 4 / 8 / 16 at 6 / 12 here too, 0x49E918 / 0x49E780). docs/formats/model.md
+    // "Lighting".
+    if (h.materials) {
+        std::vector<u8> use(h.materials, 0); // bit 0 kind 4, bit 1 another kind
+        for (u32 s = 0; s < h.shapes; ++s) {
+            const size_t so = chunks[s];
+            if (so + 0x10 > out.size()) continue;
+            const u32 kind = rd16(out, so + 8) & 0x1F, count = rd16(out, so + 10);
+            for (u32 k = 0; k < count && so + 0x18 + 8 * size_t(k) <= out.size(); ++k) {
+                const u32 mat = rd16(out, so + 0x10 + 8 * size_t(k) + 6) >> 9;
+                if (mat != 0 && mat != 0x7F && mat - 1 < h.materials) use[mat - 1] |= kind == 4 ? 1 : 2;
+            }
+        }
+        std::vector<size_t> tables{h.material_table};
+        for (u32 v = 0; v < h.variations && h.variation_table + 4 * size_t(v + 1) <= out.size(); ++v)
+            tables.push_back(rd32(out, h.variation_table + 4 * size_t(v)));
+        for (u32 m = 0; m < h.materials; ++m) {
+            if (use[m] != 1) continue;
+            for (size_t t : tables) {
+                const size_t at = t + 0x50 * size_t(m) + 0x40;
+                if (at + 4 > out.size()) continue;
+                float shininess;
+                std::memcpy(&shininess, out.data() + at, 4);
+                if (shininess < 6) {
+                    shininess = 6;
+                    std::memcpy(out.data() + at, &shininess, 4);
+                }
+            }
+        }
+    }
+
     // The programs that switch the reflection factors, copied with GTM1's commands for them.
     for (u32 i = 0; i < h.models; ++i)
         if (programs[i] && wanted[i] && sets_factors(out, programs[i])) programs[i] = relink_program(out, programs[i]);

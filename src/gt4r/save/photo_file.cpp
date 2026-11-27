@@ -58,7 +58,7 @@ Bytes PhotoInfo::encode() const {
     put_text(d, 0x10, 0x40, name);
     put_text(d, 0x50, 0x40, course_file);
     put_text(d, 0x90, 0x48, car_name);
-    d[0xD9] = 0xFF;
+    d[0xD8] = u8(mode), d[0xD9] = 0xFF;
     put32(d, 0xDC, portrait ? 1 : 0);
     return d;
 }
@@ -69,6 +69,7 @@ std::optional<PhotoInfo> PhotoInfo::decode(ByteSpan d) {
     i.car = get64(d, 0), i.course = get64(d, 8);
     i.name = text_at(d, 0x10, 0x40), i.course_file = text_at(d, 0x50, 0x40), i.car_name = text_at(d, 0x90, 0x48);
     i.portrait = rd32(d, 0xDC) != 0;
+    i.mode = gt3r::s8(d[0xD8]);
     return i;
 }
 
@@ -259,8 +260,9 @@ std::optional<std::vector<u32>> PhotoCard::icon(const std::string& folder) const
     return icon_picture(read_file(fs::path(card_) / folder / "icon0.ico"));
 }
 
-Bytes PhotoCard::make_icon(const std::vector<u16>& small, bool portrait) const {
-    const std::optional<Bytes> t = disc_ ? disc_(portrait ? "icon/GT4_photo_3_to_4_.ico" : "icon/GT4_photo_4_to_3_.ico") : std::nullopt;
+Bytes PhotoCard::make_icon(const std::vector<u16>& small, bool portrait, bool film) const {
+    const std::string name = std::string(film ? "icon/GT4_film_" : "icon/GT4_photo_") + (portrait ? "3_to_4_.ico" : "4_to_3_.ico");
+    const std::optional<Bytes> t = disc_ ? disc_(name) : std::nullopt;
     if (!t) return {};
     Bytes out = icon_with_picture(*t, small);
     return out.empty() ? *t : out;
@@ -273,28 +275,48 @@ int PhotoCard::needed_kb(ByteSpan jpeg, const std::vector<u16>& small, bool port
     return files + (entries + 1) / 2 + 1;
 }
 
+int PhotoCard::needed_film_kb(ByteSpan film, const std::vector<u16>& small, bool portrait) const {
+    const int files = kb(scrambled_size(film.size())) + kb(kInfoFile) + 1 + kb(make_icon(small, portrait, true).size());
+    const int entries = 2 + 1 + 1;
+    return files + (entries + 1) / 2 + 1;
+}
+
 Result PhotoCard::save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u16>& small, const std::string& title) {
+    return save_kind('P', info, jpeg, small, title);
+}
+
+Result PhotoCard::save_film(const PhotoInfo& info, ByteSpan film, const std::vector<u16>& small, const std::string& title) {
+    return save_kind('F', info, film, small, title);
+}
+
+std::optional<Bytes> PhotoCard::film(const std::string& folder) const {
+    if (card_.empty() || folder.find('/') != std::string::npos) return std::nullopt;
+    return unscramble(read_file(fs::path(card_) / folder / folder), 0, FileKind::Film);
+}
+
+Result PhotoCard::save_kind(char kind, const PhotoInfo& info, ByteSpan data, const std::vector<u16>& small, const std::string& title) {
     if (card_.empty()) return Result::NoCard;
-    if (jpeg.empty()) return Result::InvalidFile;
-    // The lowest number no photo has (0x1CD5F8).
+    if (data.empty()) return Result::InvalidFile;
+    const bool film = kind == 'F';
+    // The lowest number no photo (film) has (0x1CD5F8).
     std::vector<int> used;
-    for (const PhotoEntry& e : list('P')) used.push_back(e.number);
+    for (const PhotoEntry& e : list(kind)) used.push_back(e.number);
     int number = 0;
     while (std::find(used.begin(), used.end(), number) != used.end()) ++number;
     if (number >= 999) return Result::DeviceError;
     const u64 id = u64(number) << 32 | (u64(chance()) & ~u64(1)) | (info.portrait ? 1 : 0);
-    const std::string folder = product_ + "P" + folder_letters(id);
+    const std::string folder = product_ + kind + folder_letters(id);
     const fs::path dir = fs::path(card_) / folder;
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) return Result::DeviceError;
     PhotoInfo rec = info;
     char name[16];
-    std::snprintf(name, sizeof name, "P%04d", number);
+    std::snprintf(name, sizeof name, film ? "F%04d" : "P%04d", number);
     rec.name = name;
     if (!write_file(dir / "thumbnail", scramble(rec.encode(), 0, chance(), FileKind::Info))) return Result::DeviceError;
-    if (!write_file(dir / folder, scramble(jpeg, 0, chance(), FileKind::Photo))) return Result::DeviceError;
-    if (const Bytes icon = make_icon(small, info.portrait); !icon.empty()) write_file(dir / "icon0.ico", icon);
+    if (!write_file(dir / folder, scramble(data, 0, chance(), film ? FileKind::Film : FileKind::Photo))) return Result::DeviceError;
+    if (const Bytes icon = make_icon(small, info.portrait, film); !icon.empty()) write_file(dir / "icon0.ico", icon);
     write_icon_sys(dir.string(), title + "[" + std::to_string(number + 1) + "]");
     return Result::Ok;
 }

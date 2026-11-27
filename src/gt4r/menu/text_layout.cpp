@@ -200,7 +200,10 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
     // Each line by itself (0x491028): its width is the pen's less half a space; a face of one line
     // the pen's whole (0x4912AC).
     const FontGlyph* sp = font.glyph(' ');
-    const float half_space = st.one_line ? 0.0f : float((sp ? int(sp->advance) : int(font.size / 2)) / 2) * sx;
+    // (Prologue's 0x445328: a quarter of the font's size, +0x0C >> 2, whatever its space's step.)
+    const float half_space = st.one_line ? 0.0f
+                             : st.spacing.gt3 ? float(font.size >> 2) * sx
+                                              : float((sp ? int(sp->advance) : int(font.size / 2)) / 2) * sx;
     const float line_advance = float(font.line_height) * sy;
     lay.lines = int(lines.size());
     lay.height = float(font.line_height) * sy + float(lay.lines - 1) * line_advance;

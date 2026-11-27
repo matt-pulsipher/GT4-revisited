@@ -35,6 +35,20 @@ std::optional<ReplayParticulars> decode_particulars(ByteSpan file) {
     return p;
 }
 
+Bytes encode_particulars(const ReplayParticulars& p, u32 random) {
+    Bytes b(kPayload, 0);
+    auto w32 = [&](size_t at, u32 v) {
+        for (int k = 0; k < 4; ++k) b[at + size_t(k)] = u8(v >> (8 * k));
+    };
+    auto put = [&](size_t at, const std::string& t) { std::memcpy(b.data() + at, t.data(), std::min(t.size(), kText - 1)); };
+    w32(0, u32(p.car)), w32(4, u32(p.car >> 32)), w32(8, u32(p.course)), w32(12, u32(p.course >> 32));
+    put(0x10, p.title), put(0x50, p.course_label), put(0x90, p.car_name);
+    w32(0xD0, p.time_ms);
+    b[0xD8] = u8(p.mode), b[0xD9] = u8(p.submode);
+    w32(0xE0, p.spectator ? 1 : 0), w32(0xE4, p.license ? 1 : 0);
+    return scramble(b, 0, random, FileKind::Info);
+}
+
 std::optional<Bytes> rename_particulars(ByteSpan file, const std::string& title) {
     if (file.size() != scrambled_size(kPayload)) return std::nullopt;
     std::optional<Bytes> b = unscramble(file, 0, FileKind::Info);

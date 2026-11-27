@@ -217,8 +217,14 @@ no fade). The rows appear one frame after the panel.
   are the options' `MOption` `race_color_correction` and `replay_color_correction` (the Picture Quality page's Racing
   Views and TV Live Relay Views: `[brightness, contrast, saturation, balance]`). **A new game's racing views
   have brightness +3** (the original's options page and pause after a new game), the replays' 0.
-  Here (`race/picture_settings.*`) they are the 3D view's grade: the white level, the curves through the gammas' middle,
-  the saturation. (It was taken for a gain and a stretch about the middle before: wrong.)
+  **The pass** (0x4A7D90): per channel a table of 256 levels (0x4A8CB8: 0 at or under the black level, else trunc(255
+  t^(1 / gamma)) held to a most of 255 for these settings and the photos, 235 for a course's own grade, 220 for the Dive
+  camera's colors; t = min((x - black) / (white - black), 1), x = i / 255; the program's log and exp are short series), put
+  through the frame's channels as color tables, then the saturation mix over 0.30 / 0.59 / 0.11 in 128ths with the
+  saturation held to -1 .. 1 (more than 1 is 1: the settings' +1 .. +5 change nothing), the shared engine's mix. Which record
+  (0x33F680): the camera manager's own colors, else `Env0`'s (bit 7), else these (when not plain, 0x3EFD08).
+  Here (`race/picture_settings.*` `correction_levels`, `correction_grade`) they are the 3D view's grade, its tables our own
+  where the engine takes them (`PostGrade::own_table`), else its curve through the gammas' middle. (It was taken for a gain and a stretch about the middle before: wrong.)
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
 
@@ -317,7 +323,9 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   area (its fourth state's shapes on their first frame, through the instances' matrices; a pause row's
   is 142 x 20) holds it.
 - Drawing: each shape group is its polygon filled (solid, a picture through its fill matrix, or a
-  gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
+  gradient along the matrix's u: here a ramp of 256 texels for 0 .. 1 held at its ends, each texel from the first pair of stops
+  that holds its place, ❓ the program's ramp not read; the pace-up mark's gradient has stops red 0, yellow 0.314, red 1 and
+  blue and magenta also at 1, drawn red to yellow in the original's); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
   menus' fonts (`font/menu.fnt`) by the font string `name#palette*x%,y%` (palette 1, the plain
   glyphs, when none is given), the glyphs at their own pixel size (scale 1) times the font string's percentages and the
@@ -416,7 +424,8 @@ pace's word and lit key, the total time `h:mm'ss`, the lap, a row per car in rac
 grid letter, its best lap, its gap to the leader: the time since the leader was where it is ❓), the
 player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's grid letter at its place
 (the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip with its
-pace-up marks, the pit panel, and with Show Map (Cross) the rows' `LAP`, `PIT`, `BEST`, `BESTMARK` in place of `MAP_PANEL`
+pace-up marks, the pit panel, and the rows' `LAP`, `PIT`, `BEST`, `BESTMARK`, always filled and shown (0x3DA7C8 has no test of
+Show Map: `MAP_PANEL`'s black covers that column while the map is up, ✔ 21-gtmode-deep `bspec_race_monitor.png`)
 (race_flow.md "What runs where"). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
 **The view's speed** (`SPEED`, `"x %d"` 0x3DBBD0 of the monitor's +0x74): the monitor's keys (0x3D95F0) with the race pad's bit
@@ -439,6 +448,19 @@ the fuel gauge (its RaceFuelMeter) from (x0 + 60, y0 + 44), the gauge at a quart
 26-endurance `practice_monitor_lap6_b_blank_tire_diagram.png` (black tires, a dim bar in a Practice without wear or fuel),
 `fc_race_monitor_lap2.png` (the stops' table between). Here `RaceHud::draw_monitor_tires` at the movie's `TIRE_PANEL` external.
 `MAP_PANEL` is shown while the monitor's +0x70 is set (Show Map, toggled by the monitor's keys 0xC00; 1 at the start).
+
+**The sector bars** (each row's external `sector`, the "Best / Sector" column; drawn by the externals' callback 0x3D7930 for the
+row of the `BAR` whose last digit names it, through the monitor's row → car list +0xC4): the external's box (x0, y0 .. x1, y1)
+cut across into the lap's sections (the conductor's vf42: the split points and the line), section k from x0 + (x1 - x0) k / n
+filled in the car's colour for k (the monitor's +0x118 + car x 0x40 + k x 4), and under the car's section now (+0xDC + car, F
++0x4AE) a strip of 0x80C8C8C8 over the box's lowest fifth (from y0 + (y1 - y0) x 0.8). The colours (0x3DC7B0, each frame): each
+car's best time through each section (0x3FA3D0: vf18 0x3578B0 keeps, per car and section, the time from the car's last section end
+passed, its clock's 0 before the first, and the least of them with its lap) ranked among the field's: no time, 0x80282828 for an
+even section and 0x80181818 for an odd one; else r = (the cars whose best there is under it) / (cars - 1), red (1 - r) x 255,
+green (1 - r) x 0.2 x 255, blue (0.4 r + 0.2 (1 - r)) x 255 in EE floats, truncated, OR-ed with 0x80000000 (the fastest
+0x803232FF, the slowest 0x80650000). The bars are drawn whatever Show Map says; the map's panel covers that column while it is
+up (✔ 21-gtmode-deep `bspec_race_monitor_show_map.png`: red to dark blue bars, the grey strip under the section now). Here
+`race::SplitLists::best`, `race::sector_color`, `screen_race.cpp` (the `sector` external; not drawn while the map is up).
 
 ## The PIT STOP menu (`menu/common/pitmenu.strb`)
 

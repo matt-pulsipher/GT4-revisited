@@ -244,6 +244,8 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     }
     start_cars(gpu, jobs, 0); // (the first cars while the course is read)
     course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course, setup.section);
+    glow_ = race::GlowFilter::from_env(course_->section(course::kSlotEnv)); // (the course's glow filter, Env0 +0x1750)
+    if (glow_) LOG_INFO("Course: glow filter a %.2f, radius %.4f of the diagonal, %d x %d points, sum %.3f, gain %.3f", glow_->threshold, glow_->radius, glow_->samples, glow_->samples, glow_->sum, glow_->gain);
     if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
     for (const auto& [entry, key] : entries) {
         std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[key];
@@ -1494,6 +1496,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
     }
     o.overlay = &m.overlay;
     o.post_grade = grade_;
+    race::apply_glow(o, glow_);
     o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_ || trail_ > 0, o.trail = trail_;
     effects_.apply(o, pose, proj, effect_view_, effect_settings_, far);
     if (lens_) o.dof = lens_->dof, o.vignette = lens_->vignette;

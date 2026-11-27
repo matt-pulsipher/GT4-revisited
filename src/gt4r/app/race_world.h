@@ -9,6 +9,7 @@
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/app/app.h"
 #include "base/ee_float.h"
+#include "gt4r/race/glow_filter.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/dive_camera.h"
@@ -141,6 +142,9 @@ public:
     // Its backward crossings to take back first (F + 0x4B0: a pit start's, race::planned_back).
     int start_back(size_t car) const;
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
+    void set_back_crossings(size_t car, u8 n) {
+        if (session_) session_->set_back_crossings(car, n);
+    }
     void set_crossings(size_t car, int n) {
         if (session_) session_->set_crossings(car, n);
     }
@@ -535,6 +539,7 @@ private:
     std::vector<Command> commands_;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
+    std::optional<race::GlowFilter> glow_; // the course's glow filter (race/glow_filter.h)
     bool snapshot_ = false, keep_last_ = false;
     float dissolve_ = 0, trail_ = 0;
     race::ReplayEffects effects_;

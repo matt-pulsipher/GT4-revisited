@@ -120,6 +120,7 @@ struct RaceHud::Impl {
     gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
     gt3r::text::FontFile race_fonts; // the movies' on Prologue's disc (font/race.fnt: FC_16 .. FC_48, DC_12)
     std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
+    std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> gradient_textures; // (a gradient's ramp, 256 x 1)
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
@@ -384,6 +385,8 @@ RaceHud::~RaceHud() {
     if (impl_->course_logo.texture) SDL_DestroyTexture(impl_->course_logo.texture);
     for (auto& [key, t] : impl_->movie_textures)
         if (t) SDL_DestroyTexture(t);
+    for (auto& [key, t] : impl_->gradient_textures)
+        if (t) SDL_DestroyTexture(t);
 }
 
 void RaceHud::set_course_logo(ByteSpan set) {
@@ -443,6 +446,37 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
         o.r = ch[0], o.g = ch[1], o.b = ch[2], o.a = ch[3];
         return o;
     };
+    // A gradient (fill kind 1) as a ramp along the fill matrix's u, 256 texels for 0 .. 1, held at its ends: each texel the
+    // first pair of stops that holds its place, the colour between them (0xAABBGGRR, alpha 0x80 full); past the last stop
+    // the last texel. (❓ The program's ramp is not read: judged by the Race Monitor's pace-up mark, stops red 0, yellow
+    // 0.314, red 1 and then blue and magenta also at 1, which the original draws red to yellow and back,
+    // 21-gtmode-deep bspec_race_monitor_show_map.png.)
+    auto ramp = [&](size_t i) -> SDL_Texture* {
+        SDL_Texture*& t = m.gradient_textures[{&movie, i}];
+        if (t) return t;
+        const auto& st = movie.gradients[i].stops;
+        gt3r::Tex1::Image img;
+        img.width = 256, img.height = 1;
+        img.rgba.assign(256, 0);
+        for (size_t k = 0; k < 256; ++k) {
+            const float at = std::clamp(float(k) / 255.0f, st.front().first, std::max(st.front().first, st.back().first));
+            u32 c = st.front().second;
+            for (size_t j = 0; j + 1 < st.size(); ++j)
+                if (at >= st[j].first && at <= st[j + 1].first) {
+                    const float f = st[j + 1].first > st[j].first ? (at - st[j].first) / (st[j + 1].first - st[j].first) : 0;
+                    c = 0;
+                    for (int b = 0; b < 4; ++b) {
+                        const float lo = float((st[j].second >> (8 * b)) & 0xFF), hi = float((st[j + 1].second >> (8 * b)) & 0xFF);
+                        c |= u32(std::lround(lo + (hi - lo) * f)) << (8 * b);
+                    }
+                    break;
+                }
+            const u32 a = std::min<u32>(255, ((c >> 24) & 0xFF) * 255 / 128);
+            img.rgba[k] = (c & 0x00FFFFFFu) | a << 24;
+        }
+        t = m.make_texture(img);
+        return t;
+    };
     auto texture = [&](size_t i) -> SDL_Texture* {
         SDL_Texture*& t = m.movie_textures[{&movie, i}];
         if (t) return t;
@@ -498,6 +532,7 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const std::array<float, 16>* mat = fill.value < movie.matrices.size() ? &movie.matrices[fill.value] : nullptr;
             SDL_Texture* tex = fill.kind == 4 ? texture(fill.index) : nullptr;
             const race::StrobeMovie::Gradient* grad = fill.kind == 1 && fill.index < movie.gradients.size() ? &movie.gradients[fill.index] : nullptr;
+            if (grad && !grad->stops.empty()) tex = ramp(fill.index);
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
             // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
@@ -534,27 +569,12 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
                 if (fill.kind == 0) x.color = colour(fill.value, d);
-                else if (grad && !grad->stops.empty()) {
-                    // A gradient's colour at the point's place along it.
-                    const auto& st = grad->stops;
-                    u32 c = st.front().second;
-                    for (size_t k = 0; k + 1 < st.size(); ++k)
-                        if (u >= st[k].first && u <= st[k + 1].first) {
-                            const float t = st[k + 1].first > st[k].first ? (u - st[k].first) / (st[k + 1].first - st[k].first) : 0;
-                            c = 0;
-                            for (int j = 0; j < 4; ++j) {
-                                const float a = float((st[k].second >> (8 * j)) & 0xFF), b = float((st[k + 1].second >> (8 * j)) & 0xFF);
-                                c |= u32(std::lround(a + (b - a) * t)) << (8 * j);
-                            }
-                        }
-                    if (u > st.back().first) c = st.back().second;
-                    x.color = colour(c, d);
-                } else {
-                    x.color = colour(0x80808080u, d, true);
-                }
+                else x.color = colour(0x80808080u, d, true); // (a picture's or a gradient's ramp's texel, through the colour change)
                 v.push_back(x);
             }
+            if (grad && tex) SDL_SetRenderTextureAddressMode(m.r, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
             SDL_RenderGeometry(m.r, tex, v.data(), int(v.size()), nullptr, 0);
+            if (grad && tex) SDL_SetRenderTextureAddressMode(m.r, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
         } else if (d.text && !d.words.empty()) {
             const race::StrobeMovie::TextField& t = *d.text;
             // The font string: "hm_16#1*80,80": a name, its palette (1 the plain glyphs, the movies' default:
@@ -569,6 +589,9 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sx = float(std::atof(sizes.c_str())) / 100.0f;
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
+            // A font the disc does not have (racephoto.strb's camera numbers ask for "Futura CondensedBoldOblique"): the text
+            // object's own font (0x490420 keeps its +0x10 then; ❓ which: the movies' bold one here 🔎).
+            if (!f.font && star == std::string::npos && hash == std::string::npos) f = m.font("hb_24", 100, variant);
             if (!f.font) continue;
             // GT4's own text layout (menu/text_layout.h) at the glyphs' own pixel size: only the font
             // string's percentages and the instance's scale (the field's height does not scale the
@@ -579,6 +602,9 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             st.font = f.font;
             if (const auto it = m.spacing.find(f.font->name); it != m.spacing.end()) st.spacing = it->second;
             st.scale_x = f.sx * sx, st.scale_y = f.sy * sy;
+            // (the pad's buttons, "%B..": the Gaiji font's, at its own size; the photo pause's movie names its keys so)
+            if (const auto g = m.font_by_name.find("Gaiji"); g != m.font_by_name.end()) st.gaiji = g->second;
+            st.button_colors = m.button_colors;
             const float bx = d.m[0] * (t.x0 + 2) + d.m[2] * (t.y0 + 2) + d.m[4], by = d.m[1] * (t.x0 + 2) + d.m[3] * (t.y0 + 2) + d.m[5];
             const float bw = std::max(0.0f, t.x1 - t.x0 - 4) * sx, bh = std::max(0.0f, t.y1 - t.y0 - 4) * sy;
             const int align = t.align == 2 ? 1 : t.align == 1 ? 2 : 0;
@@ -610,9 +636,18 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             SDL_SetTextureColorMod(atlas, u8(c.r * 255), u8(c.g * 255), u8(c.b * 255));
             SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a, 0.0f, 1.0f) * 255));
             for (const menu::PlacedGlyph& g : lay.glyphs) {
-                if (g.font != f.font || !g.sw || !g.sh) continue; // (other fonts' glyphs: the pad's buttons; none in these movies)
+                if (!g.font || !g.sw || !g.sh) continue;
                 const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
                 const SDL_FRect dst = to_ui({g.x, g.y, g.w, g.h});
+                if (g.font != f.font) { // a button of the Gaiji font: its own picture in its colour (as draw_menu_text)
+                    SDL_Texture*& other = m.atlases[{g.font, 1}];
+                    if (!other) other = m.make_texture(g.font->atlas[1]);
+                    if (!other) continue;
+                    SDL_SetTextureColorMod(other, g.color.r, g.color.g, g.color.b);
+                    SDL_SetTextureAlphaMod(other, u8(float(g.color.a) * std::clamp(c.a, 0.0f, 1.0f)));
+                    SDL_RenderTexture(m.r, other, &src, &dst);
+                    continue;
+                }
                 SDL_RenderTexture(m.r, atlas, &src, &dst);
             }
         }
@@ -744,10 +779,12 @@ void RaceHud::Impl::draw_words(const HudState& s) {
     }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48", s.split ? 75 : 100), race::place_x(*p, true), float(p->y), kCentered, kTextGray, s.message_opacity, s.message);
-    // The A-spec points (members 0x267C and 0x27CC).
+    // The A-spec points (members 0x267C and 0x27CC): at their rows where the tables have them (Japan's), else 320, 264 and 304.
     if (s.points_opacity > 0) {
-        draw_text(font("hb_24", 100, 1), 320, 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
-        draw_text(font("hb_24", 130, 1), 320, 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
+        const DisplayPlace* title = cur->find(element::kPointsTitle);
+        const DisplayPlace* line = cur->find(element::kPointsLine);
+        draw_text(font("hb_24", 100, 1), title ? race::place_x(*title, true) : 320, title ? float(title->y) : 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
+        draw_text(font("hb_24", 130, 1), line ? race::place_x(*line, true) : 320, line ? float(line->y) : 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
     }
 }
 
@@ -779,6 +816,26 @@ void RaceHud::Impl::draw_map(const HudState& s) {
         const float t = float(std::fmod(s.time, 0.5));
         const float b = t < 0.25f ? std::min(1.0f, t / 0.1f) : std::max(0.0f, 1.0f - (t - 0.25f) / 0.3f);
         marker(target, s.cars[0], kNeutral, s.opacity * (0.3f + 0.7f * b));
+    }
+}
+
+void RaceHud::draw_map_on_screen(float x, float y, float k, std::span<const Mark> marks, float opacity) {
+    Impl& m = *impl_;
+    if (!m.map_texture || opacity <= 0) return;
+    const float w = float(m.map.image.width), h = float(m.map.image.height);
+    SDL_SetTextureColorMod(m.map_texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(m.map_texture, u8(255 * std::clamp(opacity, 0.0f, 1.0f)));
+    const SDL_FRect dst{x, y, w * k, h * k};
+    SDL_RenderTexture(m.r, m.map_texture, nullptr, &dst);
+    for (const Mark& mk : marks) {
+        const Impl::Picture& pic = m.picture(mk.rival ? "point_rival" : "point_target");
+        if (!pic.texture) continue;
+        float mx, my;
+        m.map.map(mk.x, mk.z, mx, my);
+        SDL_SetTextureColorMod(pic.texture, 255, 255, 255);
+        SDL_SetTextureAlphaMod(pic.texture, u8(255 * std::clamp(opacity, 0.0f, 1.0f)));
+        const SDL_FRect d{x + (mx - pic.w / 2) * k, y + (my - pic.h / 2) * k, pic.w * k, pic.h * k};
+        SDL_RenderTexture(m.r, pic.texture, nullptr, &d);
     }
 }
 
@@ -1101,6 +1158,17 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).
         if (!split_ready() || (s.replay && !s.replay_display)) return;
         const OriginScope scope(s.split == 1 ? SDL_FPoint{0, s.half == 0 ? 10.0f : 240.0f} : SDL_FPoint{s.half == 0 ? 0.0f : 320.0f + game_area::side(), 0});
+        // (Side by side wider than 16:9: each half's top parts as at 16:9, at the half's sides and middle, clear of the in-car mirror.)
+        struct HalfScope {
+            bool on;
+            explicit HalfScope(bool side_by_side) : on(side_by_side && game_area::side() > 320.0f / 3 + 0.01f) {
+                if (on) race::set_wide_push(96), race::set_half_extra(game_area::side() - 320.0f / 3);
+            }
+            ~HalfScope() {
+                if (on) race::set_wide_push(race::anchor_push(game_area::side())), race::set_half_extra(0);
+            }
+        };
+        std::optional<HalfScope> half_scope(std::in_place, s.split == 2); // (the top parts and the words; the panel has its own form)
         impl_->cur = &impl_->split[s.split - 1];
         if (faded) return impl_->draw_words(s);
         if (s.replay)
@@ -1116,6 +1184,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_map(s);
         impl_->draw_top(s);
         edge.reset();
+        half_scope.reset();
         if (s.split == 1 && s.half == 1) edge.emplace(1);
         if (s.show_meter) impl_->draw_chase_panel(s);
         return;
@@ -1165,6 +1234,10 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         ui.fill(0, c.y + c.h * 438 / 480, ui.width(), ui.height() - (c.y + c.h * 438 / 480), Color{0, 0, 0, 255});
         impl_->draw_menu_text("hn_14", 1, 320, 461, gt3r::text::HAlign::Center, 0x80A7A5A5u, 1, word("SimplePauseMessage"), 0, 1.07f, 1);
     }
+    // A notice of the race's on the event line in a replay (the photo pause's refusal: the lap lines are not shown there).
+    if (s.replay && s.event_opacity > 0 && !s.event.empty())
+        if (const DisplayPlace* p = impl_->cur->find(element::kEventLine))
+            impl_->draw_text(impl_->font("hn_20R"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, s.event_opacity, s.event);
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
@@ -1244,6 +1317,10 @@ void RaceHud::draw_chip(float x, float y, float w, float h, const std::array<u32
         from = to;
     }
     impl_->draw_picture(impl_->picture((word[0] >> 25) & 1 ? "chip_metalic" : "chip_solid"), {x, y, w, h}, kNeutral, 1);
+}
+
+void RaceHud::draw_box(float x, float y, float w, float h, u32 color, float opacity) {
+    impl_->fill({x, y, w, h}, u8(color), u8(color >> 8), u8(color >> 16), opacity * std::min(1.0f, float((color >> 24) & 0xFF) / 128.0f));
 }
 
 void RaceHud::draw_strip(const std::string& words) { impl_->draw_tooltip(words, 1); }

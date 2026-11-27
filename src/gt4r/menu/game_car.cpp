@@ -8,8 +8,10 @@
 
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/equipment.h"
+#include "gt4r/sim/showroom.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -81,7 +83,21 @@ const PartsType kTypes[32] = {
 constexpr u64 kStiffness = make_code(31, 0); // the stiffness "part"
 constexpr u32 kStiffnessPrice = 30000;       // 0x44A458
 
-const PartsType* type_of(int t) { return t >= 1 && t <= 31 ? &kTypes[t] : nullptr; }
+// Japan's program (SCPS-17001 v1.05) offers 4 suspensions and 5 turbine kits (its table of categories, 0x6A7C28's
+// counterpart: 2, 2, 4, 2, 2, ...), and its owned bits leave out the two it lacks (its 0x43F270: ASCC on at 8, the port
+// polish on at 31, the stiffness work 92; 94 bits, its 0x43F470's limit). The rest of the parts' tables are the same.
+const std::array<PartsType, 32> kTypesJapan = [] {
+    std::array<PartsType, 32> t;
+    std::copy(std::begin(kTypes), std::end(kTypes), t.begin());
+    t[3].categories = 4, t[14].categories = 5;
+    for (int i = 4; i < 32; ++i)
+        if (t[size_t(i)].owned_from >= 0) t[size_t(i)].owned_from -= i <= 14 ? 1 : 2;
+    return t;
+}();
+
+bool japan_parts(const Database& d) { return d.program.known() && d.program.release() == sim::Release::Japan; }
+
+const PartsType* type_of(int t, bool japan = false) { return t >= 1 && t <= 31 ? japan ? &kTypesJapan[size_t(t)] : &kTypes[t] : nullptr; }
 
 u64 sheet_part(const u8* eq, int type) {
     const PartsType* p = type_of(type);
@@ -114,7 +130,7 @@ void mark_stock_owned(Database& d, CarRecord& r) {
     // 0x43FA10: the category each part the car comes with is owned.
     static const int kOrder[] = {1, 2, 11, 3, 25, 26, 10, 24, 4, 5, 8, 15, 16, 17, 18, 13, 14, 22, 21, 23, 19, 20, 27, 28, 31};
     for (int t : kOrder) {
-        const PartsType& p = kTypes[t];
+        const PartsType& p = *type_of(t, japan_parts(d));
         if (t == 31) {
             if (r.sheet(0)[0x168]) r.set_owned(p.owned_from + 1, true);
             continue;
@@ -455,7 +471,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         update();
         return Value{};
     });
-    car->method("getCurrentPower", [c](Vm&, const Value&, Args) { return number(s32(std::lround(c->power100 / 100.0))); });
+    // getCurrentPower (0x1412A8): the power x 100 (+0x178) / 100 (0x1465D8) + 0.5, truncated.
+    car->method("getCurrentPower", [c](Vm&, const Value&, Args) {
+        return number(gt3r::ee::to_int(gt3r::ee::int_to_f(s32(c->power100)) / sim::F(100.0f) + sim::F(0.5f)));
+    });
     car->method("getCurrentWeight", [c](Vm&, const Value&, Args) { return number(c->weight); });
     car->method("getCurrentPs", [c, spec, st](Vm& vm, const Value&, Args a) {
         const GameState::Unit unit = st->power_unit();
@@ -566,8 +585,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         for (const auto& [code, cat] : parts().parts) n += code != kNoCode && int(code >> 32) == t;
         return number(n);
     });
-    car->method("getPartsTypeMax", [](Vm&, const Value&, Args a) {
-        const PartsType* p = type_of(arg_int(a, 0));
+    car->method("getPartsTypeMax", [db](Vm&, const Value&, Args a) {
+        const PartsType* p = type_of(arg_int(a, 0), japan_parts(db()));
         return number(p ? p->categories : 0);
     });
     car->method("isExistPartsType", [parts](Vm&, const Value&, Args a) {
@@ -590,23 +609,23 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     });
     car->method("getEquipedParts", [rec, db](Vm&, const Value&, Args a) { return number(equipped(db(), rec().active(), arg_int(a, 0))); });
     // getParts(type, category): owned (the script pays and fits it itself).
-    car->method("getParts", [rec](Vm&, const Value&, Args a) {
-        const PartsType* p = type_of(arg_int(a, 0));
+    car->method("getParts", [rec, db](Vm&, const Value&, Args a) {
+        const PartsType* p = type_of(arg_int(a, 0), japan_parts(db()));
         if (p && p->owned_from >= 0) rec().set_owned(p->owned_from + arg_int(a, 1), true);
         return Value{};
     });
-    car->method("isHavingParts", [rec](Vm&, const Value&, Args a) {
+    car->method("isHavingParts", [rec, db](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
-        const PartsType* p = type_of(t);
+        const PartsType* p = type_of(t, japan_parts(db()));
         if (!p || p->owned_from < 0) return number(0);
         if (p->removable && !p->stock_row && cat == 0) return number(1);
         return number(rec().owned(p->owned_from + cat));
     });
     car->method("isHavingStiffnessParts", [](Vm&, const Value&, Args) { return number(0); });
-    car->method("isAllowedParts", [rec, parts](Vm&, const Value&, Args a) {
+    car->method("isAllowedParts", [rec, parts, db](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
         if (t != 8 || cat <= 1) return number(1);
-        if (rec().owned(kTypes[8].owned_from + cat - 1)) return number(1);
+        if (rec().owned(type_of(8, japan_parts(db()))->owned_from + cat - 1)) return number(1);
         return number(find_part(parts(), 8, cat - 1) == kNoCode);
     });
     car->method("isReversibilityType", [](Vm&, const Value&, Args a) {
@@ -623,8 +642,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         if (arg_int(a, 0) != 20 || !db().db) return number(0);
         return number(!db().db->default_part(c->label, 20).has_value());
     });
-    // setParts = changeParts (0x1403A0): the part of the car's list; category 0 of a removable
-    // type that has none takes it off. Parts that cannot be undone go on all three sheets.
+    // setParts = changeParts (0x1403A0): the part of the car's list (0x44A048) fitted by 0x440B50; category 0 of a
+    // removable type (0x44A250: 13, 18, 19, 20, 22, 23, 27, 28) that has none takes it off the sheet in use (0x446AE0).
+    // The parts that cannot be undone (8, 15, 16, 17), the wheel and the wing go on all three sheets, the others on the sheet
+    // in use with their settings' defaults from the part's row.
     auto set_parts = [rec, parts, db, update](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
         const PartsType* p = type_of(t);
@@ -639,6 +660,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
             for (int s = 0; s < 3; ++s) r.sheet(s)[0x168] = 1;
             return Value{};
         }
+        // (The chassis, the racing modification, the steering and the engine: 0x440B50 fits nothing; no shop sells them.)
+        if (t == 6 || t == 7 || t == 9 || t == 12) return Value{};
         const bool every_sheet = !p->reversible || t == 29 || t == 30;
         for (int s = 0; s < 3; ++s) {
             u8* eq = every_sheet ? r.sheet(s) : r.active();
@@ -718,28 +741,63 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         return text(id == kNoCode ? std::string() : db().label(id));
     });
 
-    // ---- The car's condition.
-    car->method("getOilLifeRate", [rec](Vm&, const Value&, Args) {
+    // ---- The car's condition (the record's block +0x498: +0x08 the oil's distance, +0x0C the dirt, +0x10 the body's,
+    // +0x14 no wear), by the engine condition's limits (0x620320, sim::condition_limits: fresh oil at 3 x +0x14, old at +0x1C)
+    // and the body's table (0x620B00 from 0x620AF0, 0x366100: its life 0 at s16 0x620AF4 x 1,000 m rising to 1 at s16
+    // 0x620AF6 x 1,000 m, the most kept). US 1.01: fresh oil -300,000 m, old 6,000,000 m; the body 500,000 to 3,000,000 m.
+    using gt3r::ee::F;
+    auto oil_limits = [db]() -> std::pair<F, F> { // {fresh (0x3507D0), old (0x350808)}
+        const sim::ConditionLimits l = sim::condition_limits(db().program);
+        return {l.fresh_oil * F::raw(0x40400000), l.old_oil};
+    };
+    auto body_limits = [db]() -> std::pair<F, F> { // {life 0 at, life 1 at (0x3662F8)}
+        const sim::Program& p = db().program;
+        return {gt3r::ee::int_to_f(s16(p.h(0x620AF4))) * F::raw(0x447A0000), gt3r::ee::int_to_f(s16(p.h(0x620AF6))) * F::raw(0x447A0000)};
+    };
+    // getOilLifeRate (0x3437F0): 0 without wear; 1 when the oil's limit is 0; else the distance (fresh oil's counted from
+    // its start) over the limit, at most 1.
+    car->method("getOilLifeRate", [rec, oil_limits](Vm&, const Value&, Args) {
         const CarRecord& r = rec();
         if (r.no_wear()) return Value::number(0);
-        const float o = r.condition(2), dd = o >= 0 ? o : o + 300000.0f;
-        return Value::number(std::min(1.0f, dd / 6'000'000.0f));
+        const auto [fresh, old] = oil_limits();
+        if (old == F::raw(0)) return Value::number(1);
+        F o(r.condition(2));
+        if (o < F::raw(0)) o = o - fresh;
+        const F rate = o / old;
+        return Value::number(F::raw(0x3F800000) < rate ? 1.0f : rate.host());
     });
-    car->property("oil", [rec] { return Value::number(rec().condition(2)); }, [rec](const Value& v) {
-        if (!rec().no_wear()) rec().set_condition(2, std::min(v.as_float(), 6'000'000.0f));
+    // oil (get 0x14EA58, set 0x343698: at most the old oil's limit), replaceOil (0x343928: fresh oil), without wear nothing.
+    car->property("oil", [rec] { return Value::number(rec().condition(2)); }, [rec, oil_limits](const Value& v) {
+        if (rec().no_wear()) return;
+        const F old = oil_limits().second, n(v.as_float());
+        rec().set_condition(2, (old < n ? old : n).host());
     });
-    car->method("replaceOil", [rec](Vm&, const Value&, Args) {
-        if (!rec().no_wear()) rec().set_condition(2, -300000.0f);
+    car->method("replaceOil", [rec, oil_limits](Vm&, const Value&, Args) {
+        if (rec().no_wear()) return Value{};
+        const auto [fresh, old] = oil_limits();
+        rec().set_condition(2, (old < fresh ? old : fresh).host());
         return Value{};
     });
-    car->property("dirtiness", [rec] { return Value::number(rec().condition(3)); }, [rec](const Value& v) { rec().set_condition(3, std::clamp(v.as_float(), 0.0f, 0.8f)); });
-    car->method("getBodyLifeRate", [rec](Vm&, const Value&, Args) {
+    // dirtiness (0x14EB80 -> 0x3438A0): at most 0.8 (0x3F4CCCCC), with or without wear.
+    car->property("dirtiness", [rec] { return Value::number(rec().condition(3)); }, [rec](const Value& v) {
+        const F most = F::raw(0x3F4CCCCC), n(v.as_float());
+        rec().set_condition(3, (most < n ? most : n).host());
+    });
+    // getBodyLifeRate (0x343A80 -> 0x366300): 0 without wear; the body table's curve of two points (0 at the first distance,
+    // 2 at the second, held past either end) times its +0x10 (1 / 2).
+    car->method("getBodyLifeRate", [rec, body_limits](Vm&, const Value&, Args) {
         const CarRecord& r = rec();
         if (r.no_wear()) return Value::number(0);
-        return Value::number(std::clamp((r.condition(4) - 500'000.0f) / 2'500'000.0f, 0.0f, 1.0f));
+        const auto [lo, hi] = body_limits();
+        const F b(r.condition(4)), two = F::raw(0x40000000);
+        const F y = b <= lo ? F::raw(0) : hi <= b ? two : two * (b - lo) / (hi - lo); // (0x359568)
+        return Value::number((y * F::raw(0x3F000000)).host());
     });
-    car->property("bodyLife", [rec] { return Value::number(rec().condition(4)); }, [rec](const Value& v) {
-        if (!rec().no_wear()) rec().set_condition(4, std::clamp(v.as_float(), 0.0f, 3'000'000.0f));
+    // bodyLife (set 0x343978: at most the second distance), refreshBody (0x343A58: 0), without wear nothing.
+    car->property("bodyLife", [rec] { return Value::number(rec().condition(4)); }, [rec, body_limits](const Value& v) {
+        if (rec().no_wear()) return;
+        const F hi = body_limits().second, n(v.as_float());
+        rec().set_condition(4, (hi < n ? hi : n).host());
     });
     car->method("refreshBody", [rec](Vm&, const Value&, Args) {
         if (!rec().no_wear()) rec().set_condition(4, 0);
@@ -1058,6 +1116,11 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
 
     (void)d;
     return object_value(car);
+}
+
+int parts_owned_from(int type, bool japan) {
+    const PartsType* p = type_of(type, japan);
+    return p ? p->owned_from : -1;
 }
 
 void install_car_class(GameNatives& n, script::Module& menu) {

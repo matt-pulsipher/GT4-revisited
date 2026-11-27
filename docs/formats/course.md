@@ -107,7 +107,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0x914 / +0x91C | u32 smoke picture divisors (1; 2 on two wet courses) | data |
 | +0x930..+0x938 | the depth of field: +0x938 the nearest focus (m); +0x930 an f-number and +0x934 a focal length (mm) with no reader: the lens is the camera's ("The passes of a replay") | read (+0x938) |
 | +0x950..+0x974 | vignette: outer / inner radius, outer RGBA, inner RGBA | read |
-| +0x980..+0x994 | color grade: g per channel, black, white, saturation | read |
+| +0x980..+0x994 | color grade: a gamma per channel, black, white, saturation (the screen settings' correction with at most 235 a level, strobe.md "The pass") | read |
 | +0x9C0..+0x9E8 | sun: RGB, occlusion weight, glare size, disc size, disc gain, elevation, azimuth (degrees), i32 style (0 on 96 courses, 2 on 12, 1 on 2), occlusion box | read |
 | +0x9F0..+0xA1C | the cars' lamp glow type: RGB, intensity, glow size, halo size, halo gain, attenuation c / l / q, max distance, +0xA1C; with the new +0x17A0 | read |
 | +0xA60..+0xA78 | car shadows: RGB, alpha scale, direction elevation / azimuth (degrees), length | read (+0xA70..+0xA78), data |
@@ -124,7 +124,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0xEF0..+0xEF8 | global ambient of the cars (0 by day; 0.02 to 0.3 on 13 night courses) | data |
 | +0xF30 / +0xF34 / +0xF38 | u32 draw flags of the one-player view, the two-player halves and the mirror: bit 0 draws the billboards. 0xFFFFFFFE in the halves and the mirror on 38 courses | read |
 | +0xF50 + 0x40 i | ❓ 32 records {RGB, f32, f32, f32, u32 1} with the shape of the color grade's values. No reader found | |
-| +0x1750..+0x1764 | **new**: a glow filter on the finished picture, on when u32 +0x1750 bit 0 is set (`ss_gion`, `ss_sagano`, `ss_sanmarco`, `ss_shibuya`): three factors (+0x1754..+0x175C), a radius (+0x1760, scaled by the picture's diagonal) and a u32 count (+0x1764). It works on a copy of the picture of half its width and a quarter of its height ❓ the roles of the factors | read |
+| +0x1750..+0x1764 | **new**: a glow filter on the finished picture, on when u32 +0x1750 bit 0 is set (`ss_gion`, `ss_sagano`, `ss_sanmarco`, `ss_shibuya`): a threshold a (+0x1754), b and c (+0x1758, +0x175C), a radius r (+0x1760 x the picture's diagonal / 781.22, that of 640 x 448) and a count n (+0x1764). 0x33F1C8 -> 0x3BADF8: for each of n x n offsets (i r / n, j r / n) the picture is sampled into one of (W / r) x (H / r) from that offset, 255 a taken off it (ALPHA 0x62 with a white box), and added into a picture of W / 2 x H / 4 at the offset at the GS weight min(trunc(128 c / ((1 - a) n^2)), 255) / 128 (held to 255 a level); that picture is then added over the frame at min(trunc(128 (1 - a) b), 255) / 128 (0x4A2808's fixed weights). Nothing for a < 0, r <= 0 or n <= 0. Values: `ss_gion` 0.8 / 2 / 20 / 24.9 / 3, `ss_sagano` 0.85 / 2 / 2 / 8.1 / 3, `ss_sanmarco` 0.7 / 1 / 0.2 / 20 / 4, `ss_shibuya` 0.73 / 1.9 / 1.9 / 30 / 5 (bit 1 of +0x1750 on the first two: ❓ no reader). Where it lands (checked in a PCSX2 GS dump of `ss_shibuya`'s photo page, whose finder runs it: 25 subtractions at FIX 93, copies at FIX 36, the sum at FIX 65): copy (i, j)'s (W / r) x (H / r) picture samples the frame from (x0 + 0.5, y0 + 0.5) every r pixels (TEX1 linear both ways; region clamp) and is drawn back into the sum (W / 2 x H / 4, in 32-pixel strips) from (x0 / 2, y0 / 4), every sprite half a pixel up and left as all the program's 2D draws, and the sum over the frame likewise: the sum at a place holds the picture around half a pixel right of and below it; and each copy, sampled r apart and stretched back linearly, weighs its points down linearly to nothing r away: the n copies at r / n steps add up to a tent reaching r on each side (2n - 1 points across). Ours (`race/glow_filter.*`): the engine's glow pass with those weights and that offset (DrawOptions::glow tent / offset; an engine without them centres an even box of n points), its sum picture at most 448 lines' worth (W / 2 x H / 4 of the picture scaled to 448 lines, as the original's) | read |
 | +0x1794..+0x179C | **new**: the strengths of the cars' three lamp lists' glows (`RaceCarModel::vf36` 0x3911D0): the lamps lit with the lights, the brake lamps (times the brake's ramp), the tail lamps (non-zero on 25 courses, most of them the night ones: 1.0 0.6 0.6 on route5, 1 1 1 on `ss_shibuya`, 0.75 0.5 0.5 on the Nürburgring) | read |
 | +0x17A0 | **new**: the factor on the power of a car lamp's directional factor (the lamp's +0x60, [model.md](model.md); 0x3B8530): 1.0 on 91 courses, 4.0 on 10, so their glows narrow. 0 reads as 1.0 (0x397C38) | read |
 | +0x17B4..+0x17C8 | **new**: an RGBA color and two size factors of the cars' exhaust flame (`race/after_fire.mdl`) 🔎. When the RGBA is all 0 the six read as 1.0 | read |
@@ -289,7 +289,7 @@ to the race's play modes but 0 (race +0xCC8: 1 a B-spec race, 2 / 3 a replay, 4 
 
 | Pass | When | What |
 |---|---|---|
-| Depth of field (0x33E520 -> 0x399998; `RacePS2Base::vf140` 0x3431B8) | the play mode is not 0 and the camera's flags have 0x4000 (a replay record's +0x10 over 0); **no flag of `Env0`** | Gran Turismo 3's pass, step for step: near blurs of 4, 2, 1 lines at the levels 2, 1, 0 of the pyramid, the sharp picture, far ones 2^(k/2) up to 8; the blur unit film / the picture's lines. The lens: 24 mm x the screen's aspect (`CameraManager::vf13` 0x371CA8: 1 in a race) on the film 1.333 times as wide as high, the camera's f-number (its +0x150 / 100), its focus no nearer than `Env0` +0x938 |
+| Depth of field (0x33E520 -> 0x399998; `RacePS2Base::vf140` 0x3431B8) | the play mode is not 0 and the camera's flags have 0x4000 (a replay record's +0x10 over 0); **no flag of `Env0`** | Gran Turismo 3's pass, step for step (rechecked: 0x399998 with the lens 0x3993D0 / 0x399490 / 0x3994C0: near steps 1, far 2, near blur up to 4, far 8, f/2 and 35 mm as made; the composite multiplied by `Env0` +0x38, the picture's scale): near blurs of 4, 2, 1 lines at the levels 2, 1, 0 of the pyramid, the sharp picture, far ones 2^(k/2) up to 8; the blur unit film / the picture's lines. The lens: 24 mm x the screen's aspect (`CameraManager::vf13` 0x371CA8: 1 in a race) on the film 1.333 times as wide as high, the camera's f-number (its +0x150 / 100), its focus no nearer than `Env0` +0x938 |
 | Heat haze (0x496638, the lenses' step 0x4965D8 every picture) | `Env0` bit 5 and the camera's flag 0x2000 (a record's +0x0C); any play mode | Gran Turismo 3's lenses; the vertex order differs, the arithmetic does not |
 | Grade | the screen settings of the replays (`replay_color_correction`) unless the camera manager has its own (Dive's, its +0xBFD) or `Env0` bit 7 | [race_display.md](race_display.md) |
 | Vignette (0x3BBBC0) | the play mode is not 0, `Env0` bit 6 and the race's `vf24` 0 (all but the linked races) | a ring of 32 steps over the 640 x 448 frame |
@@ -550,9 +550,14 @@ vertices: the last a ray shape 1.17 long); the other 96 courses, every one a rac
 have two (a disc of 62 vertices, 0.40 x 0.44, edge alpha 0, and a smaller one of 40 vertices,
 0.16).
 
-🔎 The draw rules (screen test, attenuation, the 100-lamp limit, the halo) are the shared
-engine's by the function map (the routines match Gran Turismo 3's with small edits); they were
-not re-derived for this game, and see "The picture's scale" for their strength.
+The draw rules are the shared engine's (read in this program, 0x3B88C8 with 0x498198 and 0x498398; the record of a car lamp
+0x3B8530): the screen test, attenuation 1 / (c + l d + q d^2) at the lamp's depth d, the 100-lamp limit; a round lamp's glow
+(|a - b| < 0.01) in its colour x attenuation x D x I (D the directional factor, I the list's strength); every lamp's halo,
+when its gain and size are over 0 and it is further than 1 m, in its colour x attenuation x the halo gain x 0.5 (**not** D
+or I), depth-tested; a bar lamp only the halo, drawn through the 2 x 2 matrix with columns H (x, y) and H b / |x| (-y, x) of
+its projected axis x (scaled (a - b) + b / |x|), as Gran Turismo 3's. The glows are depth-tested at full visibility in the
+several-view draw (race +0xA30) and weighed by the occlusion queries otherwise. ❓ The engine draws the bar halo as an ellipse
+along the screen's axes (its own note), not turned with the lamp's axis. See "The picture's scale" for their strength.
 
 ## Cones and boards: `GDGT` (slot 47) and the road's gadget records
 

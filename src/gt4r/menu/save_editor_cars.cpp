@@ -311,8 +311,8 @@ void SaveEditor::fit_part(int slot, int type, int category) {
     if (permanent) {
         // Work done in stages: the stage and the ones before it are had; undone, none is.
         const int n = int_of(method(c, "getPartsTypeMax", {t}));
-        static constexpr int kOwnedFrom[32] = {-1, 0, 2, 4, 9, 11, -1, -1, 13, -1, 17, 19, -1, 23, 27, 33, 35, 37, 39, 41, 44, 48, 52, 56, 58, 64, 77, 90, 92, -1, -1, 94};
-        for (int k = 1; k < n; ++k) r.set_owned(kOwnedFrom[type] + k, k <= category);
+        const int from = parts_owned_from(type, natives().db().program.release() == sim::Release::Japan);
+        for (int k = 1; k < n; ++k) r.set_owned(from + k, k <= category);
         if (category > 0) method(c, "setParts", {t, Value::integer(category)});
         else
             for (int s = 0; s < 3; ++s) {
@@ -346,8 +346,10 @@ void SaveEditor::fit_part(int slot, int type, int category) {
 void SaveEditor::own_part(int slot, int type, int category, bool on) {
     const Value c = car(slot);
     if (c.is_nil()) return;
-    static constexpr int kOwnedFrom[32] = {-1, 0, 2, 4, 9, 11, -1, -1, 13, -1, 17, 19, -1, 23, 27, 33, 35, 37, 39, 41, 44, 48, 52, 56, 58, 64, 77, 90, 92, -1, -1, 94};
-    if (type < 0 || type >= 32 || kOwnedFrom[type] < 0) return;
+    // (the first owned bit of each type: 0x43F270's, by the release)
+    const bool japan = natives().db().program.known() && natives().db().program.release() == sim::Release::Japan;
+    auto owned_from = [japan](int t) { return parts_owned_from(t, japan); };
+    if (type < 0 || type >= 32 || owned_from(type) < 0) return;
     const bool tires = type == 25 || type == 26;
     for (int t : tires ? std::vector<int>{25, 26} : std::vector<int>{type}) {
         if (!on && int_of(method(c, "getEquipedParts", {Value::integer(t)})) == category) return; // (fitted: it stays owned)
@@ -362,7 +364,7 @@ void SaveEditor::own_part(int slot, int type, int category, bool on) {
                 if (fitted) return;
             }
     }
-    for (int t : tires ? std::vector<int>{25, 26} : std::vector<int>{type}) record(slot, true)->set_owned(kOwnedFrom[t] + category, on);
+    for (int t : tires ? std::vector<int>{25, 26} : std::vector<int>{type}) record(slot, true)->set_owned(owned_from(t) + category, on);
 }
 
 void SaveEditor::own_all_parts(int slot) {

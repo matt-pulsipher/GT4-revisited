@@ -235,6 +235,9 @@ public:
     // Every sound call, in order (also noted in the log). `on_sound` is called with each.
     const std::vector<SoundCall>& sound_calls() const { return sounds_; }
     std::function<void(const SoundCall&)> on_sound;
+    // Whether the music stream the scripts started still plays (MSound.isPlayingStream 0x23EA18, sound.stream.isPlaying
+    // 0x2C3700: the stream's state through 0x2C3DF0); none: never.
+    std::function<bool()> stream_playing;
     // The options as the rest of the game reads them (game_settings.h), given each time they may
     // have changed: at the end of the start, when a game is loaded, and when the scripts apply,
     // save or reset them. The app sets the menus' sound volumes from it.
@@ -291,6 +294,7 @@ public:
     // other than 0).
     script::Value bubble_now(LiveWidget& from, const std::string& name, std::vector<script::Value> args);
     float seconds_since_input() const { return float(frame_ - last_input_frame_) / 60.0f; }
+    void note_input() { last_input_frame_ = frame_; } // (a key the menus did not see: a demonstration left with one)
     FileReader& reader() { return read_; }
     // The options as a text file under the data folder ("gt4r-options.txt"): written when the
     // scripts apply or save them and when a project ends; read when the runtime is made.
