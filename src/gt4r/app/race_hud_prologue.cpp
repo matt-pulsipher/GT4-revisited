@@ -65,6 +65,10 @@ float left_of(float x, float w, int align) {
     default: return x - w / 2;
     }
 }
+float screen_x(float x) { return race::prologue_screen_x(x); }
+// The end of a right-aligned line at a display's place: the projection's x, the box's right edge a whole pixel (0x40C4C8).
+float right_end(float x) { return float(int(screen_x(x))); }
+
 Rgba8 gs(u32 c, float opacity, float rgb = 1) {
     Rgba8 o;
     const auto part = [&](u32 v) { return u8(std::clamp(float(v & 0xFF) * rgb, 0.0f, 255.0f)); };
@@ -464,17 +468,18 @@ void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float
 // 0x38FC40: a time in FC_16 at 0.9 ending at the pen, its icon (right and bottom at an offset from the time's left) or its label in
 // DC_12 ending 10 left of at least 70.
 void PrologueHud::Impl::draw_time(float x, float y, int ha, s64 ms, const std::string& label, const char* icon, float ix, float iy, float opacity) {
-    const float pen = x + (ha == 5 ? wide_side() : ha == 4 ? -wide_side() : 0);
+    const float side = ha == 5 ? wide_side() : ha == 4 ? -wide_side() : 0;
+    const float place = screen_x(x) + side, pen = right_end(x) + side; // (the label and the icon from the place, the time to the box's end)
     const FontSpec f = font("FC_16", 90);
     const std::string t = time_text(ms);
     text(f, pen, y, kOrange, opacity, t, true);
     float back = std::max(width(f, t), 70.0f) + 10;
     if (icon) {
         const Picture& p = picture(icon);
-        draw_picture(p, {pen - back + ix - p.w, y + iy - p.h, p.w, p.h}, 0x80FFFFFF, opacity, 0.502f);
+        draw_picture(p, {place - back + ix - p.w, y + iy - p.h, p.w, p.h}, 0x80FFFFFF, opacity, 0.502f);
         back += p.w;
     }
-    if (!label.empty()) text(font("DC_12"), pen - back, y, kGray, opacity, label, true);
+    if (!label.empty()) text(font("DC_12"), place - back, y, kGray, opacity, label, true);
 }
 
 // 0x398958: the course's map, the other cars' marks at 0.66, the player's pulsing.
@@ -563,16 +568,16 @@ void PrologueHud::Impl::draw_boost(const Extra& e, float opacity) {
 // and the fuel (thousandths of a liter) over it, the stability lamp at its right end and the brake's at its left.
 void PrologueHud::Impl::draw_hybrid(const HudState& s, const Extra& e, float opacity) {
     const Picture& base = picture("meter_prius_base");
-    const float x = 617 + wide_side(), y = 428, w = 406, h = 42;
+    const float x = 617 + wide_side(), y = 428, w = 406, h = 42, side = wide_side();
     draw_picture(base, {x - base.w, y - base.h, base.w, base.h}, 0x80FFFFFF, opacity);
     char b[32];
     std::snprintf(b, sizeof b, "%3d", int(std::fabs(s.speed) * 3.6f + 0.5f));
-    text(font("DC_24_5"), x - 300, y - 12, 0x809CB246, opacity, b, true);
+    text(font("DC_24_5"), right_end(617 - 300) + side, y - 12, 0x809CB246, opacity, b, true);
     const FontSpec f = font("FC_16", 90);
     std::snprintf(b, sizeof b, "%2.1f", double(std::floor((e.hybrid_mileage + 0.05f) * 10) / 10));
-    text(f, x - 138, y - 12, 0x80B58F43, opacity, b, true);
+    text(f, right_end(617 - 138) + side, y - 12, 0x80B58F43, opacity, b, true);
     std::snprintf(b, sizeof b, "%4d", std::min(int(e.hybrid_fuel * 1000 + 0.0005f), 9999));
-    text(f, x - 42, y - 12, 0x800363FD, opacity, b, true);
+    text(f, right_end(617 - 42) + side, y - 12, 0x800363FD, opacity, b, true);
     const float blink = std::fmod(clock, 0.2) < 0.1 ? 1.0f : 0.0f;
     const int aid = std::max(e.asm_status, e.tcs_status);
     const Picture& vsc = picture("meter_prius_vsc");
@@ -724,7 +729,7 @@ void PrologueHud::Impl::draw_onboard(const HudState& s, const Extra& e, float op
         const float w = float(int(width(f, "000")));
         char b[16];
         std::snprintf(b, sizeof b, "%3d", int(kmh + 0.5f));
-        text(f, float(int(dial.x) + 77) - float(int(w) / 2) + w, panel_y(dial.y + 61 - 2), kOrange, opacity, b, true);
+        text(f, right_end(float(int(dial.x) + 77) - float(int(w) / 2) + w), panel_y(dial.y + 61 - 2), kOrange, opacity, b, true);
     }
     // The gear's box (0x38F220).
     {
@@ -760,7 +765,7 @@ void PrologueHud::Impl::draw_simple(const HudState& s, const Extra& e, float opa
     {
         char b[16];
         std::snprintf(b, sizeof b, "%3d", int(std::fabs(s.speed) * 3.6f + 0.5f));
-        text(font("DC_24_5"), at - 94, y - 1, kOrange, opacity, b, true);
+        text(font("DC_24_5"), right_end(615 - 64 - 94) + wide_side(), y - 1, kOrange, opacity, b, true);
         text(font("sw_12", 75), at - 94, y - 2, kGray, opacity, "km/h");
     }
     // 0x397C80: the bar, the picture's alpha its scale: black whole, red to the revolutions' share of the red line x 56 (at most 64),
