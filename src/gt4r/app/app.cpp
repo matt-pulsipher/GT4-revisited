@@ -1,5 +1,4 @@
 #include "gt4r/app/app.h"
-#include "gt4r/app/app_folder.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/presence.h"
@@ -13,6 +12,7 @@
 #include "base/log_file.h"
 #include "formats/png_writer.h"
 #include "formats/texture_pack.h"
+#include "game/gt_save.h"
 #include "platform/crash_handlers.h"
 #include "platform/mac_layer.h"
 #include "platform/render_scale.h"
@@ -105,7 +105,7 @@ std::string user_data_dir() {
         return dir;
     }
     const std::string base = SDL_GetBasePath() ? SDL_GetBasePath() : "";
-    if (const std::string beside = app_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
+    if (const std::string beside = gt3r::game::app_bundle_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
         dir = beside;
     } else if (!base.empty() && gt3r::host_path_exists(base + "portable.ini")) {
         dir = base;
