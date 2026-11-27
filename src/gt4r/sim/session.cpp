@@ -651,8 +651,10 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     ex::standing_start(c);
     if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
         for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
+    else if (prologue_) prologue::tyres_start(c, prologue_cars_[i], race_.prep.wear); // (0x3C8878)
     else ex::tyres_start(c, race_.prep.wear);
-    ex::step_length(c);
+    if (prologue_) rules::step_length(c); // (0x3C9F00)
+    else ex::step_length(c);
     c.best_lap = 0x157529FF;
     c.rank = gt3r::s8(i + 1);
     c.x16d1 = 1;

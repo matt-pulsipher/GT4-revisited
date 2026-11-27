@@ -351,4 +351,15 @@ void suspension(ex::Car& c, CarPart& x, const Tables& t) {
     }
 }
 
+void tyres_start(ex::Car& c, const CarPart& x, const ex::WearParams& k) {
+    for (int i = 0; i < x.layout.count && i < 4; ++i) {
+        ex::Wheel& w = c.w[size_t(i)];
+        w.wear_level = 0, w.wear = F(), w.wear_grip = kOne, w.wear_byte = 0, w.brake_heat = F();
+        if (k.max == F()) continue;
+        w.wear = k.fresh;
+        w.wear_level = k.fresh < F() ? s8(-0x3F) : s8(0);
+        w.wear_grip = kOne - k.fresh_loss;
+    }
+}
+
 } // namespace gt4r::sim::prologue

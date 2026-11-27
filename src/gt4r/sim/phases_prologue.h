@@ -89,4 +89,8 @@ void flaps(ex::Car& c, const CarPart& x, const StepTables& t, gt3r::Vu0Random& r
 // geometry, the part that changes with speed and the wheel's own mass.
 void suspension(ex::Car& c, CarPart& x, const Tables& t);
 
+// 0x3C8878 (the car's set-up): new tires on the layout's wheels: the wear, its level and byte and the brake's heat 0, the
+// grip 1; with the race's wear on, the wear the rules' fresh tire's (its level -0x3F below 0) and the grip 1 less its loss.
+void tyres_start(ex::Car& c, const CarPart& x, const ex::WearParams& k);
+
 } // namespace gt4r::sim::prologue

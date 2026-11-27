@@ -352,9 +352,9 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   routines the table above names `prologue::`.
 - *Prologue's own, ported from its program* (`phases_prologue.*`): phase 4's preparation 0x3BF608 whole (its aerodynamics,
   torques, wear grip and peak force), phases 20 .. 22 (the tire wear, the wear flags with the conductor's pit rule, the flaps),
-  the steering angles of 0x3B5A20 (`prologue::wheel_angle`), the aids' indicators 0x3E02A0, phase 19's suspension 0x375F58, phase 14's pairs 0x3DC1C8, the hybrid's axles (Gran Turismo 4's 0x36D818 with Prologue's box on the engine torque 0x3BD6F8 = 0x3554A0).
+  the steering angles of 0x3B5A20 (`prologue::wheel_angle`), the aids' indicators 0x3E02A0, phase 19's suspension 0x375F58, phase 14's pairs 0x3DC1C8, at the set-up new tires 0x3C8878 over the layout and the step's length 0x3C9F00, the hybrid's axles (Gran Turismo 4's 0x36D818 with Prologue's box on the engine torque 0x3BD6F8 = 0x3554A0).
 - *The engine's (Gran Turismo 3's) still, each equal to Prologue's at every call*: at the start the
-  standing start, new tires, the step's length, the moving start's engine part.
+  standing start (0x3C8E10; the set-up equal field for field, `GT4R_START=1`), the moving start's engine part.
 
 Still not run, or not Prologue's own:
 
