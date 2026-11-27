@@ -1064,13 +1064,17 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   file of Japan's has one) 🔎.
 - ✔ **The A-spec points** (0x3BA528, v1.01 0x3C1220): taken by the place alone (v1.01: none when the B-spec driver drove any
   of the race, car +0x7B0, which Japan's cars do not keep). `ScreenRace::aspec_taken`.
-- Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
-  splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
-  not run alone, and does not write F +0x5C1; the skill (0x3EA6A8, 0x3EA8F0),
-  the engine condition (0x34AFD0), odometer (0x358330), converter (0x35BEC8), the attitude's layout-7 lift (0x365610), the
-  start (0x35E050's other calls), the pits (0x355708, 0x34D930, 0x3555C8, 0x356700), the recorder (0x354458), the
-  points (0x3BA528) and the rolling start (0x33FAA8: it no longer lets the car go at once, 0x345218, and changes line
-  without the blend).
+- ✔ **A license test's section times** (its conductor's virtual 19 0x3EF090 and 21 0x3EF268, with 0x3EF010; v1.01 0x3F63A0,
+  0x3F6588, 0x3F6320): shown only while the test's laps (at least 1) x its sectors (the conductor's virtual 42: the road's
+  split points + 1) are at most **4** (v1.01 16); of the 76 timed tests S-15 (7 sectors), S-16 and IA-15 (12) show none. The
+  difference to the best run's section (0x358C70 = v1.01 0x35E6B0, the time difference event against the race's +0x928) only
+  when K +0xF858 is 0 (v1.01: or a test of kind 6), and the same for the end's (0x3F1738, v1.01 0x3F8AB0): ours shows no such
+  difference in either 🔎. `ScreenRace::step_splits`. Judged from the code; not looked at in a picture.
+- Read, not ported 🔎: the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 (0x3578B0, the
+  race's record of each car's sector times, K +0xD600 ..) at a sector crossing, nor clear F +0x5C1: what Japan's display
+  shows of the sector gaps is not read (ours times its own). The recorder's start (0x354458, v1.01 0x359D40) has no lap
+  offset for the display (v1.01: K +0xCBE5 a draw of 0 .. 2 while the global 0x620208 is set, nothing a race reads). The
+  car set-up's other calls (0x35E050) are read as the same.
 - Read, not used by our race: the race step (0x348288) leaves out the player's pit menu and refuelling step (0x35BE60) in both
   replay modes (2 and 3; v1.01 in mode 2), and runs the end countdown (0x35F658) only when the conductor's mode is 0 (v1.01:
   when the race object's replay mode is 0).

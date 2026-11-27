@@ -1281,6 +1281,8 @@ public:
     void step_splits() {
         if (splits_.empty() || flow_.steps_since_start() < 0) return;
         if (const int kind = flow_.setup().test_kind; kind != 0 && kind != 6 && world_->car_count() > 1) return; // (0x3F63A0: no section times in a test with other cars)
+        // (a test's section times only while its laps x sectors are at most 16, 0x3F6320; SCPS-17001 v1.05's at most 4, 0x3EF010)
+        if (flow_.setup().test_kind != 0 && std::max(1, flow_.setup().laps) * (int(splits_.size()) + 1) > (release_ == sim::Release::Japan ? 4 : 16)) return;
         const std::span<const race::CarState> cars = world_->cars();
         split_prev_.resize(cars.size(), -1);
         for (size_t i = 0; i < cars.size(); ++i) {
