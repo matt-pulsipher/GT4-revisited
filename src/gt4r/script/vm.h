@@ -223,6 +223,8 @@ public:
 
     // Names nothing provides become stubs instead of errors.
     bool stub_natives = false;
+    // Called when a script file has run into a module (Module.load, REQUIRE): its name as asked for and the module.
+    std::function<void(Vm&, const std::string& name, const std::shared_ptr<Module>& into)> after_load;
     // What was asked of stubs: "menu::MSound()" -> times.
     std::map<std::string, u32> stub_uses;
     std::vector<std::string> output; // PRINT's lines

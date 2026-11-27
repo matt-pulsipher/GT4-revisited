@@ -40,24 +40,41 @@ void MenuSound::load(const std::string& group) {
 void MenuSound::unload() { stop_music(); }
 
 void MenuSound::stop(bool remember) {
-    if (remember && group_ >= 0 && driver_.music_active()) {
+    if (remember && group_ >= 0 && active()) {
         if (size_t(group_) >= next_.size()) next_.resize(size_t(group_) + 1, 0);
-        next_[size_t(group_)] = driver_.music_number() + 1;
+        next_[size_t(group_)] = number() + 1;
     }
     driver_.stop_music(true);
+    if (!recording_.empty()) {
+        recording_.clear();
+        if (recordings_.stop) recordings_.stop();
+    }
 }
+
+float MenuSound::recording_level() const { return music_volume_ * music_option_ * library_->levels().level(kStereo, sound::VolumeTable::Stream); }
 
 bool MenuSound::start(int group, int number, bool restart) {
     if (group < 0) return false;
     // The same group still playing plays on.
-    if (!restart && group == group_ && driver_.music_active()) return true;
-    if (driver_.music_active()) stop(true);
+    if (!restart && group == group_ && active()) return true;
+    if (active()) stop(true);
     const MusicBank bank = library_->music_bank(group);
     if (!bank) return false;
     group_ = group;
     const std::vector<MusicPiece> pieces = library_->music_pieces(group);
     if (number < 0) number = size_t(group) < next_.size() ? next_[size_t(group)] : 0;
-    if (!pieces.empty()) number = pieces[size_t(number) % pieces.size()].number;
+    if (!pieces.empty()) {
+        const MusicPiece& piece = pieces[size_t(number) % pieces.size()];
+        number = piece.number;
+        // Ours: a mod's recording of the piece plays in its place.
+        if (recordings_.find && recordings_.play) {
+            const std::string stem = piece.title.substr(0, piece.title.rfind('.'));
+            if (const std::string file = stem.empty() ? std::string() : recordings_.find(stem); !file.empty() && recordings_.play(file, recording_level())) {
+                recording_ = file, recording_number_ = number;
+                return true;
+            }
+        }
+    }
     driver_.set_volume(SoundDriver::Kind::Music, music_volume_ * music_option_ * library_->levels().level(kStereo, sound::VolumeTable::Sequence));
     driver_.play_music(bank.bank, bank.sequences, number);
     return true;
@@ -76,10 +93,15 @@ bool MenuSound::keep_music(const std::string& group) {
 void MenuSound::stop_music() { stop(true); }
 
 void MenuSound::fade_out_music(float seconds) {
-    if (!driver_.music_active()) return;
+    if (!active()) return;
     if (group_ >= 0) {
         if (size_t(group_) >= next_.size()) next_.resize(size_t(group_) + 1, 0);
-        next_[size_t(group_)] = driver_.music_number() + 1;
+        next_[size_t(group_)] = number() + 1;
+    }
+    if (!recording_.empty()) { // (a recording stops at once: nothing steps its level down)
+        recording_.clear();
+        if (recordings_.stop) recordings_.stop();
+        return;
     }
     driver_.fade_music(SoundDriver::Fade::DownAndStop, 0.0f, 1.0f / std::max(seconds * float(SoundDriver::kUpdateRate), 1.0f));
 }
@@ -87,21 +109,21 @@ void MenuSound::fade_out_music(float seconds) {
 bool MenuSound::fade_in_music(const std::string& group, float seconds) {
     if (group == "keep") return true;
     const int g = library_->music_group(group);
-    const bool starting = g >= 0 && !(g == group_ && driver_.music_active());
+    const bool starting = g >= 0 && !(g == group_ && active());
     if (!start(g, -1, false)) return false;
     // The game raises the volume from where the sequence's is: a sequence just started is at
     // full volume already, so nothing is heard to rise.
-    if (starting) driver_.fade_music(SoundDriver::Fade::Up, 1.0f, 1.0f / std::max(seconds * float(SoundDriver::kUpdateRate), 1.0f));
+    if (starting && recording_.empty()) driver_.fade_music(SoundDriver::Fade::Up, 1.0f, 1.0f / std::max(seconds * float(SoundDriver::kUpdateRate), 1.0f));
     return true;
 }
 
 std::string MenuSound::music_group() const {
-    if (group_ < 0 || !driver_.music_active()) return {};
+    if (group_ < 0 || !active()) return {};
     const std::vector<std::string>& groups = library_->music_groups();
     return size_t(group_) < groups.size() ? groups[size_t(group_)] : std::string();
 }
 
-int MenuSound::music_number() const { return driver_.music_number(); }
+int MenuSound::music_number() const { return number(); }
 
 int MenuSound::draw(int count) const {
     random_ ^= random_ << 13;
@@ -155,6 +177,7 @@ bool MenuSound::is_playing_stream() const { return streams_.playing && streams_.
 void MenuSound::set_music_option(float v) {
     music_option_ = std::clamp(v, 0.0f, 1.0f);
     driver_.set_volume(SoundDriver::Kind::Music, music_volume_ * music_option_ * library_->levels().level(kStereo, sound::VolumeTable::Sequence));
+    if (!recording_.empty() && recordings_.set_level) recordings_.set_level(recording_level());
 }
 
 void MenuSound::set_effect_option(float v) { effect_option_ = std::clamp(v, 0.0f, 1.0f); }

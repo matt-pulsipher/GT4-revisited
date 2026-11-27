@@ -48,4 +48,12 @@ struct PictureSettings {
 // (kelvin - 5500) x 0.2 / 2000, the white level 1 - k / 10, the saturation as it is.
 PictureSettings::Correction screen_correction(float b, float k, float saturation, float kelvin);
 
+// A photo's color filter on its correction, in the EE's arithmetic: the filter's own record (0x3EFCE8, in the finder 0x3C58C0, the
+// filter page 0x3C7DA8 and a film's picture 0x334B28) combined with the correction (0x3EFD80: the gains and the saturation multiplied,
+// the black levels added, the white levels added less 1). Filter 1 (Mature): gains 1, black 0, white 1, saturation 0.6 (0x3F199999);
+// 2 (black and white): the saturation set to 0, no record; 4: gains 1.5 / 0.95 / 0.6 (0x3FC00000, 0x3F733333, 0x3F199999),
+// saturation 0.3 (0x3E999999), which no page reaches (the finder steps 0 .. 2, the filter page's names are none / mature /
+// monochrome); any other: as it is.
+PictureSettings::Correction photo_filter(PictureSettings::Correction c, int filter);
+
 } // namespace gt4r::race

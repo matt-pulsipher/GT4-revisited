@@ -252,9 +252,12 @@ no fade). The rows appear one frame after the panel.
   outside the display and the car: at +3 55.1/36.5/22.8 against the original's 55.5/35.7/21.8, at 0 41.3/24.8/14.1
   against 41.8/24.3/13.4 (without the picture's scale 57.6/38.9/25.1 and 43.4/26.6/15.6; with the engine's earlier GT3
   curve in place of the table, at the same place in the reference's state: 53.6/34.6/21.2 against 59.9/39.8/25.0, now
-  57.3/39.2/25.4). By day ours stays a little lighter before the correction: Tsukuba (`03-race` state before the first
-  corner) 118.2/130.7/142.5 against 115.2/127.3/139.0, Grand Canyon 121.6/119.2/117.8 against 118.8/116.7/116.0 (🔎 the
-  scene's daylight, not this pass). (It was taken for a gain and a stretch
+  57.3/39.2/25.4). By day ours was a little lighter before the correction (Tsukuba's `03-race` state before the first corner, Grand
+  Canyon): the scene, not this pass. Most of it was the frame's second multiply by `Env0` +0x3C (FIX 127, two levels;
+  course.md "The picture's scale"), which ours now does where the shared engine has `DrawItem::pre_fix`: per channel
+  mean R/G/B at +3 outside the display and the car, Tsukuba 120.3/129.5/137.7 against the original's 119.6/128.2/135.5
+  (122.3/131.5/139.6 without it), Grand Canyon 124.7/120.2/115.5 against 123.8/119.0/113.8 (126.6/122.1/117.6). 🔎 What is
+  left is mostly the road's reflection (a level or two lighter on the road, course.md "Road reflection"). (It was taken for a gain and a stretch
   about the middle before, then computed in host floats, a level under the program's at places: wrong.)
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).

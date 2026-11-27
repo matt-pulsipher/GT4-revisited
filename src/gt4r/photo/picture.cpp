@@ -73,12 +73,13 @@ const char* filter_name(ColorFilter f) { return f == ColorFilter::Mature ? "matu
 Correction correction(const Filters& f) {
     // (0x3C7DA8 -> 0x3EFC10 in the EE's arithmetic, race::screen_correction: a gain of 2^(brightness / 8), the white balance's
     // kelvin 5,500 + 400 a step, the white level 1 - contrast / 10.)
+    // Then the color filter's record on it (race::photo_filter: 0x3EFCE8 / 0x3EFD80).
     Correction c;
-    const race::PictureSettings::Correction s = race::screen_correction(float(f.brightness) * 0.125f, float(f.contrast), 1.0f, 5500.0f + float(f.white_balance) * 400.0f);
+    const race::PictureSettings::Correction s =
+        race::photo_filter(race::screen_correction(float(f.brightness) * 0.125f, float(f.contrast), 1.0f, 5500.0f + float(f.white_balance) * 400.0f), int(f.color));
     for (int i = 0; i < 3; ++i) c.gamma[i] = s.gamma[i];
     c.white = s.contrast;
-    if (f.color == ColorFilter::Monochrome) c.saturation = 0;
-    else if (f.color == ColorFilter::Mature) c.saturation = 0.59999f;
+    c.saturation = s.saturation;
     return c;
 }
 

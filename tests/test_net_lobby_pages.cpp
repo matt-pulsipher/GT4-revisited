@@ -306,3 +306,58 @@ TEST(disc_net_lan_garage_car) {
     CHECK(one.f.clean() && two.f.clean());
     std::filesystem::remove_all(dir);
 }
+
+// The app's car picker over the makers' page (any car, the host's rule; app/car_picker.h through menu::pick_lan_car): the car
+// page opens with the car picked alone, its colors and the driving options as before, and the lobby gets that car.
+TEST(disc_net_lan_app_car_picker) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Builder cars(*disc);
+    if (!cars.program.known()) SKIP("the disc's program is not known");
+    Player one(*disc), two(*disc);
+    cars.give(one.lobby), cars.give(two.lobby);
+    CHECK(to_matching(one, true, 0, 2));
+    Table t{{&one}};
+    CHECK(to_matching(two, false, one.session.port(), 2));
+    t.players.push_back(&two);
+    CHECK(t.until([&] { return two.lobby.active() && one.lobby.active(); }));
+    CHECK(on_to_arcade(one) && on_to_arcade(two));
+    CHECK(t.until([&] { return one.page() == "CourseRoot" && two.page() == "CourseRoot"; }));
+    t.run(60);
+    t.press(one, {menu::Key::Accept});
+    if (one.page() == "CourseRoot") t.press(one, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.page() == "MakerRoot" && two.page() == "MakerRoot"; }));
+    // (a car open in a new game, of Arcade's Ford list)
+    std::string car;
+    if (const std::vector<script::Value>* fords = one.f.rt->vm().attribute(one.f.rt->vm().lookup("ArcadeProject::CarData"), "ford_carlist").items())
+        for (const script::Value& v : *fords)
+            if (car.empty() && one.f.rt->game().available_cars.count(v.to_string())) car = v.to_string();
+    CHECK(!car.empty());
+    CHECK(menu::pick_lan_car(*one.f.rt, car, "ford"));
+    CHECK(t.until([&] { return one.page() == "CarRoot"; }));
+    const script::Value list = one.f.rt->vm().lookup("ArcadeProject::CarRoot::car_list");
+    CHECK(list.items() && list.items()->size() == 1 && (*list.items())[0].to_string() == car);
+    t.run(60);
+    t.press(one, {menu::Key::Accept, menu::Key::Accept});
+    CHECK(t.until([&] { return one.page() == "SettingPopup"; }));
+    t.press(one, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.page() == "PregridRoot"; }));
+    // The guest the same car.
+    CHECK(menu::pick_lan_car(*two.f.rt, car, "ford"));
+    CHECK(t.until([&] { return two.page() == "CarRoot"; }));
+    t.run(60);
+    t.press(two, {menu::Key::Accept, menu::Key::Accept});
+    CHECK(t.until([&] { return two.page() == "SettingPopup"; }));
+    t.press(two, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.f.rt->finished() && two.f.rt->finished(); }));
+    one.lobby.want_race(one.lobby.host_member().course);
+    std::optional<net::OnlineRace> oa, ob;
+    CHECK(t.until([&] {
+        if (!oa) oa = one.lobby.take_race();
+        if (!ob) ob = two.lobby.take_race();
+        return oa && ob;
+    }));
+    CHECK(oa && ob && oa->cars.size() == 2 && ob->cars.size() == 2 && oa->cars[0].label == car && oa->cars[1].label == car && ob->cars[0].label == car);
+    if (oa && !oa->cars.empty()) std::printf("  picked: %s, paint %u\n", oa->cars[0].label.c_str(), oa->cars[0].paint);
+    CHECK(one.f.clean() && two.f.clean());
+}

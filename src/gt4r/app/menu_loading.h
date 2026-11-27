@@ -13,6 +13,7 @@
 #include "formats/tex1.h"
 #include "gt4r/sim/program_tables.h"
 #include "gt4r/app/app.h"
+#include "gt4r/app/loading_timing.h"
 #include "gt4r/disc/disc.h"
 
 #include <SDL3/SDL_render.h>
@@ -25,6 +26,8 @@ namespace gt4r {
 class MenuLoading {
 public:
     explicit MenuLoading(App& app) : app_(app) {}
+    // The style (the setting), taken when a page begins.
+    void set_quick(bool quick) { timing_.quick = quick; }
     ~MenuLoading() {
         for (SDL_Texture* t : {logo_, stripes_, tacho_, kept_})
             if (t) SDL_DestroyTexture(t);
@@ -33,12 +36,14 @@ public:
     // The page shown from now; `pick` chooses the picture (the program's random bit, 0x579358).
     void begin(unsigned pick) {
         load();
+        drawn_ = 0;
         t_ = 0, ending_ = -1, stripes_pick_ = (pick & 1) != 0, angle_ = 0;
         active_ = true, capture_ = false;
     }
     // The capture mode (0x104B68): the picture drawn last is kept.
     void begin_capture() {
         load();
+        drawn_ = 0;
         t_ = 0, ending_ = -1, angle_ = 0;
         active_ = capture_ = true;
     }
@@ -64,18 +69,18 @@ public:
     // True once the black is whole: the next project may start under it.
     // (The capture: once the tachometer is whole. ❓ The original's shows when the race's loader
     // is under way and stays while the disc loads; ours is read at once after it.)
-    bool covered() const { return active_ && t_ >= (capture_ ? 1.2f : 1.0f); }
+    bool covered() const { return active_ && (capture_ ? timing_.capture_ready(t_, drawn_) : t_ >= timing_.cover()); }
     // The next project has started: the page holds a moment (❓ the original holds it while the
     // disc loads; ours loads at once) and fades out.
     void end() {
-        if (ending_ < 0) ending_ = std::max(t_, 2.0f) + 0.5f;
+        if (ending_ < 0) ending_ = timing_.ends_at(t_);
     }
     // `dt` seconds of the menus.
     void step(float dt) {
         if (!active_) return;
         t_ += dt;
         angle_ = std::fmod(angle_ + 720.0f * dt, 360.0f); // two turns a second (0x104150)
-        if (ending_ >= 0 && t_ >= ending_ + 0.25f) active_ = false;
+        if (loading::Timing::gone(t_, ending_)) active_ = false, LOG_INFO("Loading page (%s): %.2f s", timing_.quick ? "quick" : "original", double(t_));
     }
 
     // Over the page's 640 x 480 at (x, 0), `scale` screen pixels a page unit.
@@ -83,9 +88,9 @@ public:
         if (!active_) return;
         SDL_Renderer* r = app_.renderer();
         if (capture_) return draw_capture(x, scale);
-        const float out = ending_ >= 0 && t_ > ending_ ? std::clamp(1.0f - (t_ - ending_) / 0.25f, 0.0f, 1.0f) : 1.0f;
-        const float black = std::clamp(t_, 0.0f, 1.0f) * out;
-        const float picture = std::clamp(t_ - 1.0f, 0.0f, 1.0f) * out;
+        const float out = loading::Timing::out(t_, ending_);
+        const float black = timing_.black(t_) * out;
+        const float picture = timing_.picture(t_) * out;
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(r, 0, 0, 0, u8(black * 255));
         const SDL_FRect whole{x, 0, 640 * scale, 480 * scale};
@@ -116,7 +121,8 @@ private:
         SDL_Renderer* r = app_.renderer();
         const SDL_FRect whole{x, 0, 640 * scale, 480 * scale};
         if (kept_) SDL_RenderTexture(r, kept_, nullptr, &whole);
-        const float a = std::clamp(t_ - 0.2f, 0.0f, 1.0f);
+        ++drawn_;
+        const float a = timing_.capture_tacho(t_);
         if (!tacho_ || a <= 0) return;
         const float k = 480.0f / 448.0f;
         SDL_SetTextureBlendMode(tacho_, SDL_BLENDMODE_BLEND);
@@ -165,6 +171,8 @@ private:
     }
 
     bool capture_ = false;
+    loading::Timing timing_;
+    int drawn_ = 0; // frames of the capture shown
     SDL_Texture* kept_ = nullptr; // the picture the capture holds
     App& app_;
     bool tried_ = false, active_ = false, stripes_pick_ = true;

@@ -30,6 +30,10 @@ struct CarChoice {
     bool automatic = true, asm_on = true, tcs_on = true, wheel_aid = false;
     u8 driver = 0;      // sim::Entry::driver
     u64 digest = 0;     // CarBuilder::digest of the car on a paved course
+    // A mod car's (formats/db/mod_cars.h): its package's SHA-256 (lower-case hex) and size, and its donor; "" for a disc car.
+    // A machine that lacks the car and has the donor fetches the package from its owner (net/mod_car_package.h).
+    std::string package, donor;
+    u32 package_size = 0;
 
     bool operator==(const CarChoice& o) const;
 };

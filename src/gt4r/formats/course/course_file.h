@@ -15,6 +15,7 @@ enum Slot : int {
     kSlotWorld = 1,          // MDLS: the scenery of the race view
     kSlotWorldVis = 2,       // Vls0: its visibility lists (3: the mirror's, 4: a two-player half's)
     kSlotEnvironment = 5,    // MDLS: the scenery drawn into the cars' reflection picture (6: its lists)
+    kSlotPhotoVis = 8,       // Vls0: slot 1's lists with the race's list switch off (a photo's exposure)
     kSlotReflection = 9,     // MDLS: the scenery mirrored below a wet road (10: its lists)
     kSlotReflectionMask = 13, // MDLS: its mask (14)
     kSlotAfter = 17,         // MDLS: drawn after the cars (18)
@@ -74,6 +75,10 @@ struct ModelOptions {
 // The factor the scenery's stored vertex colours are drawn with: Env0 +0x38 (2.0 on every course
 // seen; 1 when the block has none). Not yet compared with the original running.
 float scenery_color_scale(ByteSpan env);
+// The fixed weight of the second multiply of the frame, on what is drawn before the cars: Env0 +0x3C as the program makes a blend's
+// weight of it (0x342580 -> 0x4A2808: trunc(min(max(f x 128, 0), 255))). The files hold 0.9999977 (0x3F7FFFDA), so 127; 128 (none)
+// when the block has none.
+int scenery_multiply_fix(ByteSpan env);
 // The course's scenery as one model, a mesh per model of each set ("world/...", "far/...").
 gt3r::scene::Model build_course_model(ByteSpan data, const ModelOptions& opt = {}, const std::string& name = {});
 

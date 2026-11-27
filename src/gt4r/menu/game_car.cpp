@@ -204,7 +204,8 @@ void load_parts(Database& d, CarHandle& c) {
     if (car == kNoCode) return;
     char name[40];
     std::snprintf(name, sizeof name, "CARS/%016llX", static_cast<unsigned long long>(car));
-    const std::optional<Bytes> file = d.rt->reader()(d.db->folder() + name);
+    std::optional<Bytes> file = d.db->mod_car_file(car); // (a mod car's: mod_cars.h)
+    if (!file) file = d.rt->reader()(d.db->folder() + name);
     if (!file || file->size() < 8) return;
     const u64 n = r64(file->data());
     for (u64 i = 0; i < n && 8 + (i + 1) * 16 <= file->size(); ++i) {
