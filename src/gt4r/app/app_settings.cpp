@@ -253,7 +253,7 @@ void App::set_sound(const Sound& s) {
 void App::apply_sound() {
     if (!audio_) return;
     if (audio_->output_device() != sound_settings_.device) audio_->set_output_device(sound_settings_.device);
-    audio_->set_music_volume(sound_settings_.music);
+    audio_->set_music_volume(recorder_ ? 0.0f : sound_settings_.music); // (a recording has no music: video_recorder.h)
     audio_->set_sfx_volume(sound_settings_.effects);
     if (sound_) audio_->voices().set_surround_cue(sound_settings_.rear_cue); // (AppSound puts the game's on)
 }

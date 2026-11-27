@@ -9,6 +9,7 @@
 #include "audio/audio_engine.h"
 #include "base/config.h"
 #include "gt4r/app/pipeline_warm.h"
+#include "gt4r/video/video_recorder.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
@@ -323,6 +324,8 @@ private:
     Uint64 start_ticks_ = 0, end_ticks_ = 0; // the launch, the last frame's end
     std::vector<std::string> pictures_; // save_picture's, saved after this frame's drawing
     std::string sweep_, sweep_out_;     // --sweep <list>, --sweep-out <dir>
+    std::unique_ptr<VideoRecorder> recorder_; // --record <out.mkv>: every frame and its sound (video_recorder.h)
+    int record_frames_ = 0;             // --record-frames <n>: the recording ends after n frames (0: when the run ends)
 };
 
 // The folder of the config file and mods: GT4R_DATA_DIR, else the program's folder when it has a portable.ini

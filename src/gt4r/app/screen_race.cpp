@@ -4,7 +4,7 @@
 // GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,wing=p001,hud=1,sim=rail"
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
-// auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
+// auto (the computer drivers take the first car too; `ai=1` the same) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `limit` a time limit in seconds (no laps then), `penalty` an arcade race's penalty option (0 none, 1 the speed limit, 2 the pit lane) over its row, `auto_after` the step from which the computer drives the player's car, `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
@@ -238,6 +238,7 @@ Setup setup_from_env() {
             if (v == "tv") s.view = kTvView;
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
+        else if (k == "ai") s.auto_drive = v != "0";
         else if (k == "eye") {
             std::array<float, 9> e{0, 0, 0, 0, 0, 0, 0, 1, 0};
             size_t i = 0;

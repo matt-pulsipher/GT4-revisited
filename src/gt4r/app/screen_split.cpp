@@ -3,8 +3,8 @@
 // Retry runs it again. docs/formats/race_flow.md "2 Player Battle", race_display.md "The two-player halves".
 //
 // Scripted: GT4R_RACE="players=2,course=tsukuba,car=<label>,car2=<label>,laps=2,handicap=20,boost=1,tires=1,wide=1,
-// view=in,view2=chase,drive=auto,drive2=auto,skip=600,replay=<steps>,paint=1,paint2=2,hud=1" (drive / drive2 auto: the simple driver takes
-// that player's car; skip: steps run before the first picture, without the start's hold).
+// view=in,view2=chase,drive=auto,drive2=auto,skip=600,replay=<steps>,paint=1,paint2=2,hud=1" (drive / drive2 auto: the computer drivers
+// take that player's car for the whole run, ai=1 both; skip: steps run before the first picture, without the start's hold).
 
 #include "gt4r/app/game_area.h"
 #include "gt4r/app/race_common.h"
@@ -99,6 +99,7 @@ Setup setup_from_env() {
         else if (k == "view2") s.view[1] = view();
         else if (k == "drive") s.auto_drive[0] = v == "auto";
         else if (k == "drive2") s.auto_drive[1] = v == "auto";
+        else if (k == "ai") s.auto_drive = {v != "0", v != "0"};
         else if (k == "mt") s.choice[0].automatic = v == "0";
         else if (k == "mt2") s.choice[1].automatic = v == "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
@@ -127,6 +128,9 @@ public:
         WorldSetup ws;
         ws.course = setup.course;
         ws.players = int(kPlayers);
+        // (a car the computer drives: its driver, the computer drivers' own, takes it for the whole run)
+        for (size_t i = 0; i < kPlayers; ++i)
+            if (setup.auto_drive[i]) ws.computer_cars = u8(ws.computer_cars | 1u << i);
         ws.own_hold = setup.skip == 0;
         ws.laps = setup.rules.laps;
         ws.options = setup.options;
