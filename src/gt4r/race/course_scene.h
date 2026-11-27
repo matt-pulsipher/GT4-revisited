@@ -67,7 +67,7 @@ public:
     }
     // The environment block's values (fog, lights, sun, shadows), as the shared engine reads them.
     const gt3r::race::SunParams& env() const { return env_; }
-    // The picture's scale (Env0 +0x38): the factor already put on the models' stored colors.
+    // The picture's scale (Env0 +0x38). The models' stored colors carry race::stored_color_scale of it.
     float color_scale() const { return color_scale_; }
     const course::Runway& road() const { return road_; }
     // The cones and boards where the road file puts them (still: ❓ the program knocks them about).
