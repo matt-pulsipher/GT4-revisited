@@ -366,7 +366,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         lit[0x11] = u8(lit[0x11] | 0x80);
         m.car_lamps_lit.load(app.renderer(), &gpu, lit, course_->section(course::kSlotFlareShape));
     }
-    if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0);
+    if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0, !(app.db() && app.db()->prologue()));
     if (setup.smoke) m.smoke.load(gpu, env0, course_->section(course::kSlotSmoke));
     LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", m.lamps.count(), m.billboards.count(), m.sun.params().enabled ? "on" : "off");
 }
@@ -1512,7 +1512,9 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye, m.motion(i));
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye);
-        // (At full strength: the composite's color weighs it, Env0 +0xC10..+0xC1C.)
+        // (GT4's at full strength: the composite's color weighs it, Env0 +0xC10..+0xC1C. Prologue's at the engine's composite.)
+        if (!m.wet.gt4())
+            for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
         race::light_at_picture_scale(m.wet_items, 0, course_->color_scale());
         render::DrawOptions wo = draw_options(*course_, far, !app_.db()->prologue());
         race::draw_below_picture_scale(wo, course_->color_scale());

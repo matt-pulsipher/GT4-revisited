@@ -70,10 +70,13 @@ std::array<u8, 3> road_reflection_color(ByteSpan env0) {
 RoadReflection::RoadReflection() = default;
 RoadReflection::~RoadReflection() = default;
 
-bool RoadReflection::load(render::GpuContext& ctx, const gt3r::Vfs& vfs, ByteSpan course, ByteSpan env0) {
+bool RoadReflection::load(render::GpuContext& ctx, const gt3r::Vfs& vfs, ByteSpan course, ByteSpan env0, bool gt4) {
     ctx_ = &ctx;
+    gt4_ = gt4;
+    blur_ = 0;
     blur_quad_.reset();
     for (Composite& c : composites_) c = Composite{};
+    if (!gt4) return wet_.load(ctx, vfs, course, env0);
     if (env0.size() < 0xE80) return false;
     blur_ = int(std::clamp<u32>(rd32(env0, 0xC2C), 0, 16));
     color_ = road_reflection_color(env0);
@@ -146,7 +149,7 @@ void RoadReflection::add_frame_items(std::vector<render::DrawItem>& items, const
                                      SDL_GPUTexture* buffer) {
     const size_t first = items.size();
     wet_.add_frame_items(items, view, fr, buffer);
-    if (items.size() == first || !ctx_) return;
+    if (items.size() == first || !ctx_ || !gt4_) return;
     // The engine's last item is its composite: the same item through GT4's quad.
     render::DrawItem& comp = items.back();
     if (comp.texture != buffer) return;

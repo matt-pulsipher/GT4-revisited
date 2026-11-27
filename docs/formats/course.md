@@ -387,7 +387,8 @@ the full scenery.
   by it. The buffer itself holds the scenery at full strength. Over the 110 US courses: 64 64 64 on 72,
   90 90 90 on 9, 0 0 0 on 6; blur 0 on 74, 1 to 8 on 36 (test `road_reflection_courses_disc`).
 - Ours: the buffer and mask are the engine's; the blur and the composite's texture coordinates and
-  color are the program's. Checked on dry Tsukuba at the dump's eye: the reflection's added light
+  color are the program's (Gran Turismo 4's discs; Prologue's runs the engine's pass as it is, its Env0
+  holding other values there: 0 0 0 on 60 of its 62 courses). Checked on dry Tsukuba at the dump's eye: the reflection's added light
   now lines up with the original's (best shift 0, 0; Gran Turismo 3's composite put it half a
   texel lower, 3.5 pixels at 448) and follows it as 1.006 x + 1.1 levels of the frame (rms 0.52;
   before 0.976 x + 0.8, rms 0.65). 🔎 The 1.1 levels left over are in the buffer (ours about 3

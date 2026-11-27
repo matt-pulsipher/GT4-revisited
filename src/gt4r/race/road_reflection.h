@@ -41,8 +41,11 @@ class RoadReflection {
 public:
     RoadReflection();
     ~RoadReflection();
-    // `course`: the course file of slots 9, 10, 13, 14 (CourseScene::reflection_course); `env0` the course's Env0.
-    bool load(gt3r::render::GpuContext& ctx, const gt3r::Vfs& vfs, ByteSpan course, ByteSpan env0);
+    // `course`: the course file of slots 9, 10, 13, 14 (CourseScene::reflection_course); `env0` the course's Env0. Without
+    // `gt4` (Prologue, whose program's pass is not read) the shared engine's pass is used as it is.
+    bool load(gt3r::render::GpuContext& ctx, const gt3r::Vfs& vfs, ByteSpan course, ByteSpan env0, bool gt4 = true);
+    // Whether GT4's blur and composite are used (the buffer then holds the scenery at full strength).
+    bool gt4() const { return gt4_; }
     bool active() const { return wet_.active(); }
     const gt3r::race::WetRoadParams& params() const { return wet_.params(); } // (its blur is 0: the passes are ours)
     int blur() const { return blur_; }
@@ -67,6 +70,7 @@ private:
     gt3r::race::WetRoad wet_;
     gt3r::render::GpuContext* ctx_ = nullptr;
     int width_ = 64, height_ = 64, blur_ = 0;
+    bool gt4_ = true;
     std::array<u8, 3> color_{128, 128, 128};
     std::unique_ptr<gt3r::render::GpuModel> blur_quad_;
     Composite composites_[2]; // per view frustum (VR's two eyes)

@@ -43,11 +43,12 @@ TEST(road_reflection_color) {
     CHECK((race::road_reflection_color(env) == std::array<u8, 3>{255, 0, 109}));
 }
 
-// The discs' courses: dry Tsukuba's composite is 64 64 64 with no blur (the dump's); the colors and blur counts counted.
+// The Gran Turismo 4 discs' courses: dry Tsukuba's composite is 64 64 64 with no blur (the dump's); the colors and blur counts counted.
 TEST(road_reflection_courses_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     size_t courses = 0;
     for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue; // (Prologue's pass is the engine's: its Env0 holds other values there)
         std::map<std::array<u8, 3>, int> colors;
         std::map<int, int> blurs;
         for (const std::string& name : disc->volume().list_dir("crs/")) {
