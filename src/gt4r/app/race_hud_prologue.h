@@ -34,6 +34,10 @@ public:
         double start_left = -1;               // seconds left of the start's hold (< 0: running), `start_total` the whole hold
         double start_total = 0;
         double since_start = 1e9;             // seconds since the start
+        // Best and Last: race steps since START or the display's car's last lap called them up (< 0: not yet), and their
+        // opacity then (race::prologue_times_opacity).
+        int times_steps = -1;
+        float times_from = 1;
         double finish_t = -1;                 // seconds since the player finished
         std::array<s64, 3> targets{-1, -1, -1}; // a test's gold, silver and bronze times (ms)
         float over_t = -1;   // seconds since a test's run ended (-1 not): the display fades out

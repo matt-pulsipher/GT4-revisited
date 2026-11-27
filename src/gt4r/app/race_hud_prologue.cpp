@@ -186,6 +186,21 @@ struct PrologueHud::Impl {
         return gt3r::text::layout_text(gt3r::text::map_unicode(codes, *f.font, nullptr, nullptr), *f.font, nullptr, 0, 0, opt).width;
     }
     float line_height(const FontSpec& f) const { return f.font ? float(f.font->line_height) : 0; }
+    // The program's aligned text (0x445780 through 0x445538: right or centered; a left-aligned line is drawn at once, 0x4456C0)
+    // measures the line, then draws it, and the glyph its measure ended on (the text object's + 0x48, which a space, a glyph out of
+    // the font and a new line clear) is still the previous one when the draw begins: the line's first glyph is kerned against its
+    // last (0x446760), the whole line that much to the left. (The measure alone, 0x444F28, starts clear: width() keeps the plain
+    // width.) The race fonts' digits have no kerning between them: it moves a line like "Lap" or "Best" alone.
+    static float carried_kerning(const FontSpec& f, const std::vector<gt3r::text::GlyphRef>& refs) {
+        if (!f.font || refs.empty()) return 0;
+        const auto glyph = [&](const gt3r::text::GlyphRef& g) -> const gt3r::text::FontGlyph* {
+            return g.kanji || g.code == ' ' || g.code == '\n' || g.code == '\r' ? nullptr : f.font->glyph(g.code);
+        };
+        for (const gt3r::text::GlyphRef& g : refs)
+            if (!g.kanji && (g.code == '\n' || g.code == '\r')) return 0; // (lines of their own: not followed)
+        const gt3r::text::FontGlyph *last = glyph(refs.back()), *first = glyph(refs.front());
+        return last && first ? float(f.font->kerning(*last, *first)) * f.sx : 0;
+    }
     // Text with the pen on its baseline. `clip`: only what falls in the frame's lines clip[0] .. clip[1].
     void text(const FontSpec& f, float x, float y, u32 color, float opacity, const std::string& s, bool right = false, const float* clip = nullptr) {
         if (!f.font || s.empty() || opacity <= 0) return;
@@ -195,7 +210,8 @@ struct PrologueHud::Impl {
         opt.valign = gt3r::text::VAlign::Baseline;
         std::u32string codes;
         for (char32_t c : gt3r::text::utf8_decode(s)) codes += c;
-        const gt3r::text::TextLayout lay = gt3r::text::layout_text(gt3r::text::map_unicode(codes, *f.font, nullptr, nullptr), *f.font, nullptr, x, y, opt);
+        const std::vector<gt3r::text::GlyphRef> refs = gt3r::text::map_unicode(codes, *f.font, nullptr, nullptr);
+        const gt3r::text::TextLayout lay = gt3r::text::layout_text(refs, *f.font, nullptr, right ? x - carried_kerning(f, refs) : x, y, opt);
         SDL_Texture*& atlas = atlases[{f.font, f.variant}];
         if (!atlas) atlas = make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
         if (!atlas) return;
@@ -835,11 +851,13 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         case hr::HudPart::TimeLine: {
             if (!s.show_time) break;
+            // (Best and Last for 8 s from START and from each lap; a school test's always: race::prologue_times_opacity)
+            const float times = mode == hr::HudMode::License ? opacity : opacity * race::prologue_times_opacity(e.times_steps, e.times_from);
             switch (hr::TimeLine(row.sub)) {
             case hr::TimeLine::Best:
-            case hr::TimeLine::BestTime:
+            case hr::TimeLine::BestTime: m.draw_time(row.x, row.y, row.align, s.best_ms, "Best", nullptr, 0, 0, times); break;
             case hr::TimeLine::Fastest: m.draw_time(row.x, row.y, row.align, s.best_ms, "Best", nullptr, 0, 0, opacity); break;
-            case hr::TimeLine::Last: m.draw_time(row.x, row.y, row.align, s.last_ms, "Last", nullptr, 0, 0, opacity); break;
+            case hr::TimeLine::Last: m.draw_time(row.x, row.y, row.align, s.last_ms, "Last", nullptr, 0, 0, times); break;
             case hr::TimeLine::Total: m.draw_time(row.x, row.y, row.align, s.total_ms, "Total", nullptr, 0, 0, opacity); break;
             case hr::TimeLine::Lap:
             case hr::TimeLine::Time: m.draw_time(row.x, row.y, row.align, std::max<s64>(0, s.lap_ms), "", "GT4_meter_texture_laptime", -2, 4, opacity); break;
