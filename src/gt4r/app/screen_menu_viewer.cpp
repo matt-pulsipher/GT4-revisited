@@ -15,6 +15,7 @@
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/logger_face.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
@@ -285,6 +286,7 @@ private:
             if (credits_ >= 0) runtime_->game().money = credits_;
             app_ = &app;
             online_ = std::make_unique<OnlineMenus>(app, *runtime_);
+            runtime_->stream_playing = [&app] { return app.sound() && app.sound()->menu().is_playing_stream(); };
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
                 audio::AppSound* sound = app.sound();
                 // (The photo mode's camera: its shutter's effect bank.)
@@ -867,13 +869,18 @@ namespace {
 
 class RuntimePainter : public MenuPainter {
 public:
-    explicit RuntimePainter(App& app) : drawer_(app), cars_(app), models_(app) {
+    explicit RuntimePainter(App& app) : drawer_(app), cars_(app), models_(app), photos_(app) {
         drawer_.draw_live = [this](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
             if (face.is("CarFace")) cars_.draw(face, project, page, at, dst, opacity);
             else if (face.is("ModelFace")) models_.draw(face, project, page, at, dst, opacity);
+            else if (face.is("PhotoRenderFace")) photos_.draw(at, dst, opacity); // (the photo pause's photo_save page)
+            else if (face.is("LoggerFace")) draw_logger_face(drawer_, face, at, opacity);
+            else if (face.is("RaceCourseMapFace") && course_map) course_map(face, dst, at.w > 0 ? dst.w / at.w : drawer_.screen_scale(), opacity);
         };
+        photos_.picture = [this]() { return rt_ ? rt_->photo_picture.get() : nullptr; };
     }
     void draw(menu::Runtime& rt, float x, float scale) override {
+        rt_ = &rt;
         const menu::TransitionPicture tp = menu::transition_picture(rt.vm().attribute(rt.context(), "transition"));
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
@@ -894,6 +901,8 @@ private:
     PageDrawer drawer_;
     MenuCars cars_;     // the prize pages' models
     MenuModels models_;
+    PhotoFaces photos_;
+    menu::Runtime* rt_ = nullptr; // while drawn
     MenuCursor cursor_;
     u64 stepped_ = 0; // the menus' picture the pointer was last stepped to
 };

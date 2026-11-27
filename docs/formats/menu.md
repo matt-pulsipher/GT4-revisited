@@ -712,6 +712,20 @@ values, 0x6AAB70); whether the race draws dirt on the car otherwise is not read.
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
 the scripts chose from 1 to `overwrite_enemy_num` (`RaceRequest::entries`, `entry_paints`).
 
+**Arcade's dirt and snow versions.** Arcade's `doGame` passes every entry, the player's (0) and the opponents' (1 ..
+`overwrite_enemy_num`), through `MCarData.ShiftCarCode(car, course)` (0x12F3E0) and writes it back with `setEntryCarCode`:
+on a course of surface 2 (dirt) the car's `ARCADEINFO_NORMAL` entry 6, on surface 3 (snow) entry 7, an `ENEMY_CARS` row's
+label (`gt4sample_d_ka_01`, `gt4sample_s_ka_01`); else the car. The entry table holds a code of either table (0x4307D0
+through 0x447BB8), so the race builds that car from the row: its parts and settings. On the US disc the 1,112 rows differ
+from their cars' own parts in the two tires (the race puts dirt or snow tires on every entry anyway, sim/race_tires.h) and
+for three cars in one more part (mtr_gmv_04 the steering, trd_celica_sportm_00 the muffler, pikespeak_quattro_03 the TCS);
+none names settings. Here (`game_natives.cpp`, `RaceRequest::entry_enemies` / `car_enemy`, `screen_race.cpp`
+`entry_row_car` and `draw_grid`): the entry keeps the row's car with the row beside it and answers the row's label;
+`car_code` answers the car's label (the program's answers the row's), and setting it clears the row. ✔ through the menus
+(`disc_menu_arcade_dirt_entries`; Grand Canyon, the Ka: the pre-race page's table as 07-courses
+`grand_canyon_prerace_menu.png`, Ka 60 HP, 965 kg, tires D). The split battle's two cars keep their own parts (❓ the
+program's split race reads the codes the same way).
+
 **Arcade's opponents** (`MCarData.PickUpEnemyCars(car, list, offset, range, count, dirt)`, 0x1308C8;
 `game_opponents.*`). Arcade's single race asks for them when its car has no race of its own
 (ARCADEINFO), with its list of cars (`EnemyData::enemy_carlist`, or `dirt_enemy_carlist` on a dirt
@@ -1019,7 +1033,7 @@ Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ 
 `disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
 kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
 
-❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace` (the Analyzer's course map too), `EyetoyFace`, `VirtualFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).
 
 #### The slide show (`SlideShowFace`; `app/menu_slides.h`, `menu/jpeg.*`)
@@ -1307,6 +1321,7 @@ engine's Gran Turismo 3 code or on a judgment:
 | The loading page | `app/menu_loading.h` | the black and the capture modes; their holds judged | LoadingPS2's other modes (0x104B68) |
 | The slide show | `app/menu_slides.h` | its timing and places from the program; the card's list or the disc's; our JPEG decoder | — |
 | The photo pages' faces | `app/screen_photo.cpp`, `app/photo_faces.h` | [photo.md](photo.md) "What runs where" | |
+| The Analyzer's graph (LoggerFace) | `app/logger_face.h`, `menu/logger.cpp` | the program's picture drawn straight onto the page ([logger.md](logger.md)); ❓ its three copies of the face's buffer (the second and third a line up and down at 1/3 and 1/4) are not drawn | 0x120CF0's buffer and blend |
 | The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)

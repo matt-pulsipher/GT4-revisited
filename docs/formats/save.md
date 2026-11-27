@@ -404,7 +404,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x39BC0 | 0xAC | the LAN settings (Option +0x1348): the machine's name char[0x40] ("Player1"), the watched one's at +0x44, then u32s from +0x84: monitors, the monitor's place x (1) and y (1), a delay (2), host, the network's load, players (1), automatic connection, its machines (1), this one's index | `options` "LAN_..." |
 | 0x39C6C | 0x258 | the network settings (not decoded) | kept |
 | 0x39ECC | 0x50 | event settings: char name[0x40], u16 Arcade's time limit | kept |
-| 0x39F1C | 5 | the logger's (1 each) | kept |
+| 0x39F1C | 5 | the Analyzer's display switches: Track A, Track B, speed, accel, brake (1 each; [logger.md](logger.md)) | `logger_display` |
 | 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], the kept menu stack: i32 its length in bytes (-1: none kept), the names each ended by a 0 (0x100; 0x42FE88) | `major_menu_*`, `saved_menu_*` |
 
 What the state does not name is kept as it was loaded (`GameState::saved_image`); a new game

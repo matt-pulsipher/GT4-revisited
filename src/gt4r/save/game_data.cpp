@@ -327,6 +327,7 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     }
     // The menus' place.
     put_text(b, kContext, 0x20, s.major_menu_project), put_text(b, kContext + 0x20, 0x20, s.major_menu_page);
+    std::memcpy(b.data() + kLogger, s.logger_display.data(), 5); // (the Analyzer's switches)
     put32(b, kContext + 0x40, u32(s.saved_menu_depth));
     if (s.saved_menu_stack.size() == 0x100) std::memcpy(b.data() + kContext + 0x44, s.saved_menu_stack.data(), 0x100);
     // The header: magic, minus the body's length, the body's CRC.
@@ -446,6 +447,7 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
         if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);
     }
     s.major_menu_project = get_text(p, kContext, 0x20), s.major_menu_page = get_text(p, kContext + 0x20, 0x20);
+    std::memcpy(s.logger_display.data(), p.data() + kLogger, 5);
     s.saved_menu_depth = s32(get32(p, kContext + 0x40));
     s.saved_menu_stack.assign(p.begin() + kContext + 0x44, p.begin() + kContext + 0x144);
     return true;
