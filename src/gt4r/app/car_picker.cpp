@@ -198,7 +198,9 @@ private:
         }
         for (size_t i = 0; i < list_.size(); ++i) {
             const CarCatalog::Car* c = list_[i];
-            rows_.action(c->name, "", o_.colors ? "choose its color" : "choose it", [this, c] { go_ = [this, c] { choose(c); }; });
+            // (two cars of one name, as the US disc's two Ford GT '05: their labels tell them apart)
+            const bool twin = (i > 0 && list_[i - 1]->name == c->name) || (i + 1 < list_.size() && list_[i + 1]->name == c->name);
+            rows_.action(c->name, twin ? c->label : std::string(), o_.colors ? "choose its color" : "choose it", [this, c] { go_ = [this, c] { choose(c); }; });
         }
         if (want_ >= 0) rows_.selected = std::exchange(want_, -1), rows_.scroll.first = std::max(0, rows_.selected - 8);
     }
