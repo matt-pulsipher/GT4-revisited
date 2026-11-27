@@ -35,7 +35,10 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back) and a touch screen (a tap chooses; **< Back** at the top left of Settings, Controls,
    Saved games, the Save editor and Developer tools goes back, **< Back to game** where the page was opened from the game's);
-   the game's pages a pad, the keyboard or the on-screen controls.
+   The game's pages take them too (ours, [formats/menu.md](formats/menu.md) "Mouse and touch"): a tap or click on an item
+   moves the focus there and a second one chooses it (a mouse's hover focuses, so one click chooses); a list or a row of
+   cars or courses follows a drag or the wheel, a scroll box's arrows step it, Gran Turismo mode's map follows a drag;
+   the right button goes back, and a tap on a page with nothing to choose (the opening movie) is Start.
 5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
    save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
@@ -393,8 +396,11 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); the race's pause, PIT STOP menu and
   split-screen pause take a tap on a row (the first focuses it, the second chooses it; a mouse's hover focuses); their settings in Settings › Controls
   (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
-  else of Triangle (`Screen::back_is_start`). Not yet: the engine's layout editor (dragging each control), which is written
-  for its own app.
+  else of Triangle (`Screen::back_is_start`). The engine's layout editor on our screens (`app/screen_touch_editor.cpp`,
+  Settings › Controls › Touch screen › Layout: drag, pinch or - / +, hide; kept in config.ini's [touch]). The controls fade
+  3 s after the last touch while a replay, a demonstration or Prologue's guide film is watched (`Screen::touch_fades`, the
+  engine's TouchControls fade); a tap brings them back and presses nothing. The game's pages take taps and drags
+  (`menu/pointer.*`, `app/menu_pointer.h`; the hit test is the page drawer's boxes, `PageDrawer::boxes`).
   The 3D pipelines are built ahead of use on background threads at start: the shared engine's list (`GpuContext::warm_pipelines`)
   and ours, the three it lacks for GT4's draws (`app/pipeline_warm.*`). The Android build keeps them between runs
   (`vulkan_pipelines.cache` in the user data folder, the shared engine's SDL patch): a Pixel Fold (Mali-G710) built the engine's
