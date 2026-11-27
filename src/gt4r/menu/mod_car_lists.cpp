@@ -74,7 +74,8 @@ void add_mod_makers_to_nations(GameNatives& n) {
     if (!d.db || d.db->mod_makers().empty()) return;
     script::Vm& vm = n.rt.vm();
     // Arcade's makers' page (ArcadeProject::MakerRoot): MakerData `<nation>_makers` per nation, the nation of a country code by
-    // the page's own pairs of lists (`<region>_nation_list` and `_nation_list2`: "usa" beside "US").
+    // the page's own pairs of lists (`<region>_nation_list` and `_nation_list2`: "usa" beside "US"), else the nation most of
+    // whose makers' cars are of that country.
     if (const std::shared_ptr<Module> makers = vm.lookup("ArcadeProject::MakerData").as<Module>())
         if (const std::shared_ptr<Module> page = vm.lookup("ArcadeProject::MakerRoot").as<Module>())
             for (const db::ModMakerDef& m : d.db->mod_makers().makers()) {
@@ -86,6 +87,20 @@ void add_mod_makers_to_nations(GameNatives& n) {
                     const std::vector<Value>* keys = names ? names->value.items() : nullptr;
                     for (size_t i = 0; codes && keys && i < codes->size() && i < keys->size(); ++i)
                         if ((*codes)[i].kind == Kind::String && (*codes)[i].as_string() == m.country) nation = (*keys)[i].to_string();
+                }
+                if (nation.empty() && m.country_number >= 0) { // (the Japanese disc's page names its nations alone: the row whose makers' cars are mostly of the country)
+                    std::map<std::string, int> country_of; // a maker's key -> its cars' country
+                    for (const db::CarEntry& c : d.cars)
+                        if (const ByteSpan row = d.car_row(c.label); row.size() > 0x0F)
+                            if (const auto k = d.names.makers.find(row[0x0F]); k != d.names.makers.end()) country_of.emplace(k->second, row[0x0E]);
+                    float best = 0;
+                    for (const auto& [name, v] : makers->members) {
+                        if (name.size() < 8 || name.compare(name.size() - 7, 7, "_makers") != 0 || !v || !v->value.items() || v->value.items()->empty()) continue;
+                        int of = 0;
+                        for (const Value& x : *v->value.items())
+                            if (const auto it = country_of.find(x.to_string()); it != country_of.end() && it->second == m.country_number) ++of;
+                        if (const float share = float(of) / float(v->value.items()->size()); share > best) best = share, nation = name.substr(0, name.size() - 7);
+                    }
                 }
                 const std::shared_ptr<script::Variable> list = nation.empty() ? nullptr : makers->find(nation + "_makers");
                 std::vector<Value>* items = list ? list->value.items() : nullptr;
