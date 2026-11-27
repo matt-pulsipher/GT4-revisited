@@ -23,7 +23,8 @@ int core_surface(int surface);
 int surface_of_core_row(int row);
 
 // The core's program data: its own tables, with the static physics block taken from `program`
-// when it is a known build.
+// when it is a known build; for Prologue's program only Prologue's tables (program_prologue.h), the
+// rest 0 (no Gran Turismo 3 value: its step reads none of them).
 gt3r::sim::exact::ProgramData core_program(const Program& program);
 
 // Our spec as the core's. An engine curve of more than 16 points is thinned to 16 (the points whose

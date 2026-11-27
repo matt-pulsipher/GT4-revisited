@@ -75,6 +75,7 @@ bool run_passcode(Disc& disc, int count);
 int run_near(Disc& disc, const std::string& course, const std::string& cars, int steps);
 struct NearStats {
     u64 records = 0, clean = 0, with_slip = 0; // car records compared; those equal, the drivers' zones and contact too; those with a slipstream
+    u64 table_values = 0, table_equal = 0;     // the pairs' slipstream factors and position codes (the conductor + 0xDBF4 / + 0xDCF4)
     std::string err;
 };
 NearStats near_check(Disc& disc, const std::string& course, const std::string& cars, int steps, bool print);

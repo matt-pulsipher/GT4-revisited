@@ -4,6 +4,7 @@
 
 #include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/feel_prologue.h"
+#include "gt4r/sim/phases_prologue.h"
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
@@ -30,6 +31,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <type_traits>
 
 namespace gt4r::diff::prologue {
@@ -220,6 +222,7 @@ void PTaps::leave(u32 ra) {
             }
         });
     st.clean += clean;
+    leave(ra); // (a routine that ends in a jump to another tapped one leaves with it: both at the same return)
 }
 
 void PTaps::print() const {
@@ -462,8 +465,10 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                           ex::speed_ramp(k);
                           sim::prologue::ground_contact(k, x, *ground, t.bumps, true);
                           sim::prologue::terrain(k, x);
-                          ex::suspension(k, nullptr);
-                          sim::prologue::attitude(k, x.layout, t);
+                          sim::prologue::CarPart y = x;
+                          y.tires = extra(c);
+                          sim::prologue::suspension(k, y, t);
+                          sim::prologue::attitude(k, x.layout, t, y.in_line_lean);
                           sim::prologue::bump_nudge(k, x);
                           ex::hub_offsets(k);
                           sim::rules::body_axes(k);
@@ -602,6 +607,76 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       field("view.heading", ee.r32(b), v.heading.bits), field("view.heading_rate", ee.r32(b + 4), v.heading_rate.bits);
                       field("view.heading_acc", ee.r32(b + 8), v.heading_acc.bits), field("view.pitch", ee.r32(b + 0xC), v.pitch.bits);
                       field("view.pitch_rate", ee.r32(b + 0x10), v.pitch_rate.bits);
+                  }});
+    }
+    { // Phase 4 (phases_prologue.h): the preparation whole, its peak force and wear grip; the tables the race's start made.
+        static const sim::prologue::StepTables pt = sim::prologue::step_tables(sim::Program::load(const_cast<Disc&>(disc)));
+        auto part = [=](PTapCall& c) {
+            sim::prologue::CarPart x = image(c);
+            x.tires = extra(c);
+            return x;
+        };
+        // The tire wear's rules as the program's conductor has them (+0x84, 0x3CB8C8's); with GT4R_PROLOGUE_WEAR set, made-up
+        // ones written there at the first call and each wheel's wear started in another of their bands (no race of the disc
+        // wears its tires).
+        auto wear = [](PTapCall& c) {
+            const u32 at = c.ee.r32(c.car_addr + 4) + 0x84;
+            ex::WearParams k;
+            gt3r::ee::F* f[] = {&k.fresh, &k.fresh_loss, &k.knee1, &k.loss1, &k.knee2, &k.loss2, &k.max, &k.max_loss, &k.worn, &k.slip_cap};
+            for (u32 j = 0; j < 10; ++j) *f[j] = gt3r::ee::F::raw(c.ee.r32(at + 4 * j));
+            return k;
+        };
+        auto made_up_wear = [](PTapCall& c) {
+            const u32 at = c.ee.r32(c.car_addr + 4) + 0x84;
+            if (!std::getenv("GT4R_PROLOGUE_WEAR") || c.ee.r32(at + 0x18) != 0) return; // (once: the limit set)
+            const float k[] = {-50000, 0.05f, 40000, 0.02f, 200000, 0.3f, 300000, 0.5f, 0.8f, 1.0f};
+            for (u32 j = 0; j < 10; ++j) c.ee.w32(at + 4 * j, gt3r::ee::F(k[j]).bits);
+            const float start[] = {-20000, 15000, 90000, 260000};
+            for (u32 w = 0; w < 4; ++w) c.ee.w32(c.car_addr + 0x138 + 0xA4 * w + 0xA0, gt3r::ee::F(start[w]).bits), c.car.w[w].wear = gt3r::ee::F(start[w]);
+        };
+        taps.add({0x3BF608, "Prologue's preparation", [=](PTapCall& c) {
+                      made_up_wear(c);
+                      const sim::prologue::CarPart x = part(c);
+                      sim::prologue::FeelPart f;
+                      f.part_state = gt3r::ee::F::raw(c.ee.r32(c.car_addr + 0xD8 + 0x514));
+                      // (the start's hold by the conductor's count, 0x3B5FC8, which the harness does not keep: not compared)
+                      sim::prologue::prep(c.car, x, f, pt, 0, wear(c));
+                  },
+                  {"race_hold"}, {}, [](Ee& ee, u32, int, const std::function<void(const char*, u32, u32)>& field) {
+                      static bool once = false;
+                      if (once) return;
+                      once = true;
+                      const ex::Condition& k = pt.condition;
+                      const gt3r::ee::F w[] = {k.e1, k.c1, k.e2, k.e3, k.c2, k.o1, k.co, k.omax, k.x20};
+                      for (u32 j = 0; j < 9; ++j) field("condition table (0x503E78)", ee.r32(0x503E78 + 4 * j), w[j].bits);
+                      field("slipstream drag share (0x504A78)", ee.r32(0x504A78), pt.slip.drag_share.bits);
+                      field("slipstream downforce share (0x504A7C)", ee.r32(0x504A7C), pt.slip.downforce_share.bits);
+                      field("slipstream up (0x504A80)", ee.r32(0x504A80), pt.slip.k_up.bits);
+                      field("slipstream down (0x504A84)", ee.r32(0x504A84), pt.slip.k_down.bits);
+                  }});
+        taps.add({0x3BF338, "Prologue's peak force", [=](PTapCall& c) {
+                      const sim::prologue::CarPart x = part(c);
+                      sim::prologue::peak_force(c.car, x, sim::prologue::wear_grip(c.car, x, wear(c)));
+                  }});
+        { // Phase 19's suspension (its in-line lean term F +0x3AC beside the mirror)
+            static std::map<int, gt3r::ee::F> lean;
+            taps.add({0x375F58, "Prologue's suspension", [=](PTapCall& c) {
+                          sim::prologue::CarPart x = part(c);
+                          static const sim::prologue::Tables k = sim::prologue::tables(sim::Program::load(*g_disc));
+                          sim::prologue::suspension(c.car, x, k);
+                          lean[c.car_index] = x.in_line_lean;
+                      },
+                      {}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                          field("in-line lean (F +0x3AC)", ee.r32(car + 0xD8 + 0x3AC), lean[index].bits);
+                      }});
+        }
+        // Phases 20 .. 22: the tire wear, the wear flags (the single race's conductor: pits, mode 0), the flaps.
+        taps.add({0x3BBBB8, "Prologue's tire wear", [=](PTapCall& c) { sim::prologue::tire_wear(c.car, part(c), wear(c)); }});
+        taps.add({0x3BBD80, "Prologue's wear flags", [=](PTapCall& c) { sim::prologue::wear_flags(c.car, part(c), wear(c), {}); }});
+        taps.add({0x3C26F0, "Prologue's flaps", [=](PTapCall& c) {
+                      gt3r::Vu0Random rng;
+                      rng.r = c.ee.vr; // (the program's shared random stream: the VU0's R, as it is at the call)
+                      sim::prologue::flaps(c.car, part(c), pt, rng);
                   }});
     }
     taps.add({0x375D00, "Prologue's terrain", [=](PTapCall& c) { sim::prologue::terrain(c.car, image(c)); }});

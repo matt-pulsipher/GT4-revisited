@@ -104,6 +104,7 @@ Tables tables(const Program& program) {
         for (u32 a = 0; a < 2; ++a) t.ride.share[a] = b(3 + a) / hundred;
         t.ride.drop = b(5) * milli, t.ride.v0 = b(6) * kmh, t.ride.v1 = b(7) * kmh;
     }
+    for (u32 r = 0; r < 3; ++r) t.lean_gain[r] = F::raw(program.w(PrologueProgram::kSpecialBodies + 0x78 * r + 0x30));
     t.hybrid = rules::hybrid_tables(program, 0x504560, 0x5045B0, 0x504638, 0x504648);
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
@@ -335,6 +336,9 @@ rules::DriveExtra drive_extra(const ex::Params& p) {
     d.layout = s.layout, d.unequal = s.unequal, d.gears = s.gears, d.driven_axle = s.driven_axle;
     d.awd_k = s.awd_k, d.awd_capacity = s.awd_capacity, d.engine_inertia = s.engine_inertia;
     d.diff_type = s.diff_type, d.kind = s.kind, d.x13 = 0;
+    // The special kind 8 (`mtr_gmv_04`, a gearbox of kind 0) where Gran Turismo 4 tests its gearbox kind 4: its clutch
+    // closed at once (0x3B9E10) and its rpm without the idle's floor (0x3B9BB8, at least 0).
+    if (p.special == 8 && s.kind == 0) d.kind = 4;
     d.diff_initial = s.diff_initial, d.diff_accel = s.diff_accel, d.diff_decel = s.diff_decel;
     d.launch_rpm = s.launch_rpm, d.up_rpm = s.up_rpm;
     for (size_t g = 0; g < s.down_rpm.size(); ++g) d.down_rpm[g] = s.down_rpm[g];
@@ -458,9 +462,88 @@ void hybrid_start(const ex::Car& c, CarPart& x) {
     x.mileage = 0, x.mileage_steps = 30;
 }
 
-void near_drivers(std::span<ex::Car> cars) {
+namespace {
+
+ex::Vec3 sub3(const ex::Vec3& b, const ex::Vec3& a) { return {b.x - a.x, b.y - a.y, b.z - a.z}; }
+F dot3(const ex::Vec3& a, const ex::Vec3& d) { return (a.x * d.x + a.y * d.y) + a.z * d.z; }
+
+// 0x3DBD10: the pair's view of each other (neither a ghost, F +0x3EE; both on or both off a pit lane, F +0x539 bit 4): within
+// 100 m and the other's height + 5 m, each one's distance ahead and to the right of the other.
+bool view(const ex::Car& a, const ex::Car& b, ex::PairView& out) {
+    if (a.ghost || b.ghost) return false;
+    if ((a.x535 & 0x10) != (b.x535 & 0x10)) return false;
+    const F d[3] = {b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z};
+    out.dist = gt3r::ee::sqrt((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]);
+    if (F::raw(0x42C80000) < out.dist) return false;
+    const F five = F::raw(0x40A00000);
+    if (d[2] < -(b.p.body_height + five)) return false;
+    if (a.p.body_height + five < d[2]) return false;
+    const F* af = &a.fwd.x;
+    const F* al = &a.lat.x;
+    const F* bf = &b.fwd.x;
+    const F* bl = &b.lat.x;
+    out.ua = out.va = out.ub = out.vb = F();
+    for (int k = 0; k < 3; ++k) {
+        out.ua = out.ua + af[k] * d[k];
+        out.va = out.va + al[k] * d[k];
+        out.ub = out.ub - bf[k] * d[k];
+        out.vb = out.vb - bl[k] * d[k];
+    }
+    return true;
+}
+
+// 0x3DBEE8: for a car a computer drives (control source or driver kind set), the gap to a car ahead within the pair's half
+// width and how fast it closes (the time-scaled velocities along a's heading); false otherwise.
+bool closing(const ex::Car& a, const ex::Car& b, F u, F v, F& gap, F& rate) {
+    gap = rate = F();
+    if (a.control == 0 && a.driver_kind == 0) return false;
+    const F p = (u - b.p.body_rear) - a.p.body_front;
+    if (p <= F()) return false;
+    const F half = (a.p.body_width + b.p.body_width) * F::raw(0x3F000000);
+    if (half < v || v < -half) return false;
+    const F av[3] = {a.vel.x, a.vel.y, a.vel.z}, bv[3] = {b.vel.x, b.vel.y, b.vel.z};
+    const F* af = &a.fwd.x;
+    F q = F();
+    for (int k = 0; k < 3; ++k) q = q + af[k] * (b.time_scale * bv[k] - a.time_scale * av[k]);
+    gap = p, rate = -q;
+    return true;
+}
+
+// 0x3DC0B0: where the other car is (the low nibble: 1 far behind .. 6 far ahead; the high one: 1 far left .. 7 far right),
+// 0 past 50 m.
+u8 position_code(F dist, F u, F v, F ahead, F behind, F w) {
+    if (F::raw(0x42480000) < dist) return 0;
+    const F four = F::raw(0x40800000), half = F::raw(0x3F000000);
+    u8 c;
+    if (ahead * four < u) c = 6;
+    else if (ahead < u) c = 5;
+    else if (F() < u) c = 4;
+    else if (-behind <= u) c = 3;
+    else if (-behind * four <= u) c = 2;
+    else c = 1;
+    const F nw = -w;
+    if (v < nw * four) return c | 0x10;
+    if (v < nw) return c | 0x20;
+    if (v < nw * half) return c | 0x30;
+    if (v <= w * half) return c | 0x40;
+    if (v <= w) return c | 0x50;
+    if (v <= w * four) return c | 0x60;
+    return c | 0x70;
+}
+
+// 0x3DC038: the slipstream behind `leader` at (x ahead, y right) of it: over 100 km/h, behind it by less than its speed and
+// within its width, (speed + x) / speed.
+F slip_factor(const ex::Car& leader, F x, F y) {
+    const F v = leader.speed, h = leader.p.body_width;
+    if (F::raw(0x41DE38E2) < v && x < F() && -v < x && -h < y && y < h) return (v + x) / v;
+    return F();
+}
+
+} // namespace
+
+void proximity(std::span<ex::Car> cars, ex::Proximity& k) {
     const F kHalf = F::raw(0x3F000000), five = F::raw(0x40A00000), twenty = F::raw(0x41A00000);
-    for (ex::Car& c : cars) c.ai.contact = F(), c.ai.zone = {};
+    for (ex::Car& c : cars) c.ai.contact = F(), c.ai.zone = {}; // (0x4281B0)
     // 0x4281E8: the cells (front, front left, front right, left, right, rear left, rear right, rear) from a car at (u ahead, v right).
     const auto zones = [&](std::array<u8, 8>& z, F dist, F u, F v, F ahead, F behind, F w) {
         enum { kFront, kFrontLeft, kFrontRight, kLeft, kRight, kRearLeft, kRearRight, kRear };
@@ -494,9 +577,10 @@ void near_drivers(std::span<ex::Car> cars) {
             else if (u < -(behind * kHalf)) least(left ? kRearLeft : kRearRight, 1);
         }
     };
+    // 0x428530: the contact with a car closed on.
     const auto meet = [&](ex::Car& a, const ex::Car& b, F u, F v) {
         F gap, rate;
-        if (!ex::gap_closing(a, b, u, v, gap, rate)) return; // (0x3DBEE8)
+        if (!closing(a, b, u, v, gap, rate)) return;
         F x;
         if (F::raw(0x3FB1C71B) < rate) x = F::raw(0x3F800000);
         else if (F::raw(0x3CE38E37) < rate && gap / rate < five) x = kHalf;
@@ -506,17 +590,32 @@ void near_drivers(std::span<ex::Car> cars) {
         }
         if (a.ai.contact < x) a.ai.contact = x;
     };
-    for (size_t i = 0; i < cars.size(); ++i)
-        for (size_t j = i + 1; j < cars.size(); ++j) {
+    const size_t n = cars.size() < ex::kMaxCars ? cars.size() : ex::kMaxCars;
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j) {
             ex::Car &a = cars[i], &b = cars[j];
             ex::PairView pv;
-            if (!ex::pair_view(a, b, pv)) continue;
+            if (!view(a, b, pv)) {
+                k.slip[i][j] = k.slip[j][i] = F();
+                k.code[i][j] = k.code[j][i] = 0;
+                continue;
+            }
             const F w = (a.p.body_width + b.p.body_width) * kHalf;
             const F ab = a.p.body_front + b.p.body_rear, ba = a.p.body_rear + b.p.body_front;
             zones(a.ai.zone, pv.dist, pv.ua, pv.va, ab, ba, w);
             zones(b.ai.zone, pv.dist, pv.ub, pv.vb, ba, ab, w);
+            k.code[i][j] = position_code(pv.dist, pv.ua, pv.va, ab, ba, w);
+            k.code[j][i] = position_code(pv.dist, pv.ub, pv.vb, ba, ab, w);
             if (pv.dist < twenty) meet(a, b, pv.ua, pv.va), meet(b, a, pv.ub, pv.vb);
+            k.slip[i][j] = slip_factor(b, pv.ub, pv.vb);
+            k.slip[j][i] = slip_factor(a, pv.ua, pv.va);
         }
+    for (size_t i = 0; i < n; ++i) {
+        F s = F();
+        for (size_t j = 0; j < n; ++j) s = s + k.slip[i][j];
+        if (F::raw(0x3F800000) < s) s = F::raw(0x3F800000);
+        cars[i].slip_target = s;
+    }
 }
 
 bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& type, Equipment& eq) {
@@ -577,13 +676,14 @@ u16 mileage(F fuel, F distance) {
 }
 
 namespace {
-// The axles with the hybrid's box in place of the engine and clutch (0x3CEAE0 with 0x3CC448): the engine's axle step with the
-// box's torque given it as a slipping clutch's, the engine's speed the box's and its inertia not on the axle.
-void hybrid_axles(ex::Car& c, CarPart& x, const ex::Statics& s, const Tables& t) {
+// The axles of the hybrid (0x3CEAE0 = Gran Turismo 4's 0x36D818) with its box 0x3CC448: Gran Turismo 4's 0x368628 on the engine's
+// torque at a throttle (0x3BD6F8 = 0x3554A0), the engine's speeds by power from the parameter block's curve, the fuel an hour's
+// and the mileage counted every 30 steps.
+void hybrid_axles(ex::Car& c, CarPart& x, const Tables& t) {
     ex::Driveline& d = c.p.d;
     rules::HybridCar k;
     k.shift_class = x.shift_class, k.driven_axle = u8(d.driven_axle), k.ratio = d.ratio[c.gear];
-    k.torque = [&](F throttle) { return ex::engine_torque(c, throttle); };
+    k.torque = [&](F throttle) { return rules::engine_torque(c, x.drive, throttle); };
     k.speed = [&](F power) { // (0x3CBF50)
         ex::Table<24> e;
         e.n = c.p.e.torque.n;
@@ -597,17 +697,9 @@ void hybrid_axles(ex::Car& c, CarPart& x, const ex::Statics& s, const Tables& t)
         x.mileage = mileage(x.hybrid_fuel - x.hybrid_fuel_mark, c.dist_total - x.hybrid_odo_mark);
         x.hybrid_odo_mark = c.dist_total, x.hybrid_fuel_mark = x.hybrid_fuel, x.mileage_steps = 30;
     };
-    const F torque = rules::hybrid_box(c, k, x.hybrid, t.hybrid, c.p.e.idle);
-    const u8 clutch = c.clutch;
-    const F omega = c.omega, shift = d.shift_clutch_torque, ce = c.clutch_engine, cw = c.clutch_wheel;
-    const F load = c.turbo_load, load_prev = c.turbo_load_prev;
-    const auto spool = c.turbo_spool;
-    const auto limiter = c.rev_limiter;
-    if (clutch != 0) c.clutch = 3, d.shift_clutch_torque = torque, c.clutch_engine = c.clutch_wheel = F();
-    ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
-    c.clutch = clutch, c.omega = omega, c.clutch_engine = ce, c.clutch_wheel = cw;
-    d.shift_clutch_torque = shift;
-    c.turbo_load = load, c.turbo_load_prev = load_prev, c.turbo_spool = spool, c.rev_limiter = limiter; // (what its own engine torque left)
+    x.drive.hybrid = x.hybrid, x.drive.hybrid_car = &k;
+    rules::axle_step(c, x.drive, x.layout, t.drive);
+    x.hybrid = x.drive.hybrid, x.drive.hybrid_car = nullptr;
 }
 
 // 0x3BABC8: the gearbox without steps: forward or reverse alone (the engine's for a stepless box, which also slips its clutch).
@@ -630,7 +722,6 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     if (c.p.d.kind == 3) c.clutch = 0, c.clutch_req = F(); // (the hybrid's by its request alone, 0x3B9DE8)
     rules::brakes_and_clutch(c, dx, x.layout); // (0x3B9E10: Gran Turismo 4's 0x3511A0 in its layout)
     if (c.p.d.kind == 3) c.clutch_req = request, c.clutch = request == F() ? 0 : 1;
-    if (c.p.special == 8) c.clutch = 1;
     rules::rolling_resistance(c, x.layout, t.road); // (0x3BBF18: Gran Turismo 4's 0x3534A0 in its layout)
     rules::tire_curves(c, x.tires, x.layout);       // (0x3BA538: 0x351850)
     prologue::class_grip(c, x.layout, grip);
@@ -644,7 +735,7 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     rules::wheel_torques(c, dx, x.layout);
     rules::vectoring(c, dx, x.layout);
     const bool hybrid = c.p.d.kind == 3;
-    if (hybrid) hybrid_axles(c, x, s, t);
+    if (hybrid) hybrid_axles(c, x, t);
     else rules::axle_step(c, dx, x.layout, t.drive);
     rules::wheel_speeds(c, dx, x.layout);
     if (hybrid) {
@@ -681,8 +772,31 @@ F offset_aim(const ex::Car& c, const CarPart& x, const rules::SteerTables& g, in
 
 } // namespace
 
+F wheel_angle(const ex::Car& c, const CarPart& x, const Tables& t, int w) {
+    const rules::WheelLayout& l = x.layout;
+    const size_t i = size_t(w);
+    const bool steered = w < l.count && gt3r::s8(l.fore_aft[i]) > 0;
+    if (l.kind == 1) {
+        if (!steered) return F();
+        const F gain = gt3r::ee::cos(t.lean_gain[x.special_row < 3 ? x.special_row : 0]);
+        const F lean = gt3r::ee::cos(c.roll - c.ground_roll);
+        return c.steer_cmd * (gain * (F::raw(0x40400000) - (lean + lean)));
+    }
+    const F delta = c.steer_cmd;
+    F a = F();
+    const u8 side = l.side[i];
+    if (steered) {
+        a = delta;
+        if (side < 2) a = a * c.p.steer_ratio[F() <= delta ? side : 1u - side];
+    }
+    const F toe = c.p.toe[w < l.count ? l.axle[i] & 1u : 0];
+    if (side == 0) a = a - toe;
+    else if (side == 1) a = a + toe;
+    return a;
+}
+
 void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
-    ex::wheel_steer(c);
+    for (int w = 0; w < x.layout.count && w < 4; ++w) c.w[size_t(w)].steer = wheel_angle(c, x, t, w);
     const rules::SteerTables& g = t.steer;
     if (g.mode == 0) return;
     const rules::WheelLayout& l = x.layout;
@@ -709,6 +823,7 @@ void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
             if (lim < o) x.tires.steer_offset[i] = lim, x.offset_rate[i] = F();
             else if (o < -lim) x.tires.steer_offset[i] = -lim, x.offset_rate[i] = F();
         }
+        c.t[i].steer_sin = x.offset_rate[i], c.t[i].steer_cos = x.tires.steer_offset[i]; // (the drive block's +0x18 / +0x1C)
     }
 }
 

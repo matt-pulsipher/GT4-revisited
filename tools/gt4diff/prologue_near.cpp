@@ -50,8 +50,7 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
             ex::load_image(before[size_t(i)], im.data());
         }
         mine = before;
-        ex::proximity(mine, k);
-        sim::prologue::near_drivers(mine);
+        sim::prologue::proximity(mine, k);
         pending = true;
         const u32 ra = e.g32(31);
         if (exit_at) return;
@@ -70,6 +69,13 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
                 compare(after, rest, st_rest);
                 nonzero += !(after.slip_target == gt3r::ee::F());
             }
+            for (int i = 0; i < r.cars; ++i)
+                for (int j = 0; j < r.cars; ++j) {
+                    if (i == j) continue;
+                    out.table_values += 2;
+                    out.table_equal += x.r32(r.cond + 0xDBF4 + 4 * u32(8 * i + j)) == k.slip[size_t(i)][size_t(j)].bits;
+                    out.table_equal += x.r8(r.cond + 0xDCF4 + u32(8 * i + j)) == k.code[size_t(i)][size_t(j)];
+                }
         });
     });
     for (int i = 0; i < steps; ++i) {
@@ -82,6 +88,8 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
                     "contact (%llu with a slipstream)\n",
                     course.c_str(), r.cars, steps, (unsigned long long)st.calls, (unsigned long long)st.clean, (unsigned long long)st_rest.clean,
                     (unsigned long long)nonzero);
+        std::printf("prologue-near: the pairs' slipstream factors and position codes: %llu of %llu equal\n", (unsigned long long)out.table_equal,
+                    (unsigned long long)out.table_values);
         for (const auto& [name, f] : st.fields)
             std::printf("    %-24s differs in %llu, most by %.3g; %s\n", name.c_str(), (unsigned long long)f.off, f.worst, f.example.c_str());
     }
