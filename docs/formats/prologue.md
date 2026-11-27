@@ -156,7 +156,7 @@ places (`~/gt4re-out/prologue8/shots/m_cmp.png`). The car's shadows go with its 
 in-car view's own car has none (the original's grid shows none; with mount 0's place ours showed its front edge).
 The menus' 3D car (car faces) takes these files too.
 
-## The program ✅ recognized, 🔎 tables
+## The program ✅ recognized, ✔ tables as values
 
 `CORE.GT4`: load 0x100000, entry 0x106A98, 4,901,192 bytes; 13,831 functions, 510 classes with
 run-time type names (`analyze.py --text-end 0x4FC12C`). Gran Turismo 4's `sim::Program` does not
@@ -188,6 +188,20 @@ phase 0x3DEDE0 reads the steering prefilter row at +0x70, the automatic shift 0x
 kinds, stick curve, tire effect kinds and scales.
 `gt4tool prologue <disc> program` prints the build's routines, these tables and, for each table
 not located, the place in the data most like Gran Turismo 3's values.
+
+**Its tables as values** (`sim/program_tables_prologue.*`, `program_tables_prologue_values.inc`): every area of the program that
+GT4R reads on a Prologue disc, 17 areas, 3,812 bytes (the demonstrations' delta bases 0x5031D8, the static block 0x503208, the
+special rides 0x503CB0, tire curve B / the soft materials / the machine test's sectors 0x503E18, the tire effects 0x503EA0, the
+steering force's bytes 0x503F20, the wheel layouts and special rows 0x503FA8, the camber force's terms 0x504294, the flaps
+0x50430C, the grid lines 0x504518, the hybrid's tables and the finish camera 0x504548, the input globals, controller settings,
+the race start's constants and the effects block 0x504930, the stock tires' labels 0x505298 / 0x573A68, the computer drivers'
+tables 0x506510, the race display's 0x5711C0, the spec's defaults and the view follower's gains 0x571C78), each a struct with
+named fields packed into its bytes, pinned by a hash (the test `prologue_tables_values`). `sim::Program` serves them on every
+Prologue disc, a recognized build or not (never Gran Turismo 4's or the shared engine's); the disc's program is compared with them
+once and logged (17 of 17 equal on SCPS-15055 v1.01, the test `disc_prologue_tables_equal_the_disc`); a read outside them is the
+image's and logged (each 256 bytes once). The license tests' rules, which the program makes in code (0x3E1C20's switch on the
+test's number, its table 0x572CC0), and the penalty's cap (the constant 0x3C5B48 loads, 50 km/h) are values too
+(`prologue_lesson_rules`), the test decoding the disc's code at test time: 36 of 36 equal.
 
 ## The race step ✔
 
@@ -367,8 +381,8 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   the steering angles of 0x3B5A20 (`prologue::wheel_angle`), the aids' indicators 0x3E02A0, phase 19's suspension 0x375F58, phase 14's pairs 0x3DC1C8, at the set-up new tires 0x3C8878 over the layout and the step's length 0x3C9F00, the hybrid's axles (Gran Turismo 4's 0x36D818 with Prologue's box on the engine torque 0x3BD6F8 = 0x3554A0).
 - *At the start* (`start_prologue.cpp`): the pose's wheels, the standing start 0x3C8E10 and the moving start 0x3C9108,
   Prologue's own (the set-up equal field for field, `GT4R_START=1`, on the Civic, Impreza WRC, Prius, SL55 AMG, `mtr_gmv_04`,
-  GT-One and Viper, but for what no step reads: the plan of a car no driver was made for, the Prius's hybrid box over two
-  of the engine record's places, the lap and pit box of a course with pits).
+  GT-One and Viper, but for what differed before them too: the plan of a car no driver was made for, the Prius's hybrid box
+  over two of the engine record's places, the lap count and pit box on Fuji and Seattle ❓).
 
 Still not run, or not Prologue's own:
 
