@@ -5,6 +5,7 @@
 // values behind them are the runtime's GameState and the disc's car database.
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
+#include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/earlier_saves.h"
@@ -1472,6 +1473,13 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     rt.keep_alive(n);
     Runtime* r = &rt;
     GameState* s = &rt.game();
+    // A mod car's pictures by its label: the body car's of the disc stand in (their sizes place the faces; mod_cars.h).
+    rt.reader() = [read = rt.reader(), g = n.get()](const std::string& path) -> std::optional<Bytes> {
+        std::optional<Bytes> file = read(path);
+        if (file || path.find("piece/") == std::string::npos || !g->database->db) return file;
+        if (const std::optional<db::ModCars::Picture> p = g->database->db->mod_cars().picture(path); p && !p->disc.empty()) return read(p->disc);
+        return file;
+    };
     // The dealers' lists with the mods' cars as the file is read (mod_car_lists.cpp).
     rt.vm().after_load = [g = n.get()](Vm&, const std::string& name, const std::shared_ptr<script::Module>& into) {
         if (name.size() >= 8 && name.compare(name.size() - 8, 8, "_carlist") == 0) add_mod_cars_to_lists(*g, into);

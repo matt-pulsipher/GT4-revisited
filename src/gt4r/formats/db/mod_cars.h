@@ -117,6 +117,15 @@ public:
     // A mod car's CARS/<code> file (the parts that fit it); none for any other code.
     std::optional<Bytes> car_file(u64 code) const;
 
+    // A mod car's picture the menus ask for by its label, "piece/<folder>/<label>.img" (a leading slash or none): the strip's
+    // (car_mini), the showroom's (car_pict), the name's artwork (car_logo, car_logo2). `disc`: the body car's picture of that
+    // folder, for its size and as the picture where the mod brings none (none for the name's artwork, which would name the
+    // other car); `png`: the mod's own picture ([dealer] thumb, picture, logo), a host path. None for any other path.
+    struct Picture {
+        std::string disc, png;
+    };
+    std::optional<Picture> picture(std::string_view path) const;
+
 private:
     struct PaintGroup {
         u32 from = 0, to = 0;              // the donor's (or body car's) paint group and the car's

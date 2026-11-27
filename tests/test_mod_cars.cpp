@@ -4,6 +4,7 @@
 
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/db/mod_cars.h"
+#include "gt4r/save/game_data.h"
 #include "gt4r/sim/car_spec.h"
 
 #include "base/file.h"
@@ -178,6 +179,15 @@ TEST(mod_car_rows) {
             if (u32(code >> 32) == u32(db::PartTable::FrontTire) && u32(code) >= 0x40000000u) own_tire = true;
         }
     CHECK(own_tire);
+
+    // A save keeps it by its code, and the menus' pictures stand in with the donor's.
+    const save::Codes codes = save::database_codes(sdb);
+    CHECK(codes.code(0, "gt4r_test_coupe_26") == u64(car->car_id) && codes.label(u64(car->car_id)) == "gt4r_test_coupe_26");
+    const std::optional<db::ModCars::Picture> mini = mods.picture("/piece/car_mini/gt4r_test_coupe_26.img");
+    CHECK(mini && mini->disc == "piece/car_mini/impreza_wrx_sti_00.img" && mini->png.empty());
+    const std::optional<db::ModCars::Picture> logo = mods.picture("piece/car_logo2/gt4r_test_coupe_26.img");
+    CHECK(logo && logo->disc.empty());
+    CHECK(!mods.picture("piece/car_mini/impreza_wrx_sti_00.img"));
 
     // The race builds it: its weight, power, gears and tires in the spec.
     const sim::Program program = sim::Program::load(*disc);

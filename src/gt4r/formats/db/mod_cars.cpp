@@ -985,6 +985,27 @@ void ModCars::extend(const std::string& pool, Strings& s) const {
     s.strings.insert(s.strings.end(), it->second.begin(), it->second.end());
 }
 
+std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
+    while (!path.empty() && path[0] == '/') path.remove_prefix(1);
+    if (path.rfind("piece/", 0) != 0 || path.size() < 10 || path.substr(path.size() - 4) != ".img") return std::nullopt;
+    const size_t slash = path.find('/', 6);
+    if (slash == std::string_view::npos) return std::nullopt;
+    const std::string folder(path.substr(6, slash - 6)), label(path.substr(slash + 1, path.size() - 4 - slash - 1));
+    const ModCarDef* d = def(label);
+    if (!d) return std::nullopt;
+    // The mod's files are named from its folder (the one cars/ is in).
+    std::string root = d->file.substr(0, d->file.find_last_of('/') + 1);
+    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    auto own = [&](const std::string& p) { return p.empty() ? std::string() : p[0] == '/' ? p : root + p; };
+    const std::string body = d->body.empty() ? d->donor : d->body;
+    Picture out;
+    if (folder == "car_mini") out.disc = "piece/car_mini/" + body + ".img", out.png = own(d->thumb);
+    else if (folder == "car_pict") out.disc = "piece/car_pict/" + body + ".img", out.png = own(d->picture);
+    else if (folder == "car_logo" || folder == "car_logo2") out.png = own(d->logo);
+    else return std::nullopt;
+    return out;
+}
+
 std::optional<Bytes> ModCars::car_file(u64 code) const {
     const auto it = car_files_.find(code);
     if (it == car_files_.end()) return std::nullopt;
