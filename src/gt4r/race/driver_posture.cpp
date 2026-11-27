@@ -249,12 +249,12 @@ F pedaling(F x) {
 
 } // namespace
 
-PostureInput driving_posture(const Cockpit& c, const DriverRecord& r, V3 pos, V3 angles, bool co_driver) {
+PostureInput driving_posture(const Cockpit& c, const DriverRecord& r, V3 pos, V3 angles, bool co_driver, bool by_class) {
     const F zero = f(0), one = f(1);
     PostureInput in;
     Controls& k = in.controls;
     Places& p = in.places;
-    const FigureClass cls = figure_class(c.kind);
+    const FigureClass cls = by_class ? figure_class(c.kind) : FigureClass::Whole;
     bool move_lever = true, move_feet = true;
     if (cls == FigureClass::Board) {
         k.no_twist = 1;
