@@ -267,7 +267,8 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
 - **Layout 7's motors** (four wheel drive system 5: the Acura DN-X; ours `rules_motors.*`): the converter's 0x355978 makes
   25 floats at 0x8438C0 of the bytes 0x62045A .. 0x620474 (the front motors' and rear motor's ratings 20 / 35 kW, their torque
   caps driving and regenerating, the store's capacity 15 x (2 front + rear), its marks, the charging caps, the idle charge,
-  the yaw split's gains and dead bands, the flow counter's scale); the set-up fills the store (car +0x788, 0x355DC8), the
+  the yaw split's gains and dead bands, the flow counter's scale); the set-up fills the store (car +0x788 = the capacity, 0x8438DC, 0x355DC8; ✔ in Japan's program in the interpreter, the
+  Dualnote of Rdemo16 bit for bit), the
   signed byte car +0x78D counts the flow (0x355E40, -100 .. 100). The motors' demand (0x3561D0): -1 at or below the
   engine's share of the full power (its power over that plus twice the rear rating), above it twice the rest over the rest
   of the range x the store's share between its marks (0x356168), held at 1 outside gears 1 .. 7, less 1. In the torque
@@ -979,7 +980,8 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
     1.25) in 0x3E0FF8 are the PAL picture's. Our views keep their own (the window's shape).
 - **Japan** is an earlier build with its data moved (0x620AD8 there 0x618040). The address words in its tables are its
   own (11 of them, not counted as differences).
-  - The engine condition's oil is old from **5,000 km** (static +0xD7 = 50; v1.01 60). ✔ Served.
+  - The engine condition's oil limit (static +0xD7) is 50 (5,000 km; v1.01 60). ✔ Served. Japan's torque factor reads no
+    limit past the fresh oil's (0x34AFD0, below): the byte takes nothing off there.
   - Its static block lacks v1.01's +0x14E .. +0x155 (100 x 5, 0, 0, 4), 8 bytes: what follows is 8 bytes earlier there,
     and Japan's code reads it there (v1.01's 0x620E30 is Japan's 0x618390). Served as 0.
 - 🔎 **The code**: of the routines our simulation and race code port, Europe changes 81 and Japan 106 (`build_map`
@@ -1022,28 +1024,75 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
 - ✔ **The player's car after the test** (0x3F14A8, v1.01 0x3F8818): after a stop in the box, passed or failed, it coasts
   down (v1.01: it brakes to a stop when passed). `race::license_end_mode`.
 - ✔ **The stop driver's count** (0x45D238, v1.01 0x464C38): 120 steps from kind 5 after kind 4 too (v1.01: not). `Field::set_kind`.
-- Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
-  splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
-  not run alone, and does not write F +0x5C1; the skill (0x3EA6A8, 0x3EA8F0),
-  the engine condition (0x34AFD0), odometer (0x358330), converter (0x35BEC8), the attitude's layout-7 lift (0x365610), the
-  start (0x35E050's other calls), the pits (0x355708, 0x34D930, 0x3555C8, 0x356700), the recorder (0x354458), the
-  points (0x3BA528) and the rolling start (0x33FAA8: it no longer lets the car go at once, 0x345218, and changes line
-  without the blend).
+- ✔ **The spreads' switches during the set-up**: the switches (0x61B3A8 +0xA / +0xB) are 0 in the image and set by the
+  single race's preparation after every car is set up, so the plans the set-up makes (each driver's first arcs' speeds and
+  braking) take no draw; the race's first step and on, they do. `Field::step` (`spread_live_`).
+- ✔ **The pace level at the set-up** (0x3EA6A8, v1.01 0x3F1890): the player's level (0x6195D8) for control source 1 only;
+  a pad car's driver (control source 0) takes the computer drivers' (0x6195D9) with passing allowed but in a run alone
+  (v1.01: control sources 0 and 1 the player's, no passing). Both bytes are 2. `Field::set_shadow`.
+- ✔ **The B-spec commands** (0x3EA7E8, v1.01 0x3F19E0; 0x3EA8F0, v1.01 0x3F1BD8): passing turned off keeps the driver's line
+  (v1.01: a passing line back to the main line); the pit command takes and drops the request at any time (v1.01: not
+  before the first crossing nor after the laps, 0x343C20) and keeps no mark F +0x5C1 (Japan's program has no F +0x5C1 at
+  all). There is no command 10 (v1.01's driver change). `Field::command`, `PitStops::command`.
+- ✔ **The record and skill at the race's start** (the conductor's virtual 28, 0x3EAB68, v1.01 0x3F1E60): for control
+  source 1 only (v1.01: 0 or 1). Ours sets the B-spec driver's skill after the set-up's plans, as both programs do
+  (`RecordedRace`, `RaceWorld::arm_bspec`); a pad car's driver takes none in either.
+- ✔ **A car's run over and the rolling start's hold** (0x33FAA8, 0x33FCC8, 0x33FC48, 0x33FD48; v1.01 0x3452F0, 0x345520,
+  0x3454A8, 0x345598): no change for control source 4; the driver asks for the main line from any line, blended (v1.01: from
+  the passing line 7 alone, at once), and takes its kind (1, 6 or 5) only when the change is made; on the drag strip modes 1
+  and 3 keep the lane (both). `Field::finish`, `Field::hold_rolling`.
+- ✔ **The odometer** (0x358330, v1.01 0x35DD00): the car's distance F +0x5D0 wraps at 8,000 km (v1.01 80,000 km); no
+  distance while control source 1 (F +0x6AC, v1.01's). `rules::speeds`.
+- ✔ **The engine condition's factor** (0x34AFD0, v1.01 0x350868): the oil's part is its gain while fresh (below 0 the
+  share of the gain, under the limit +0x14 the whole) and 1 after; v1.01 takes up to the gain off past the limit +0x20.
+  `condition_factor` (both), `engine_condition`. Checked: `gt4r_diff <jp> showroom`'s 260 condition blocks equal to Japan's
+  program (221 with v1.01's rule).
+- ✔ **No lift of the speed part of kind 7** (the converter 0x35BEC8, v1.01 0x361908; the attitude 0x365610, v1.01 0x36B0C8;
+  the car's figure 0x3F13A0, v1.01 0x3F86E8): Japan's converter sets P +0x1084 to the kinds' common term for kind 7 too
+  (v1.01: +0x50 x 98 N) and keeps the kind when the ride heights differ by more than 3 cm (v1.01: the kind and the lift
+  dropped); its attitude takes no lift under the body, and its figure no grip from it. `BodyExtra` (`body_extras`), the
+  converter, `pace_figure`, `rules::attitude` (`BodyGlobals::japan`). The parameter blocks of all 711 stock cars equal
+  Japan's program's in every word either way (`gt4r_diff <jp> params`: none has kind 7).
+- ✔ **The pits** (0x33E440, v1.01 0x343C20; 0x34D930, v1.01 0x353218; 0x3555C8, v1.01 0x35AF18; 0x355708, v1.01 0x35B060;
+  0x3565A0, v1.01 0x35BF08): the car's race state is 0 or 1 (no state 2: its laps done before half the lap is racing), so
+  no service once the laps are done; the request is not made once the race's time limit has passed or its laps are crossed
+  (its crossings less its backward ones), and a B-spec car's request takes the stop as a computer car's does (no F +0x5C1);
+  the wait for the player's choice in the box (300 steps, F +0x64C) is every car's in a B-spec race (the conductor's mode
+  K +0xCBDC 1; v1.01: the B-spec car's in any race); the wait's end changes no driving mode (v1.01: the command 10), and the
+  pit menu (`menu/common/pitmenu.strb` on Japan's disc) has no Driving Mode item. `pit_flow` (`LapStateInputs::japan`,
+  `PitInputs::japan` / `mode`), `PitStops`, the pit menu's `PitChoice::mode`. Not checked against a recorded stop (no
+  file of Japan's has one) 🔎.
+- ✔ **The A-spec points** (0x3BA528, v1.01 0x3C1220): taken by the place alone (v1.01: none when the B-spec driver drove any
+  of the race, car +0x7B0, which Japan's cars do not keep). `ScreenRace::aspec_taken`.
+- ✔ **A license test's section times** (its conductor's virtual 19 0x3EF090 and 21 0x3EF268, with 0x3EF010; v1.01 0x3F63A0,
+  0x3F6588, 0x3F6320): shown only while the test's laps (at least 1) x its sectors (the conductor's virtual 42: the road's
+  split points + 1) are at most **4** (v1.01 16): of the 76 timed tests, S-15 (7 sectors), S-16 and IA-15 (12) show none, nor any of 2 laps or more with 3 sectors or more. The
+  difference to the best run's section (0x358C70 = v1.01 0x35E6B0, the time difference event against the race's +0x928) only
+  when K +0xF858 is 0 (v1.01: or a test of kind 6), and the same for the end's (0x3F1738, v1.01 0x3F8AB0): ours shows no such
+  difference in either 🔎. `ScreenRace::step_splits`. Judged from the code; not looked at in a picture.
+- Read, not ported 🔎: the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 (0x3578B0, the
+  race's record of each car's sector times, K +0xD600 ..) at a sector crossing, nor clear F +0x5C1: what Japan's display
+  shows of the sector gaps is not read (ours times its own). The recorder's start (0x354458, v1.01 0x359D40) has no lap
+  offset for the display (v1.01: K +0xCBE5 a draw of 0 .. 2 while the global 0x620208 is set, nothing a race reads). The
+  car set-up's other calls (0x35E050) are read as the same.
 - Read, not used by our race: the race step (0x348288) leaves out the player's pit menu and refuelling step (0x35BE60) in both
   replay modes (2 and 3; v1.01 in mode 2), and runs the end countdown (0x35F658) only when the conductor's mode is 0 (v1.01:
   when the race object's replay mode is 0).
 
 With these, our race ends on the program's time in all 73 timed files the program ends, and on the recorded time in **73 of 76**
 (the three cone tests too; the misses are the program's own three). Its cars' places equal the program's in every bit to the end in
-75; in IB-15 the pace car parts from the program's 57 steps before the end, after its own run is over 🔎.
+75; in IB-15 the pace car parts from the program's 57 steps before the end, after its own run is over: at step 8271 its
+distance along the course (F +0x4A4, 0x3955E8) is -0.0105 m in the program (the first gate pair's, just short of its start)
+and the lap less 0.0105 m in ours (the last pair's), so the program counts its line a step earlier (its kind 5 and lap base
+F +0x614 there) 🔎. Rechecked after groups 3 and 4 (`beside_all.sh`): the same 73 of 76, 75 bit for bit.
 
-**The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo12`, 11 with a recorded time): Japan's files keep 0 or 4 in the
-race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last (the
-harness and `RecordedRace::exact` score that too). Japan's program in the interpreter ends **7 of 11** on their times (Rdemo2, 5,
-6 and 12 miss ❓). Our race of each file alone equals the program's in every bit to the end in 11 of 13, and ends **7 of 11** on the
-recorded time, the program's 7 (Rdemo0, 3, 7, 8, 9, 10, 11). Rdemo5 and Rdemo12 (B-spec races) part from the program's at their
-32nd and 36th steps: the computer drivers' speeds in the arcs (D +0x24) and the B-spec driver's ❓; the drivers' check
-(`gt4r_diff <jp> ai`) finds every driver routine equal at Tsukuba (6 cars, 3 laps) and Laguna.
+**The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo16`, 17 files, 15 with a recorded time): Japan's files keep 0 or 4
+in the race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last
+(the harness and `RecordedRace::exact` score that too). Our race of each file alone equals Japan's program's in the interpreter
+in every bit to the end in **all 17**, and ends **8 of 15** on the recorded time, the program's 8 (Rdemo0, 3, 7, 8, 9, 10, 11,
+15). The other 7 end their one lap 12 to 21 s under the file's time (Rdemo2, 5, 12, 13, 14, 16) or 224 ms over it (Rdemo6),
+the program as ours ❓ (not a rule of the drivers or the cars: the program's run is the console's file's, step for step, as
+far as the harness can tell; the clock's start or the file's time word is the open question).
 
 ## 6. The ground
 
@@ -1150,7 +1199,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The driver's input (phase 5, 0x349FD0: the pad's controls 0x349418, the steering 0x348850 and its follower 0x3485D0, the clutches 0x3481D8 / 0x348368 / 0x348428, the pedal curves, the prefilter, a pit stop's answer and a B-spec command from the frame, the nitrous's trigger; the controls' tables 0x347A00 and the pace levels 0x3F1790) | `rules_input.*` through `session.cpp` | Gran Turismo 4 (§3.4): equal at every call for controller kinds 0, 2, 3, 4 and 6, digital and analog axes, pedal styles 0 .. 7, the back and third axes, wheel types, the one-speed, stepless and kind 4 boxes; a frame given (`race::PadRecord`: a recording's, or the player's, input.md) or one made from `race::CarInput`'s fields (an analog pad of kind 3: the sweeps and checks); the computer's paths are the session's (0x464F38's outputs, 0x3F3400); the active steering runs for a car whose caller gives its line's heading and mode each step (`set_line_heading`; the race world does, from `Field::line_heading_at` / `line_mode_at`); the course's kind and road byte from its COURSE row (`sim::course_row`; without a row dirt is guessed from the first start place) |
 | Proximity and slipstream (phase 14, 0x3F4638 and its pair routines), the part that changes with speed (phase 15, 0x3F28B8) | `rules_near.*` through `session.cpp` | Gran Turismo 4: equal at every call (six computer cars at Tsukuba and Grand Canyon, the nine cars with the part); the distance along the course and its rate (F +0x4A4, F +0x650) are ours (`distance_along`), the drivers' line 4 not known (a car on it is not left out) |
 | The start: the car's set-up (0x363B10 from the converter on: the pose 0x3630C0, the standing start 0x363560, the rolling hold 0x3452F0, the moving start 0x363868), the countdown's hold per car (0x34C210, cond + 0xCBFC + 4 i into F +0x4BC), the attitude's start hold (0x36AE20), the rolling start's release (0x345228 through the conductor's virtual 20) | `rules_start.*` through `session.cpp` (`setup`, `release_start`, `place_standing`, `set_pit_hold`, `set_countdown`) | Gran Turismo 4: equal at every call; the grid pose at Grand Canyon equal to the original's saved states; a rolling start's place on the road's middle, not the driving line (0x34C5E0 / 0x46ADE8); the session's countdown is its last 2 s (120 steps) before time 0 |
-| Japan's disc (SCPS-17001 v1.05) | the same files, `Program::release()` | Japan's own rules where its program differs and they are ported (§5 "Japan's rules"): TCS, the ground's normals, proximity and the closing, the drivers' lines, arc speeds and spread, the test's end; the other changed routines run v1.01's rules 🔎. Checked against Japan's program in the interpreter: our race ends on the program's time in all 76 timed license files |
+| Japan's disc (SCPS-17001 v1.05) | the same files, `Program::release()` | Japan's own rules where its program differs and they are ported (§5 "Japan's rules"): TCS, the ground's normals, proximity and the closing, the drivers' lines, decisions, lanes, arc speeds and spread (its switches after the set-up), the pace levels and B-spec commands, a run's end and the rolling hold, the test's end and section times, the odometer, the engine condition, no kind-7 lift, the pits, the A-spec points; the lap step's sector record and the race step's replay skips are read, not ported 🔎. Checked against Japan's program in the interpreter: our race ends on the program's time in all 76 timed license files (75 bit for bit), and all 17 Replay Theater races bit for bit |
 
 **What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` calls the shared engine's step
 routines only on its own rules (`GT4R_SIM_RULES=engine`) and Prologue's; its math

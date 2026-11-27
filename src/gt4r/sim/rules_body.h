@@ -19,6 +19,7 @@ struct BodyGlobals {
     std::array<F, 2> bump_knee, bump_share, rebound_knee, rebound_share; // 0x620CB8 / CC0 / CC8 / CD0 + 4 axle
     std::array<F, 6> in_line;                                            // 0x62076C .. 0x620780: the in-line layout's roll terms
     SpeedDampTables damp;                                                // 0x622268: the speed-switched part's damping rows (0x3F2650)
+    bool japan = false; // SCPS-17001 v1.05's attitude (0x365610): no lift under the body for the speed part of kind 7
 };
 constexpr u32 kLateralGeometry = 0x620E11, kNormalMode = 0x620DEC, kDamperLinear = 0x620DD9, kDamperTable = 0x620CB0;
 constexpr u32 kDamperKnees = 0x620CB8, kInLine = 0x62076C;

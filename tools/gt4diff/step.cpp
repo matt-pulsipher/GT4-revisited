@@ -87,7 +87,10 @@ std::optional<std::array<gt3r::ee::F, 3>> driver_grip_of(TapCall& t) {
 }
 
 sim::rules::BodyGlobals body_globals(Ee& ee) {
-    return sim::rules::body_globals([&](u32 a) { return ee.r32(a); }, [&](u32 a) { return ee.r8(a); });
+    auto at = [](u32 a) { const u32 j = pa_or_0(a); return j ? j : a; };
+    sim::rules::BodyGlobals g = sim::rules::body_globals([&](u32 a) { return ee.r32(at(a)); }, [&](u32 a) { return ee.r8(at(a)); });
+    g.japan = japan();
+    return g;
 }
 
 void add_taps(Taps& taps) {
