@@ -141,6 +141,9 @@ public:
     // Its backward crossings to take back first (F + 0x4B0: a pit start's, race::planned_back).
     int start_back(size_t car) const;
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
+    void set_back_crossings(size_t car, u8 n) {
+        if (session_) session_->set_back_crossings(car, n);
+    }
     void set_crossings(size_t car, int n) {
         if (session_) session_->set_crossings(car, n);
     }

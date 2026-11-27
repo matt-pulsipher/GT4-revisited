@@ -4,6 +4,7 @@
 
 #include "gt4r/sim/rules_fuel.h"
 #include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_motors.h"
 #include "gt4r/sim/rules_wheels.h"
 
 #include "base/ee_math.h"
@@ -58,6 +59,8 @@ StartTables start_tables(const Program& program) {
     if (!program.known()) return t;
     t.fuel_less = program.b(0x620E24);
     t.steer_mode = program.w(kSteerMode);
+    // (0x8438DC is the motors' table's capacity, which 0x355978 makes at a layout-7 car's conversion: the only car that reads it)
+    t.motor_scale = motor_tables(program).capacity;
     return t;
 }
 

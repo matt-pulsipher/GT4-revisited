@@ -83,6 +83,7 @@ void convert_base_grips(const Program& program, ParamBlock& p, u32 axles);
 // second word's l[5] (negative) and l[6], l[7] its greatest, l[8] where its fall starts.
 struct ConditionTable {
     gt3r::ee::F l[9];
+    bool japan = false; // SCPS-17001 v1.05's factor (0x34AFD0): old oil past l[8] takes nothing off
 };
 ConditionTable condition_table(const Program& program);
 

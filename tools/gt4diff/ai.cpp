@@ -769,6 +769,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             calls = std::make_unique<CallChecks>(ee, o, *field, *pcars, lap_length, tally);
             calls->install();
         }
+        field->prepared(); // (the program's race is prepared: its switches set)
         // GT4R_AI_PITCHECK: the pit pass (0x359008 / 0x35B060) against ours at every call (pit_check.cpp).
         if (std::getenv("GT4R_AI_PITCHECK")) {
             // (the race information's laps, the conductor's virtual 37: the pits' race state reads them)

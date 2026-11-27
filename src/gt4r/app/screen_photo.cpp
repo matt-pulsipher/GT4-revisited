@@ -6,6 +6,7 @@
 #include "gt4r/app/menu_cursor.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_painter.h"
+#include "gt4r/app/photo_exposure.h"
 #include "gt4r/app/photo_faces.h"
 #include "gt4r/app/race_world.h"
 
@@ -51,7 +52,6 @@ public:
         rt_.photo.reset();
         rt_.photo_picture.reset();
         menu::text_measure().measure = measure_before_;
-        if (target_) SDL_DestroyTexture(target_);
     }
 
     void update(App& app, double dt) override {
@@ -250,8 +250,10 @@ private:
     race::ViewPose pose(const menu::PhotoShoot& s) const {
         race::ViewPose p;
         p.eye = s.camera.eye, p.view = s.camera.view();
-        const float py = scales(s)[1];
-        p.fov = 2 * std::atan(1.0f / (py * 0.75f)); // (ViewPose's is across a 4:3 picture's width)
+        // (ViewPose's angle is across a 4:3 picture's width, a narrower picture keeping that width: a square or upright photo's
+        // height is 1 / py over its width's ratio)
+        const float py = scales(s)[1], ratio = picture_ratio(s);
+        p.fov = 2 * std::atan(ratio >= 4.0f / 3.0f ? 1.0f / (py * 0.75f) : ratio / py);
         // Its near plane by its angle, taken no narrower than 45 degrees (CameraPhotoBase::vf12 0x400CB8).
         p.near = race::lens_near(std::max(s.camera.angle, 45.0f) * kPi / 180.0f);
         return p;
@@ -496,108 +498,40 @@ private:
     void begin_exposure() {
         menu::PhotoShoot& s = *rt_.photo;
         s.rendering = true;
-        sample_ = 0;
         const bool stand = s.stand;
         const int w = s.aspect.w * photo::kTiles, h = s.aspect.h * photo::kTiles;
-        width_ = stand ? h : w, height_ = stand ? w : h;
-        sum_.assign(size_t(width_) * size_t(height_) * 3, 0);
-        dark_.resize(size_t(width_) * size_t(height_) * 2);
-        const photo::Vignette rings[2] = {course_vignette(), photo::vignette(s.filters)};
-        for (int y = 0; y < height_; ++y)
-            for (int x = 0; x < width_; ++x)
-                for (int k = 0; k < 2; ++k)
-                    dark_[(size_t(y) * size_t(width_) + size_t(x)) * 2 + size_t(k)] = u8(rings[k].alpha((float(x) + 0.5f) / float(width_) * 2 - 1, (float(y) + 0.5f) / float(height_) * 2 - 1) * 128);
+        exposure_.begin(stand ? h : w, stand ? w : h, s.correction(), {course_vignette(), photo::vignette(s.filters)});
         samples_ = photo::samples(photo::kSamples);
-        const photo::Correction c = s.correction();
-        for (int i = 0; i < 256; ++i) {
-            photo::Correction one = c;
-            one.saturation = 1;
-            const auto v = one.apply(u8(i), u8(i), u8(i));
-            for (int k = 0; k < 3; ++k) lut_[k][i] = v[size_t(k)];
-        }
         rt_.photo_picture = std::make_shared<menu::PhotoPicture>();
     }
 
     void expose(Ui& ui) {
         menu::PhotoShoot& s = *rt_.photo;
-        SDL_Renderer* r = ui.renderer();
-        if (!target_ || target_w_ != width_ || target_h_ != height_) {
-            if (target_) SDL_DestroyTexture(target_);
-            target_ = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, width_, height_);
-            target_w_ = width_, target_h_ = height_;
-        }
-        if (!target_) return void(s.rendering = false);
-        SDL_Texture* before = SDL_GetRenderTarget(r);
-        if (!SDL_SetRenderTarget(r, target_)) return void(s.rendering = false);
-        SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
-        SDL_RenderClear(r);
-        const SDL_FRect all{0, 0, float(width_), float(height_)};
-        const photo::Sample& sample = samples_[size_t(sample_)];
+        const photo::Sample& sample = samples_[size_t(exposure_.sample())];
         const auto [px, py] = scales(s);
         const Focus f = focus(s);
-        const photo::LensShift shift = photo::lens_shift(sample, f.distance, f.f_number, 32, picture_ratio(s), px, py, width_, height_);
-        RaceWorld::Lens lens;
-        lens.shear_x = shift.shear_x, lens.shear_y = shift.shear_y;
-        world_->set_lens(lens);
-        world_->set_grade({});
-        race::ViewPose p = pose(s);
-        p.view = render::translate({shift.move_x, shift.move_y, 0}) * p.view;
-        const RVec right{p.view.at(0, 0), p.view.at(0, 1), p.view.at(0, 2)}, up{p.view.at(1, 0), p.view.at(1, 1), p.view.at(1, 2)};
-        p.eye = p.eye - right * shift.move_x - up * shift.move_y;
-        world_->render(ui, all, cars_, p, 0, -1);
-        world_->set_lens(std::nullopt);
-        if (SDL_Surface* shot = SDL_RenderReadPixels(r, nullptr)) {
-            SDL_Surface* rgba = SDL_ConvertSurface(shot, SDL_PIXELFORMAT_RGBA32);
-            SDL_DestroySurface(shot);
-            if (rgba) {
-                add(*rgba, s);
-                SDL_DestroySurface(rgba);
-            }
+        const photo::LensShift shift = photo::lens_shift(sample, f.distance, f.f_number, 32, picture_ratio(s), px, py, exposure_.width(), exposure_.height());
+        const bool shot = exposure_.shoot(ui, [&](Ui& u, const SDL_FRect& all) {
+            RaceWorld::Lens lens;
+            lens.shear_x = shift.shear_x, lens.shear_y = shift.shear_y;
+            world_->set_lens(lens);
+            world_->set_grade({});
+            race::ViewPose p = pose(s);
+            p.view = render::translate({shift.move_x, shift.move_y, 0}) * p.view;
+            const RVec right{p.view.at(0, 0), p.view.at(0, 1), p.view.at(0, 2)}, up{p.view.at(1, 0), p.view.at(1, 1), p.view.at(1, 2)};
+            p.eye = p.eye - right * shift.move_x - up * shift.move_y;
+            world_->render(u, all, cars_, p, 0, -1);
+            world_->set_lens(std::nullopt);
+        });
+        if (!shot) {
+            exposure_.cancel();
+            s.rendering = false;
+            return;
         }
-        SDL_SetRenderTarget(r, before);
-        if (++sample_ >= photo::kSamples) develop(s);
-    }
-
-    // A picture onto the average: corrected, the vignettes over it, blended (photo::expose).
-    void add(const SDL_Surface& rgba, const menu::PhotoShoot& s) {
-        const float sat = s.correction().saturation;
-        const int weight = photo::exposure_weight(sample_);
-        const int w = std::min(rgba.w, width_), h = std::min(rgba.h, height_);
-        for (int y = 0; y < h; ++y) {
-            const u8* p = static_cast<const u8*>(rgba.pixels) + size_t(y) * size_t(rgba.pitch);
-            u8* out = &sum_[size_t(y) * size_t(width_) * 3];
-            const u8* dark = &dark_[size_t(y) * size_t(width_) * 2];
-            for (int x = 0; x < w; ++x, p += 4, out += 3, dark += 2) {
-                int c[3] = {lut_[0][p[0]], lut_[1][p[1]], lut_[2][p[2]]};
-                if (sat != 1) {
-                    const float gray = 0.3f * float(c[0]) + 0.59f * float(c[1]) + 0.11f * float(c[2]);
-                    for (int& v : c) v = std::clamp(int(sat * float(v) + (1 - sat) * gray), 0, 255);
-                }
-                for (int k = 0; k < 3; ++k) {
-                    for (int ring = 0; ring < 2; ++ring)
-                        if (dark[ring]) c[k] = ((-c[k] * dark[ring]) >> 7) + c[k];
-                    out[k] = photo::expose(out[k], c[k], weight);
-                }
-            }
+        if (exposure_.done()) {
+            s.rendering = false;
+            rt_.photo_picture = exposure_.develop(photo::jpeg_quality(rt_.game().option_text("photo_quality")), focus_record(s));
         }
-    }
-
-    void develop(menu::PhotoShoot& s) {
-        s.rendering = false;
-        auto picture = std::make_shared<menu::PhotoPicture>();
-        picture->width = width_, picture->height = height_, picture->version = ++version_;
-        picture->rgba.resize(size_t(width_) * size_t(height_));
-        for (int y = 0; y < height_; ++y)
-            for (int x = 0; x < width_; ++x) {
-                const size_t i = size_t(y) * size_t(width_) + size_t(x);
-                u32 px = 0xFF000000u;
-                for (int k = 0; k < 3; ++k) px |= u32(sum_[i * 3 + size_t(k)]) << (8 * k);
-                picture->rgba[i] = px;
-            }
-        picture->focus = focus_record(s);
-        picture->jpeg = photo::encode_jpeg(sum_, width_, height_, photo::jpeg_quality(rt_.game().option_text("photo_quality")), picture->focus);
-        rt_.photo_picture = std::move(picture);
-        sum_.clear();
     }
 
     // Where the car is in the picture (0x3785D0): a box round it, a little longer and taller, in -1 .. 1.
@@ -642,12 +576,8 @@ private:
     bool preview_ = false;
     std::string error_;
     // The photo being taken.
-    int sample_ = 0, width_ = 0, height_ = 0, target_w_ = 0, target_h_ = 0;
-    u64 version_ = 0;
+    PhotoExposure exposure_;
     std::vector<photo::Sample> samples_;
-    std::vector<u8> sum_, dark_; // the average so far; the vignettes' alpha, 128 whole
-    u8 lut_[3][256] = {};
-    SDL_Texture* target_ = nullptr;
 };
 
 } // namespace

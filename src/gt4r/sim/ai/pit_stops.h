@@ -68,14 +68,15 @@ struct PitHooks {
 PitHooks session_pit_hooks(Session& session);
 
 // The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the
-// conductor's virtual +0x180), its time limit (minutes, 0 none), and each car's result being in (F +0x4B0).
+// conductor's virtual +0x180), its time limit (minutes, 0 none). (Each car's backward crossings, F +0x4B0, come from the
+// session: Session::back_crossings.)
 struct PitRace {
     int laps = 0;
     bool pits = true;
     u32 limit_minutes = 0;
     bool pit_menu = true; // the race's pit menu (its virtual +0x120) for the player's and the B-spec car (Gran Turismo mode)
-    std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
+    u8 mode = 0;         // the conductor's mode (K +0xCBDC): 0 a race, 1 a B-spec race, 2 a B-spec race's replay
 };
 
 class PitStops {
@@ -85,10 +86,17 @@ public:
     // B-spec's pit command (0x3F19E0 command 6) or any request: the car goes in at the pit lane's entry.
     void request(size_t car) { if (car < cars_.size()) cars_[car].flags |= 8; }
     // The pit command as the program takes it (0x3F19E0 command 6): not before the car's first crossing nor once its laps are run
-    // (0x343C20); on, the request; off, taken back (a request passed on to the lane left: F +0x5C1).
+    // (0x343C20); on, the request; off, taken back (a request passed on to the lane left: F +0x5C1). SCPS-17001 v1.05's
+    // (0x3EA7E8): at any time, and taken back without the mark.
     void command(size_t car, bool on) {
-        if (car >= cars_.size() || last_lap_[car] < 1 || lap_state_[car] != 0) return;
+        if (car >= cars_.size()) return;
         PitCar& c = cars_[car];
+        if (japan_) {
+            if (on) c.flags |= 8;
+            else c.flags &= u8(~8);
+            return;
+        }
+        if (last_lap_[car] < 1 || lap_state_[car] != 0) return;
         if (on) {
             if (!(c.flags & 8)) c.flags |= 8, c.x5C1 = 0;
         } else if (c.flags & 8) {
@@ -133,6 +141,7 @@ private:
     PitLine line_;
     PitHooks hooks_;
     PitRace race_;
+    bool japan_ = false; // SCPS-17001 v1.05's program
     std::vector<PitCar> cars_;
     std::vector<F> last_d_;
     std::vector<int> last_lap_, stops_, lap_state_;

@@ -103,7 +103,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         }
         fs.test_kind = rules.kind;
         RaceFlow flow(fs, session.cars());
-        for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
+        for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_back_crossings(i, flow.car(i).back), session.set_rank(i, flow.place(i));
         LicenseJudge judge(rules);
         std::array<u32, 32> soft{};
         for (u32 m = 0; m < soft.size(); ++m) soft[m] = program.w(sim::Program::kSoft + 4 * m);
@@ -134,7 +134,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             const RaceFlow::Events e = flow.step(session.cars());
             for (const size_t i : e.started)
                 if (session.cars()[i].rolling && (!field || field->release_rolling(i))) session.release_start(int(i));
-            for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
+            for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_back_crossings(i, flow.car(i).back), session.set_rank(i, flow.place(i));
             if (field)
                 for (const size_t i : e.finished) field->finish_run(session, i);
             if (!hold && !flow.player_finished()) {

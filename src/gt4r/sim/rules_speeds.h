@@ -23,6 +23,7 @@ struct SpeedTables {
     std::array<F, 2> lean_row{}; // the special row's +0x30 / +0x34 (0x359F50)
     F special_x10;                // the special row's +0x10 (the drawn car's height, 0x344040)
     F throttle_share, brake_share; // 0x62075C / 0x620760: the driver's animation's following of the pedals (0x344040)
+    bool japan = false;  // SCPS-17001 v1.05's odometer (0x358330): the distance wraps at 8,000 km, no distance while control source 1
 };
 SpeedTables speed_tables(const Program& program, u8 special_row);
 
