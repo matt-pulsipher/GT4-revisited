@@ -319,7 +319,8 @@ Arcade's *Multi-LAN Race* races other copies of the game, up to six players, eac
 pages. Both need the same disc (a modified copy meets only the same modified copy), and Gran Turismo 4: Prologue has no such
 race.
 
-1. Arcade, *Multi-LAN Race*. The page that opens connects: a lobby found on the local network is listed (Cross joins it);
+1. Arcade, *Multi-LAN Race*, or *Online battle* on the home screen, which opens the same page at once (your saved game's
+   garage and favorites with it); leaving that page, or the lobby, goes back to the home screen. The page that opens connects: a lobby found on the local network is listed (Cross joins it);
    *Open a lobby* makes one; *Join by address* takes the address the host's panel shows (UDP port 47634). *Open a lobby with a
    code* and *Join with a code* go through a server, for players who are not on one network: the first time it asks which
    server to use, and nothing is sent to any before that. Your own server can be typed.

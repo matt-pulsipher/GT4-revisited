@@ -445,6 +445,8 @@ OnlineMenus::~OnlineMenus() {
     rt_.network = nullptr;
 }
 
+bool OnlineMenus::available() const { return rt_.network != nullptr; }
+
 void OnlineMenus::leave() {
     open_ = false, confirm_ = -1;
     menu::leave_lan_pages(rt_);
@@ -664,7 +666,7 @@ void OnlineMenus::render(App& app, Ui& ui, float x, float scale) {
         ui.frame_round(cx - 200, 130, 400, 80, 6, 1, colors::kOutline);
         float y = 144;
         for (const std::string& line : Ui::wrap(notice_, 376)) ui.text_center_in(cx - 200, 400, y, line, colors::kText), y += 13;
-        ui.text_center_in(cx - 200, 400, 192, "{Cross}: back to the menus", colors::kDim);
+        ui.text_center_in(cx - 200, 400, 192, from_home ? "{Cross}: back to the home screen" : "{Cross}: back to the menus", colors::kDim);
         return;
     }
     if (!l.active() || racing_) return;

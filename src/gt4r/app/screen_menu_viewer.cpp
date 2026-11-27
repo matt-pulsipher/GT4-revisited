@@ -16,6 +16,7 @@
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/keyboard_typing.h"
 #include "app/text_keyboard.h"
+#include "gt4r/menu/game_network.h"
 #include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/logger_face.h"
@@ -81,9 +82,10 @@ public:
     bool autodemo_ = false; // the title's time-out is playing its demonstrations (menu::autodemo_step)
     bool attract_replay_ = false; // the race asked for is one of them (RaceStart::attract)
 
-    explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
+    explicit MenuViewer(App& app, bool player = false, std::string new_card = {}, bool online = false) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
-        advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
+        online_start_ = online;
+        advertise_on_ = player && !online; // (scripted runs: GT4R_MENU advertise=1)
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
@@ -364,7 +366,15 @@ private:
             race_.reset();
             // A new game chosen on the saved games' page: Gran Turismo 4's boot at its name entry (Prologue has no such page).
             if (from_boot && !new_card_.empty() && !runtime_->is_prologue()) runtime_->game().next_menu_arg = "EntryRoot";
-            runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
+            if (from_boot && online_start_ && online_->available()) {
+                // The home screen's Online battle: Arcade's Multi-LAN Race asked for at once (the connection's page next), the saved
+                // game loaded; leaving the connection or the lobby is leaving for the home screen.
+                online_->from_home = true;
+                menu::ask_for_lan_battle(*runtime_);
+            } else {
+                online_start_ = false;
+                runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
+            }
             new_card_.clear();
         } catch (const std::exception& ex) {
             stop();
@@ -455,6 +465,9 @@ private:
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // The connection before the LAN Battle's pages, and its race (online.h).
             if (online_ && online_->finished(app)) return;
+            // Opened by the home screen's Online battle: back from the connection, or the lobby left or ended, the home screen.
+            if (online_start_ && !net::lobby().active() && runtime_->finished() && !runtime_->race_request() && runtime_->wanted_project() == "arcade")
+                return menu::autosave(*runtime_), stop();
             // Started again from the saved games' page: without the opening movie.
             if (skip_opening_ && !runtime_->finished() && runtime_->current_page() && runtime_->current_page()->name == "MovieRoot") skip_opening_ = false, runtime_->key(menu::Key::Start);
             // The saved games' page (the title's Save Game, Prologue's save and load items).
@@ -895,6 +908,7 @@ private:
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::string new_card_;               // a new game to make there (started so)
     bool skip_opening_ = false;
+    bool online_start_ = false; // the home screen's Online battle: the connection first, the home screen after
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
     std::unique_ptr<MenuSlides> slides_; // and slide shows
@@ -929,6 +943,7 @@ private:
 
 std::unique_ptr<Screen> make_menu_viewer(App& app) { return std::make_unique<MenuViewer>(app); }
 std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card) { return std::make_unique<MenuViewer>(app, true, new_card); }
+std::unique_ptr<Screen> make_online_game_screen(App& app) { return std::make_unique<MenuViewer>(app, true, std::string(), true); }
 
 } // namespace gt4r
 

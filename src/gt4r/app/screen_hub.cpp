@@ -10,6 +10,7 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/net/identity.h"
 #include "gt4r_version.h"
 
 #include <algorithm>
@@ -59,7 +60,7 @@ std::unique_ptr<Screen> make_courses_screen(App& app) {
     });
 }
 
-// The home screen, GT4 Revisited's own menu (developer_ false): the game, its saves, the settings, the controls, the mods, the
+// The home screen, GT4 Revisited's own menu (developer_ false): the game, Quick race, Online battle, its saves, the settings, the controls, the mods, the
 // save editor, the disc library, Quit; Developer tools (developer_ true): the disc's cars, courses and
 // menu pages, the asset browser and a race set up by hand.
 class HubScreen : public Screen {
@@ -87,6 +88,7 @@ public:
                 case 6: app.push(make_race_screen(app)); break;
                 case 7: app.push(make_game_screen(app)); break;
                 case 26: app.push(make_quick_race_screen(app)); break;
+                case 28: app.push(make_online_game_screen(app)); break;
                 case 8: app.push(make_controls_screen(app)); break;
                 case 9: app.push(make_saves_screen(app)); break;
                 case 22: app.push(make_save_editor(app)); break;
@@ -157,6 +159,9 @@ private:
             items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
             if (prologue) items_.push_back({"Quick race", "", "Arcade's single race on any of its courses with any of its cars. Nothing is saved to your game.", 26});
             else items_.push_back({"Quick race", "", "Any event of the game with any car: Gran Turismo mode's races, the license tests, the missions and Arcade's single race. Nothing is unlocked and nothing is saved to your game.", 26});
+            // Arcade's Multi-LAN Race at once (Prologue has none).
+            if (net::online_disc(app.disc()->info()))
+                items_.push_back({"Online battle", "", "Race other players over the local network or the internet: open a lobby, join one by its code, or find one on the local network.", 28});
             items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
             items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
