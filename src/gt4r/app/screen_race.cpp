@@ -2588,13 +2588,32 @@ private:
         }
     }
 public:
-    // Car a gaining on car b (0x3FA508): a's section now (F +0x4AE: the split points it is past on this lap).
-    bool pace_up(size_t a, size_t b) const {
-        if (a >= world_->car_count()) return false;
-        const float v = world_->cars()[a].course_v;
+    // A car's section now (F +0x4AE: the split points it is past on this lap).
+    int car_section(size_t car) const {
+        if (car >= world_->car_count()) return 0;
+        const float v = world_->cars()[car].course_v;
         int section = 0;
         for (const float s : splits_) section += s <= v;
-        return pace_lists_.pace_up(int(a), int(b), section, flow_.car(a).counter);
+        return section;
+    }
+    // Car a gaining on car b (0x3FA508).
+    bool pace_up(size_t a, size_t b) const {
+        if (a >= world_->car_count()) return false;
+        return pace_lists_.pace_up(int(a), int(b), car_section(a), flow_.car(a).counter);
+    }
+    // The Race Monitor's sector bars (0x3DC7B0): the lap's sections, and car `car`'s bar colour in section k, its best there
+    // ranked among every car's (race::sector_color).
+    int sections() const { return pace_lists_.sections(); }
+    u32 sector_color(size_t car, int k) const {
+        const s64 mine = pace_lists_.best(int(car), k);
+        int faster = 0;
+        const int cars = int(world_->car_count());
+        if (mine >= 0)
+            for (int c = 0; c < cars; ++c) {
+                const s64 b = pace_lists_.best(c, k);
+                faster += b >= 0 && u32(b) < u32(mine);
+            }
+        return race::sector_color(k, mine >= 0, faster, cars);
     }
 private:
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
@@ -3244,6 +3263,31 @@ public:
                 if (e.name.rfind("CARPOS_", 0) == 0) {
                     const size_t at = size_t(e.name.back() - 'A');
                     if (at < race_->flow().order().size()) icons.push_back({race_->flow().order()[at], e.x, e.y, e.opacity});
+                }
+                // A row's sector bars (0x3D7930 "sector": the external's box cut in the lap's sections, each in its colour, a
+                // 0x80C8C8C8 strip over the box's lowest fifth under the car's section now). Under the map's panel while it
+                // is shown (the panel's black covers that column in the original's).
+                if (e.name == "sector" && !monitor_map_) {
+                    const size_t row = size_t(std::clamp(int(std::lround((e.y - 200) / 32)), 0, 5));
+                    const int n = race_->sections();
+                    if (row < race_->flow().order().size() && n > 0)
+                        for (const race::StrobeMovie::External& x : monitor_movie_->externals)
+                            if (x.name == "sector") {
+                                using gt3r::ee::F;
+                                const size_t car = race_->flow().order()[row];
+                                const float x0 = e.x + x.x0 * e.scale, y0 = e.y + x.y0 * e.scale, y1 = e.y + x.y1 * e.scale;
+                                const F w = F(x.x1 * e.scale) - F(x.x0 * e.scale), nf = gt3r::ee::int_to_f(n), step = w / nf;
+                                const int now = race_->car_section(car);
+                                for (int k = 0; k < n; ++k) {
+                                    const float left = x0 + (w * gt3r::ee::int_to_f(k) / nf).host();
+                                    hud_->draw_box(left, y0, step.host(), y1 - y0, race_->sector_color(car, k), e.opacity);
+                                    if (k == now) {
+                                        const float top = y0 + (y1 - y0) * F::raw(0x3F4CCCCC).host();
+                                        hud_->draw_box(left, top, step.host(), y1 - top, 0x80C8C8C8u, e.opacity);
+                                    }
+                                }
+                                break;
+                            }
                 }
                 if (e.name == "chip") {
                     const size_t row = size_t(std::clamp(int(std::lround((e.y - 189) / 32)), 0, 5));

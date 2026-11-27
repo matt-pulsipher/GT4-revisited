@@ -282,3 +282,22 @@ TEST(endurance_machine_speed_line) {
     CHECK(race::machine_speed_line(F(0.0f), false) == "\x7F\x7F\x7F.\x7Fkm/h");
     CHECK(race::machine_speed_line(F(400.0f), false) == "999.9km/h"); // (x 10 kept at most 9,999)
 }
+
+// The Race Monitor's sector bars (0x3DC7B0): each car's best time through each section (vf18 0x3578B0), ranked among the field.
+TEST(endurance_sector_bars) {
+    race::SplitLists l(3);
+    l.pass(0, 1, 0, 20'000), l.pass(1, 1, 0, 21'000); // (from the clock's 0)
+    l.pass(0, 1, 1, 50'000), l.pass(1, 1, 1, 49'000); // (30 s and 28 s)
+    l.pass(0, 1, 2, 70'000);
+    CHECK(l.best(0, 0) == 20'000 && l.best(1, 0) == 21'000 && l.best(0, 1) == 30'000 && l.best(1, 1) == 28'000);
+    CHECK(l.best(0, 2) == 20'000 && l.best(1, 2) < 0 && l.best_round(0, 1) == 1);
+    l.pass(0, 2, 0, 88'000); // (18 s: a new best, round 2)
+    CHECK(l.best(0, 0) == 18'000 && l.best_round(0, 0) == 2);
+    l.pass(0, 2, 1, 120'000); // (32 s: the best kept)
+    CHECK(l.best(0, 1) == 30'000 && l.best_round(0, 1) == 1);
+    std::printf("  colours: fastest %08X, middle %08X, slowest %08X\n", race::sector_color(0, true, 0, 3), race::sector_color(0, true, 1, 3),
+                race::sector_color(0, true, 2, 3));
+    CHECK(race::sector_color(0, false, 0, 3) == 0x80282828u && race::sector_color(1, false, 0, 3) == 0x80181818u);
+    CHECK(race::sector_color(0, true, 0, 3) == 0x803232FFu);
+    CHECK(race::sector_color(0, true, 2, 3) == 0x80650000u && race::sector_color(0, true, 1, 3) == 0x804C197Fu);
+}

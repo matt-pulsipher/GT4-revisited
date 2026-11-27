@@ -1246,6 +1246,10 @@ void RaceHud::draw_chip(float x, float y, float w, float h, const std::array<u32
     impl_->draw_picture(impl_->picture((word[0] >> 25) & 1 ? "chip_metalic" : "chip_solid"), {x, y, w, h}, kNeutral, 1);
 }
 
+void RaceHud::draw_box(float x, float y, float w, float h, u32 color, float opacity) {
+    impl_->fill({x, y, w, h}, u8(color), u8(color >> 8), u8(color >> 16), opacity * std::min(1.0f, float((color >> 24) & 0xFF) / 128.0f));
+}
+
 void RaceHud::draw_strip(const std::string& words) { impl_->draw_tooltip(words, 1); }
 
 // RaceFuelMeter::vf6 (0x3A57A8): the empty bar, the full one over it in ten steps of the fuel left (5.2 wide each, from 15, the

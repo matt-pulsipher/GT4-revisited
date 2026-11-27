@@ -440,6 +440,19 @@ the fuel gauge (its RaceFuelMeter) from (x0 + 60, y0 + 44), the gauge at a quart
 `fc_race_monitor_lap2.png` (the stops' table between). Here `RaceHud::draw_monitor_tires` at the movie's `TIRE_PANEL` external.
 `MAP_PANEL` is shown while the monitor's +0x70 is set (Show Map, toggled by the monitor's keys 0xC00; 1 at the start).
 
+**The sector bars** (each row's external `sector`, the "Best / Sector" column; drawn by the externals' callback 0x3D7930 for the
+row of the `BAR` whose last digit names it, through the monitor's row → car list +0xC4): the external's box (x0, y0 .. x1, y1)
+cut across into the lap's sections (the conductor's vf42: the split points and the line), section k from x0 + (x1 - x0) k / n
+filled in the car's colour for k (the monitor's +0x118 + car x 0x40 + k x 4), and under the car's section now (+0xDC + car, F
++0x4AE) a strip of 0x80C8C8C8 over the box's lowest fifth (from y0 + (y1 - y0) x 0.8). The colours (0x3DC7B0, each frame): each
+car's best time through each section (0x3FA3D0: vf18 0x3578B0 keeps, per car and section, the time from the car's last section end
+passed, its clock's 0 before the first, and the least of them with its lap) ranked among the field's: no time, 0x80282828 for an
+even section and 0x80181818 for an odd one; else r = (the cars whose best there is under it) / (cars - 1), red (1 - r) x 255,
+green (1 - r) x 0.2 x 255, blue (0.4 r + 0.2 (1 - r)) x 255 in EE floats, truncated, OR-ed with 0x80000000 (the fastest
+0x803232FF, the slowest 0x80650000). The bars are drawn whatever Show Map says; the map's panel covers that column while it is
+up (✔ 21-gtmode-deep `bspec_race_monitor_show_map.png`: red to dark blue bars, the grey strip under the section now). Here
+`race::SplitLists::best`, `race::sector_color`, `screen_race.cpp` (the `sector` external; not drawn while the map is up).
+
 ## The PIT STOP menu (`menu/common/pitmenu.strb`)
 
 Opened (RaceBasic::vf74) in the step 0x35BC70 finds the player's car asked for its choice (F +0x4B8 bit 0, set by 0x35AF18 as the car
