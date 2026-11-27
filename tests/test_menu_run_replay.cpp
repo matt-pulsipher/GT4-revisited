@@ -6,6 +6,8 @@
 #include "menu_run_flow.h"
 
 #include "gt4r/race/replay_file.h"
+#include "gt4r/save/best_lap_card.h"
+#include "gt4r/menu/game_internal.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -142,32 +144,28 @@ TEST(disc_menu_save_replay) {
     CHECK(f.clean());
 }
 
-// Load Best Lap Replay (the race's menus' LOAD_GHOST: labomode in MODE_LOAD_BESTLAP_REPLAY): the list holds the best lap replays of
-// the race's course and car alone (race::ReplayFile::best_lap), not full replays nor another course's.
+// Load Best Lap Replay (the race's menus' LOAD_GHOST: labomode in MODE_LOAD_BESTLAP_REPLAY): the list holds the best lap replays (a
+// card's folders <product>B..., save/best_lap_card.h) of the race's course and car alone, not full replays nor another course's.
 TEST(disc_menu_load_best_lap_list) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-bestlap";
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir / "replays");
-    auto best = [&](const std::string& name, const std::string& course, const std::string& car) {
-        race::ReplayFile f;
-        f.course = course, f.sequence = "time_trial", f.laps = 1, f.title = name, f.time_ms = 83'457;
-        f.cars.push_back({car, 0});
-        f.steps.assign(10, std::vector<race::CarState>(1));
-        f.other.emplace_back(race::ReplayFile::kBestLap, Bytes{0x01, 0x46, 0x01, 0x00});
-        const race::ReplayFile back = race::ReplayFile::decode(f.encode());
-        CHECK(back.best_lap() && back.time_ms == 83'457);
-        const Bytes b = f.encode();
-        std::ofstream out(dir / "replays" / (name + ".gt4rrep"), std::ios::binary);
-        out.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    std::filesystem::create_directories(dir / "memorycard");
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    menu::Database& db = menu::natives_of(*f.rt)->db();
+    auto best = [&](const std::string& title, const std::string& course, const std::string& car) {
+        save::ReplayParticulars p;
+        p.title = title, p.course_label = course, p.car = db.code(menu::kCarTable, car), p.course = db.code(menu::kCourseTable, course), p.time_ms = 83'457, p.mode = 2;
+        const Bytes data(0x2000, 0x5A); // (the list reads the particulars; the data file is not opened)
+        CHECK(save::write_best_lap((dir / "memorycard").string(), "BASCUS-97328", {}, data, p, "", "Best lap replay", "") == save::Result::Ok);
     };
     best("mine", "tsukuba", "ka_01");
     best("other course", "fuji_90s", "ka_01");
     best("other car", "tsukuba", "panda_super_ie_90");
     write_replay(dir / "replays" / "tsukuba-20261124-101500.gt4rrep", "tsukuba", "ka_01");
-    Flow f(*disc, "US", dir.string());
-    CHECK(f.boot_to_title());
     menu::GameState& g = f.rt->game();
     g.race.course = "tsukuba", g.race.car = "ka_01";
     g.next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";

@@ -45,6 +45,9 @@
 #include "gt4r/race/race_recording.h"
 #include "gt4r/race/recorded_race.h"
 #include "gt4r/save/game_data.h"
+#include "gt4r/save/best_lap_card.h"
+#include "gt4r/save/codec.h"
+#include "gt4r/sim/record_image.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/formats/replay/demonstration_prologue.h"
 #include "gt4r/race/license_prologue.h"
@@ -82,6 +85,7 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <array>
@@ -1378,98 +1382,178 @@ public:
         if (replay && !watched_ && flow_.car(0).counter >= 2) start_replay();
     }
 
-    // `page`: behind a license test's page (stand), again from its start when it ends, not heard (🔎 the original's page is
-    // quiet next to its menus' music; whether the replay's own sound plays under it is not read).
     // ---- The best lap's ghost (the time trial's and free run's RaceFreeRun, the license test's RaceLicense: RaceSolitaire's
-    // recorders). The option automatic_ghost (MOption +0x10CC, 1 in a new game) on: each lap the player drives is kept from
-    // its crossing of the line; a lap faster than the ghost's becomes the ghost, and from the next crossing on the ghost runs
-    // that lap again beside the player's car (✔ 25-sound-cars: the time trial's ghost after a first lap). The sequence keeps it
-    // for its next runs (0x3C0B30 keeps the run's best lap, 0x3C08C0 gives it to the next run's race: the race information's
-    // +0x98, +0x94). A license test's run is its lap, from the start to its end; a graded run faster than the ghost's becomes
-    // the ghost of the next run (report_result: ghost_run_graded). Up (BUTTON_GHOST) shows or hides it.
-    // ❓ The program runs the lap's controller records again from its recorder's moment (0x35AB08 / 0x35ABA8) on the ghost car,
-    // entry 1 of the race (the player's equipment copied at 0x3EA768); here the lap's car states are shown as they were, the same
-    // car for a lap driven by the pad. Its look (see-through at a half) and whether a better lap takes over at once are not
-    // read; the original's ghost entry counts in the race display's Position (2 in the time trial's first lap, 25-sound-cars):
-    // not here. Not in Prologue (its own program, not read).
+    // recorders). The option automatic_ghost (MOption +0x10CC, 1 in a new game) on: the race's recorder keeps each lap the
+    // player drives from its crossing of the line, its moment (the recorder's header: 0x35AB08) and the controller's record
+    // every step (0x346138); a lap faster than the ghost's becomes the ghost (RaceFreeRun::vf67 0x3BA0E8: the recorder copied
+    // to the best one, the car's equipment to the ghost's entry 0x3EA768), and from the next crossing the ghost's entry is put
+    // at the lap's moment (0x35ABA8) and driven by the lap's records (0x3C08C0: entry 1, its recorder's playback 0x345D70)
+    // beside the player's car, drawn see-through, no sound, out of the collisions (F + 0x441). ✔ 25-sound-cars: the time
+    // trial's ghost after a first lap, its blue mark on the map, Position 2 while it leads and 1 once its lap is over (1'15).
+    // The sequence keeps it for its next runs (0x3C0B30 keeps the run's best lap, 0x3C08C0 gives it to the next run's race:
+    // the race information's +0x98, +0x94). A license test's run is its lap, from its start to its end; a graded run faster
+    // than the ghost's becomes the ghost of the next run (report_result: ghost_run_graded). Up (BUTTON_GHOST) shows or hides it.
+    // Here the ghost's entry is a car of its own on a session of its own (sim::Session::solo: the player's car as the lap's
+    // crossing left it, alone on the course), stepped with the lap's records; ❓ a lap the computer drove (B-spec, a scripted
+    // run) is not kept: its record is the driver's decision, not a controller's frame. ❓ The look (see-through at a half) is
+    // judged. Not in Prologue (its own program, not read).
     struct GhostLap {
-        std::vector<race::CarState> states;
-        s64 ms = -1;
+        std::shared_ptr<const sim::Session> seed; // the car at the lap's crossing, alone (the recorder's moment)
+        std::vector<race::PadRecord> frames;      // the controller's record each step after it
+        s64 ms = -1;                              // the lap's time
+        replay::RecorderState moment{};           // the recorder header's clock fields (units, remainder, share)
     };
     static constexpr float kGhostAlpha = 0.5f;
     void set_ghost_option(bool on) { ghost_option_ = on; }
     void toggle_ghost() { ghost_shown_ = !ghost_shown_; }
     bool ghost_available() const { return ghost_best_ != nullptr; }
     const GhostLap* ghost_best() const { return ghost_best_.get(); }
+    // The ghost while its lap runs: its car's state and its crossings (for the race display's Position and map).
+    const race::CarState* ghost_car() const { return ghost_run_ && ghost_shown_ ? &ghost_run_->cars()[0] : nullptr; }
+    // The race display's Position with the ghost counted (25-sound-cars: 2 while the running ghost leads).
+    int place_with_ghost(int place) const {
+        if (!ghost_run_ || !ghost_on_) return place;
+        const race::CarState& me = world_->cars()[0];
+        const race::CarState& g = ghost_run_->cars()[0];
+        const float len = world_->lap_length();
+        const double mine = double(flow_.car(0).counter) * len + me.course_v, its = double(ghost_counter_at_start_) * len + double(g.course_v) + (g.course_v + 1.0f < ghost_v0_ ? len : 0.0f);
+        return its > mine ? place + 1 : place;
+    }
     void begin_ghost(bool watched_or_demo) {
         const std::string& q = setup_.sequence;
-        ghost_on_ = ghost_option_ && !watched_or_demo && !gt3_road_ && (q == "time_trial" || q == "freerun" || q == "license");
-        ghost_lap_.clear(), ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false, ghost_at_ = 0;
+        ghost_on_ = ghost_option_ && !watched_or_demo && !gt3_road_ && world_->session() && (q == "time_trial" || q == "freerun" || q == "license");
+        ghost_frames_.clear(), ghost_seed_.reset(), ghost_lap_open_ = false, ghost_run_done_ = false, ghost_pads_ = true;
+        ghost_run_.reset(), ghost_at_ = 0;
         ghost_counter_ = flow_.car(0).counter;
         world_->set_ghost(std::nullopt, kGhostAlpha);
     }
+    // The recorder's moment at a crossing: the race clock's units since the line, the units its milliseconds leave, the share
+    // of the step after the line (the recorder's header +0x02, +0x03, +0x0C).
+    replay::RecorderState crossing_moment() const {
+        replay::RecorderState m{};
+        const race::RaceFlow::CarRecord& c = flow_.car(0);
+        const s64 units = std::clamp<s64>(flow_.clock() - c.base_ms * 3, 0, race::kClockPerStep);
+        m.units = u8(units), m.remainder = u8(units % 3);
+        const float share = float(units) / float(race::kClockPerStep);
+        std::memcpy(&m.share, &share, 4);
+        return m;
+    }
+    void keep_ghost(s64 ms) {
+        if (!ghost_seed_ || !ghost_pads_ || ghost_frames_.empty() || ms <= 0 || (ghost_best_ && ms >= ghost_best_->ms)) return;
+        auto lap = std::make_shared<GhostLap>();
+        lap->seed = std::move(ghost_seed_), lap->frames = std::move(ghost_frames_), lap->ms = ms, lap->moment = ghost_moment_;
+        ghost_best_ = std::move(lap);
+        ghost_frames_.clear();
+        LOG_INFO("Drive: the ghost: a lap of %lld ms, %zu records", (long long)ms, ghost_best_->frames.size());
+    }
+    // After a step: the lap's record kept (the input the player's car took this step), a crossing's lap kept or begun, the
+    // ghost's car stepped by its lap's records.
     void step_ghost(const race::RaceFlow::Events& ev, bool hold) {
         if (!ghost_on_) return;
         const race::RaceFlow::CarRecord& c = flow_.car(0);
         const bool license = is_license(setup_.sequence);
+        if (ghost_lap_open_) {
+            if (inputs_.empty() || !inputs_[0].pad || inputs_[0].computer) ghost_pads_ = false;
+            else ghost_frames_.push_back(*inputs_[0].pad);
+        }
         bool start = false;
         if (license) {
             start = !hold && !ghost_lap_open_ && !ghost_run_done_;
         } else if (c.counter != ghost_counter_) {
             // A crossing of the line: the lap just completed kept when it is the best so far; a new lap begins.
-            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done(0) && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
-                auto lap = std::make_shared<GhostLap>();
-                lap->states = std::move(ghost_lap_), lap->ms = c.last_lap_ms;
-                ghost_best_ = std::move(lap);
-                LOG_INFO("Drive: the ghost: a lap of %lld ms", (long long)c.last_lap_ms);
-            }
+            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done(0) && c.last_lap_ms > 0) keep_ghost(c.last_lap_ms);
             start = c.counter > ghost_counter_;
             ghost_counter_ = c.counter;
         }
-        if (start) {
-            ghost_lap_.clear(), ghost_lap_open_ = true, ghost_at_ = 0, ghost_playing_ = ghost_best_ != nullptr;
-            if (ghost_playing_) LOG_INFO("Drive: the ghost's lap of %lld ms starts", (long long)ghost_best_->ms);
+        if (license && ghost_lap_open_ && (ev.player_finished || flow_.player_finished())) {
+            ghost_lap_open_ = false, ghost_run_done_ = true;
         }
-        if (ghost_lap_open_ && ghost_lap_.size() < kHistory) ghost_lap_.push_back(world_->cars()[0]);
-        if (license && ghost_lap_open_ && (ev.player_finished || flow_.player_finished())) ghost_lap_open_ = false, ghost_run_done_ = true;
-        std::optional<race::CarState> g;
-        if (ghost_playing_ && ghost_best_ && ghost_at_ < ghost_best_->states.size()) g = ghost_best_->states[ghost_at_++];
-        else ghost_playing_ = false;
-        world_->set_ghost(ghost_shown_ ? g : std::nullopt, kGhostAlpha);
+        if (start) {
+            // The recorder's moment (0x35AB08): the player's car alone as it stands now; the lap's records from the next step.
+            ghost_seed_ = world_->session()->solo(0), ghost_frames_.clear(), ghost_lap_open_ = ghost_seed_ != nullptr, ghost_pads_ = true;
+            ghost_moment_ = crossing_moment();
+            // The ghost's entry put at the best lap's moment, its playback from the start (0x3C08C0, 0x35ABA8).
+            ghost_run_ = ghost_best_ && ghost_best_->seed ? ghost_best_->seed->solo(0) : nullptr, ghost_at_ = 0;
+            ghost_counter_at_start_ = c.counter, ghost_v0_ = world_->cars()[0].course_v;
+            if (ghost_run_) LOG_INFO("Drive: the ghost's lap of %lld ms starts", (long long)ghost_best_->ms);
+        } else if (ghost_run_ && !hold) {
+            if (ghost_at_ < ghost_best_->frames.size()) {
+                const race::PadRecord& f = ghost_best_->frames[ghost_at_++];
+                race::CarInput in = sim::ai::pad_input(replay::PadRecord{f.bytes});
+                in.pad = &f;
+                ghost_run_->step_once(std::span<const race::CarInput>(&in, 1));
+            } else {
+                const race::CarState& g = ghost_run_->cars()[0];
+                LOG_INFO("Drive: the ghost's lap over at (%.3f, %.3f, %.3f), %.2f km/h", double(g.position.x), double(g.position.y), double(g.position.z), double(g.speed) * 3.6);
+                ghost_run_.reset(); // (its lap over: gone until the next crossing)
+            }
+        }
+        world_->set_ghost(ghost_car() ? std::optional<race::CarState>(*ghost_car()) : std::nullopt, kGhostAlpha);
     }
-    // The ghost's lap as a best lap's replay (Save Best Lap Replay): the player's car alone over the lap.
-    race::ReplayFile ghost_file(const std::string& sequence, const std::string& race_label) const {
-        race::ReplayFile f;
-        if (!ghost_best_) return f;
-        f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = 1;
-        f.cars.push_back({world_->setup().entries[0].label, world_->setup().entries[0].paint});
-        for (const race::CarState& c : ghost_best_->states) f.steps.push_back({c});
-        f.time_ms = u32(ghost_best_->ms);
-        Bytes ms(4);
-        for (int k = 0; k < 4; ++k) ms[size_t(k)] = u8(u32(ghost_best_->ms) >> (8 * k));
-        f.other.emplace_back(race::ReplayFile::kBestLap, ms);
-        return f;
+    // The ghost's lap as the program saves it (Serialize::GhostData through the race's virtuals 60 .. 62, RaceSolitaire's 61:
+    // the race's header with one entry, +0x958 1; then the best lap's recorder: its header of 0x14F4 bytes, the moment it
+    // starts from, 0x35AB08, and its records). The race keeps two: the best lap's (RaceSolitaire::vf72 with 0x100, 0x3EA8C8:
+    // +0xE48C, RaceFreeRun's +0xE84C) and a loaded file's (vf72 with 1, 0x3EA908: +0xE66C / +0xEA2C, where vf64 loads); ❓ which
+    // of them the save writes is not read (here the ghost's lap). Empty without the disc's tables.
+    Bytes ghost_recording() const {
+        if (!ghost_best_ || !ghost_best_->seed || !disc_ || !db_) return {};
+        race::RecordingSetup rs;
+        const db::Labels *races = db_->labels("RACE"), *courses = db_->labels("COURSE");
+        std::optional<u32> event;
+        for (const std::string& l : db::race_labels(setup_.race, disc_->info().region))
+            if (!event && races) event = races->id(l);
+        const std::optional<u32> course = courses ? courses->id(setup_.course) : std::nullopt;
+        if (event && races) rs.event = u64(races->table_id) << 32 | *event;
+        if (course && courses) rs.course = u64(courses->table_id) << 32 | *course;
+        rs.race_class = is_license(setup_.sequence) ? "RaceLicense" : "RaceFreeRun";
+        rs.laps = setup_.laps, rs.time_ms = ghost_best_->ms, rs.best_ms = ghost_best_->ms;
+        rs.playlist = setup_.playlist_bytes;
+        std::vector<sim::Entry> entries = world_->session_entries();
+        entries.resize(1);
+        entries[0].equipment.bytes[0x18] = u8(world_->setup().entries[0].paint);
+        std::vector<replay::PadRecord> records;
+        for (const race::PadRecord& f : ghost_best_->frames) records.push_back(replay::PadRecord{f.bytes});
+        replay::Demonstration d = race::make_recording(rs, entries, records);
+        // The recorder's header: +0x02 the units, +0x03 their remainder, +0x0C the share, +0x10 the lap's time, +0x54 the car's
+        // record (0x10A0 bytes), +0x10F4 its body's contacts (❓ not kept: none).
+        Bytes h(0x14F4, 0);
+        h[2] = ghost_best_->moment.units, h[3] = ghost_best_->moment.remainder;
+        std::memcpy(&h[0xC], &ghost_best_->moment.share, 4);
+        const u32 ms = u32(ghost_best_->ms);
+        std::memcpy(&h[0x10], &ms, 4);
+        sim::Record r;
+        r.car = ghost_best_->seed->record(0), r.x = ghost_best_->seed->gt4_record(0), r.layout = ghost_best_->seed->wheel_layout(0);
+        sim::store_car_record(r, std::span<u8>(h.data() + 0x54, 0x10A0));
+        d.streams[0].state = std::move(h);
+        return d.encode(sim::Program::load(*disc_));
     }
-    // A best lap's replay loaded (Load Best Lap Replay, 0x11CEF8): its lap is the ghost from the next start or crossing.
-    bool load_ghost(const race::ReplayFile& f) {
-        if (!f.best_lap() || f.steps.empty() || f.time_ms == 0) return false;
+    // A best lap's GhostData loaded (Load Best Lap Replay, 0x11CEF8; RaceBase::vf63 0x3894C0, RaceSolitaire::vf64 0x3EAE40):
+    // the ghost's car put at its recorder's moment (as RaceWorld::resume puts a recorded free run's), its records the lap.
+    // ❓ The program makes the file's entry the ghost's (its own car): here the lap of the player's own car alone is taken.
+    bool load_ghost(const replay::Demonstration& d) {
+        if (d.streams.size() != 1 || d.time_ms <= 0 || !world_->session()) return false;
+        const std::optional<replay::RecorderState> st = replay::recorder_state(d.streams[0]);
+        if (!st) return false;
+        std::unique_ptr<sim::Session> seed = world_->session()->solo(0);
+        if (!seed) return false;
+        sim::Record r;
+        r.car = seed->record(0), r.x = seed->gt4_record(0), r.layout = seed->wheel_layout(0);
+        sim::load_car_record(r, st->car);
+        seed->load_moment(0, r.car, r.x);
         auto lap = std::make_shared<GhostLap>();
-        for (const std::vector<race::CarState>& step : f.steps)
-            if (!step.empty()) lap->states.push_back(step[0]);
-        lap->ms = s64(f.time_ms);
+        lap->seed = std::move(seed), lap->ms = d.time_ms, lap->moment = *st;
+        lap->moment.car = {}, lap->moment.body = {}; // (they point into the file)
+        for (const replay::PadRecord& f : d.streams[0].frames) lap->frames.push_back(race::PadRecord{f.bytes});
         ghost_best_ = std::move(lap);
         return true;
     }
     // A license run graded (report_result): its run becomes the ghost when faster than the ghost's.
     void ghost_run_graded(s64 ms) {
-        if (!ghost_on_ || !ghost_run_done_ || ghost_lap_.empty() || ms <= 0 || (ghost_best_ && ms >= ghost_best_->ms)) return;
-        auto lap = std::make_shared<GhostLap>();
-        lap->states = std::move(ghost_lap_), lap->ms = ms;
-        ghost_best_ = std::move(lap);
-        ghost_lap_.clear();
-        LOG_INFO("Drive: the ghost: a run of %lld ms", (long long)ms);
+        if (ghost_on_ && ghost_run_done_) keep_ghost(ms);
     }
 
+    // `page`: behind a license test's page (stand), again from its start when it ends, not heard (🔎 the original's page is
+    // quiet next to its menus' music; whether the replay's own sound plays under it is not read).
     void start_replay(bool page = false) {
         if (history_.empty() || (replaying_ && !page_replay_)) return;
         world_->set_ghost(std::nullopt, kGhostAlpha);
@@ -1761,6 +1845,9 @@ public:
             if (target < h.letters.size()) std::swap(h.letters[0], h.letters[target]);
         }
         h.place = flow_.place(target);
+        // The best lap's ghost while its lap runs: counted in Position, and its mark on the map (✔ 25-sound-cars: Position 2 and
+        // the ghost's mark beside the player's).
+        if (target == 0 && !replaying_ && ghost_car()) h.place = place_with_ghost(h.place), h.cars.push_back({ghost_car()->position.x, ghost_car()->position.z});
         h.lap = flow_.lap_shown(target), h.laps = setup_.laps;
         // (no lap count on a road section and on a course without a lap, 0x34C470 and COURSE +0x12, nor in a test that counts cones)
         {
@@ -2440,9 +2527,13 @@ private:
     sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
     std::vector<replay::PadRecord> records_; // the run's records, one a step
     std::shared_ptr<const GhostLap> ghost_best_; // the ghost's lap (kept for the sequence's next runs)
-    std::vector<race::CarState> ghost_lap_;      // the lap being driven, from its crossing
-    bool ghost_option_ = true, ghost_on_ = false, ghost_shown_ = true, ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false;
-    int ghost_counter_ = 0;
+    std::unique_ptr<sim::Session> ghost_seed_;   // the lap being driven: the car at its crossing,
+    std::vector<race::PadRecord> ghost_frames_;  // its records since
+    replay::RecorderState ghost_moment_{};
+    std::unique_ptr<sim::Session> ghost_run_;    // the ghost's car while its lap runs
+    bool ghost_option_ = true, ghost_on_ = false, ghost_shown_ = true, ghost_lap_open_ = false, ghost_run_done_ = false, ghost_pads_ = true;
+    int ghost_counter_ = 0, ghost_counter_at_start_ = 0;
+    float ghost_v0_ = 0;
     size_t ghost_at_ = 0;
     bool recording_ = false;
     std::optional<std::array<u8, 0x40>> bspec_start_; // the B-spec driver's record at the run's start
@@ -3961,8 +4052,16 @@ private:
         int can = spectator_ ? 2 : 1;
         // A license test's page after a demonstration has no Replay (0x11CED8: canReplay 0; ✔ 34-b3-demo, the Replay icon a
         // run added is gone after the demo), nor after a run that ended before 2 s on the race clock (0x11CE3C: 0x358440,
-        // cond + 0xF898 / 3, under 2,001 ms). ❓ The program then also reloads the test's settings (0x1100D0): not done here.
-        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) can = 0;
+        // cond + 0xF898 / 3, under 2,001 ms). Both then load the test's settings again (0x1100D0: the test's demonstration file,
+        // replay/license/<label>, its entry's transmission and aids, +0x1A0 .. +0x1A4, into the race information and its
+        // equipment into the player's entry, the race's virtual 0x4D8), as the sequence did at its start: here the
+        // demonstration's entries leave the race (end_demo) and every START takes the test's car (its pool's, the same
+        // equipment as the demonstration's entry: replay.md) and the player's choices anew (0x10F880), so a short run leaves
+        // nothing to undo.
+        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) {
+            can = 0;
+            if (demo_) race_->end_demo();
+        }
         report_result();
         if (session_kind() && !demo_) return enter_quick(can, false);
         enter_quick(can);
@@ -4012,6 +4111,7 @@ private:
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
         if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.best_lap_ms = u32(best);
+        if (!race_->world().session_entries().empty()) r.equipment = race_->world().session_entries()[0].equipment;
         if (setup_.machine_test == 3 && r.finished) r.max_speed = race_->machine_speed().host(); // (the top speed test's, car +0x6CC)
         // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
         if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
@@ -4127,7 +4227,11 @@ private:
                 try {
                     std::ifstream in(path, std::ios::binary);
                     const Bytes b((std::istreambuf_iterator<char>(in)), {});
-                    if (race::ReplayFile::is_replay(b) && race_->load_ghost(race::ReplayFile::decode(b))) LOG_INFO("Drive: the ghost loaded from %s", path.c_str());
+                    const std::optional<Bytes> body = save::unscramble(b, 0, save::FileKind::Replay);
+                    std::string why;
+                    const std::optional<replay::Demonstration> d = body && app.disc() ? replay::Demonstration::parse(*body, sim::Program::load(*app.disc()), &why) : std::nullopt;
+                    if (d && race_->load_ghost(*d)) LOG_INFO("Drive: the ghost loaded from %s (%d ms)", path.c_str(), d->time_ms);
+                    else LOG_WARN("Drive: the best lap replay %s does not load%s%s", path.c_str(), why.empty() ? "" : ": ", why.c_str());
                 } catch (const std::exception& e) {
                     LOG_WARN("Drive: the best lap replay %s: %s", path.c_str(), e.what());
                 }
@@ -4185,6 +4289,7 @@ private:
             // ghost (load_ghost: update_quick on the way back).
             option_ = true, loading_ghost_ = !prologue_hud_;
             menus_->game().replay_file.clear();
+            menus_->game().ghost_course = setup_.course, menus_->game().ghost_car = race_->world().setup().entries[0].label;
             menus_->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
             menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
@@ -4324,7 +4429,7 @@ private:
     void pend_replay(App& app, bool best_lap = false) {
         const menu::RaceRequest& q = menus_->game().race;
         auto pending = std::make_shared<menu::GameState::PendingReplay>();
-        auto file = std::make_shared<race::ReplayFile>(best_lap ? race_->ghost_file(sequence_, q.race) : race_->replay_file(sequence_, q.race));
+        auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
         static const std::pair<const char*, const char*> kModes[] = {
             {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
             {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
@@ -4345,7 +4450,7 @@ private:
         if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
         pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
         if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
-        if (best_lap) pending->time_ms = file->time_ms, pending->best_lap = true;
+        if (best_lap && race_->ghost_best()) pending->time_ms = u32(race_->ghost_best()->ms), pending->best_lap = true;
         pending->bspec = spectator_, pending->picture = replay_picture_;
         file->mode = pending->mode, file->submode = pending->submode, file->time_ms = pending->time_ms, file->bspec = pending->bspec, file->picture = replay_picture_;
         pending->kb = int((file->encode().size() + 1023) / 1024);
@@ -4353,6 +4458,35 @@ private:
             file->title = title;
             return write_replay(app, *file, path);
         };
+        if (best_lap) {
+            // Save Best Lap Replay: the program's GhostData in a card's folder (save/best_lap_card.h), beside the game's save.
+            const Bytes data = race_->ghost_recording();
+            pending->kb = int((save::scrambled_size(data.size()) + 0x100 + 1023) / 1024) + 2;
+            save::ReplayParticulars p;
+            if (db::SpecDb* sdb = app.db()) {
+                const db::Labels *cars = sdb->labels("GENERIC_CAR"), *courses = sdb->labels("COURSE");
+                if (const std::optional<u32> id = cars ? cars->id(pending->car) : std::nullopt) p.car = u64(cars->table_id) << 32 | *id;
+                if (const std::optional<u32> id = courses ? courses->id(pending->course) : std::nullopt) p.course = u64(courses->table_id) << 32 | *id;
+            }
+            p.car_name = race_->world().car_short_name(0);
+            p.course_label = pending->course, p.time_ms = pending->time_ms, p.submode = pending->submode, p.license = is_license(sequence_);
+            for (size_t m = 0; m < std::size(save::kReplayModes); ++m)
+                if (pending->mode == save::kReplayModes[m]) p.mode = int(m);
+            const std::string icon = is_license(sequence_) ? "icon/GT4_Rep_to_license.ico" : sequence_ == "time_trial" ? "icon/GT4_Rep_tt1.ico" : "icon/GT4_Rep_to_race.ico";
+            pending->save = [&app, data, p, icon, this](const std::string& title, const std::string& path) {
+                save::ReplayParticulars q = p;
+                q.title = title;
+                const std::string card = menus_->data_dir().empty() ? std::string() : menus_->data_dir() + "/memorycard";
+                const std::string product = menus_->config().product.empty() ? std::string("BASCUS-97328") : menus_->config().product;
+                gt3r::Vfs* vfs = app.vfs();
+                const save::GameSave::Reader disc = [vfs](const std::string& path) { return vfs->read(path); };
+                std::string folder;
+                const std::string over = path.empty() ? std::string() : std::filesystem::path(path).filename().string();
+                const save::Result r = save::write_best_lap(card, product, disc, data, q, icon, "Best lap replay", over, &folder);
+                LOG_INFO("Drive: the best lap replay saved to %s/%s: %s (%zu bytes)", card.c_str(), folder.c_str(), save::result_name(r), data.size());
+                return r == save::Result::Ok;
+            };
+        }
         menus_->game().pending_replay = pending;
     }
 
