@@ -54,11 +54,21 @@ added each step by the step (0x35DD00 in 0x35DE20, `sim/rules_speeds.cpp`) and t
 (`game_car.cpp`: getOilLifeRate 0x3437F0, oil 0x343698, replaceOil 0x343928 on the engine condition's limits 0x350678;
 getBodyLifeRate 0x343A80 -> 0x366300, bodyLife 0x343978 on the body's table 0x366100 from 0x620AF4 / 0x620AF6; dirtiness at
 most 0x3F4CCCCC, 0x3438A0; the US disc's values as the constants were, the body's setter now without a least and the rates in
-the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list (empty) and the replays' SHUFFLE play
-(`replay_play_mode`, read, unused); the time trial's `ranking` project after a run with a time (0x108354: the online
-leaderboard); the event Preview (`race_view` 0x10BB80 → 0x10BA28, a RaceArcadeDemo: ours the event's field driven by the
-computer in the TV view, ❓ the demo's length and camera not read); a free run's pause Exit after a lap (RaceFreeRun::vf77
-0x3BA260: the car to its driver first, ❓).
+the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list **missing**: the
+Play List folder (labomode `initCommands` folder 2: Play, Trash, PlayMode) keeps a list of the card's replays in the card's
+`replaylist` file (ToListMov adds the selected, `autoloadPlayList.save`), Play hands the list to the sequence
+(`menu_result` "list", `MMemoryCardManager.setAction(1)`), PlayMode switches `replay_play_mode` STRAIGHT / SHUFFLE and restarts
+the count (`MDemonstration.resetPlayListCounter` 0x15E488); ours: the list's object answers an empty list and `save` OK, so
+ToListMov adds nothing (`game_replays.cpp` `install_replay_list`); the time trial's `ranking` project **not met**: the
+sequence goes there after a run (0x108354) only when `MGame.last_record` (Status +0x3A43C) holds a time, and the program only
+ever sets it to no time (359,999,999 at 0x111504, 0x112688; no script writes it), so it never opens (it is a show machine's
+online leaderboard: `svo::LoginE3`); the event Preview: `race_view` (0x10BB80) runs 0x10BA28 with no demo arguments, a
+RaceArcadeDemo, which is RaceArcade with vf93 answering 0 (RaceBase's reads the information's +0x70 byte +0x43) and the
+game's options copied in and out (+0xD6C, RacePS2Base vf103 / vf104); no length or camera of its own (❓ what +0x43 decides);
+ours the event's field driven by the computer in the TV view; a free run's pause Exit (RaceFreeRun::vf77 0x3BA260 -> 0x3BA3E8):
+ends the run with code 2 at once like the other races, except once the car has a lap counted (0x343B50 >= 2, or the flag
++0x24694 already set) when it first sets that flag, hands the car to the computer (0x343D78 with 4) and runs 0x3B76F0,
+0x346498, 0x426C78 (❓ what they keep) before the same end; ours ends with code 2 either way.
 
 ## The race sequences
 
