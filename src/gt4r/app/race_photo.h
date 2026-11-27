@@ -8,6 +8,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/photo_exposure.h"
 #include "gt4r/app/race_world.h"
+#include "gt4r/photo/film.h"
 #include "gt4r/race/photo_pause.h"
 
 #include <functional>
@@ -55,6 +56,9 @@ public:
     // Select: the pause is over (the replay goes on).
     bool closed() const { return state_ == State::Closed; }
 
+    // The photo just taken as a film's settings and cameras (0x334FC8: FILM, and a PCAM a frame: the step shown's, the next's);
+    // the race adds its cars.
+    photo::film::Film film() const;
     const race::photo::ShotCamera& camera() const { return camera_; }
     size_t shot_count() const { return shots_.size(); }
     size_t shot_index() const { return index_; }

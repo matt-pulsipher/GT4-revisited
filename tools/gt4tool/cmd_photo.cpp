@@ -96,7 +96,10 @@ int card(Disc& disc, const std::string& folder, const std::string& out) {
 int check(Disc& disc, const std::string& folder) {
     auto reader = [&disc](const std::string& path) { return disc_file(disc, path); };
     save::PhotoCard c(folder, reader);
-    for (const save::PhotoEntry& e : c.list('P')) {
+    std::vector<save::PhotoEntry> entries = c.list('P');
+    for (const save::PhotoEntry& e : c.list('F')) entries.push_back(e);
+    for (const save::PhotoEntry& e : entries) {
+        const bool film = e.kind == 'F';
         const std::filesystem::path dir = std::filesystem::path(folder) / e.folder;
         std::printf("%s:\n", e.folder.c_str());
         // The record.
@@ -106,12 +109,13 @@ int check(Disc& disc, const std::string& folder) {
         if (plain && e.info) {
             Bytes again = e.info->encode();
             int differ = 0;
-            for (size_t i = 0; i < save::kInfoSize; ++i) differ += again[i] != (*plain)[i];
+            for (size_t i = 0; i < save::kInfoSize; ++i)
+                if (again[i] != (*plain)[i]) ++differ, std::printf(" [+0x%02zX %02X, made %02X]", i, (*plain)[i], again[i]);
             std::printf(", %d bytes differ made again", differ);
         }
         std::printf("\n");
         // The scrambling: the same file from its own payload and first word.
-        for (const auto& [name, kind] : {std::pair{std::string("thumbnail"), save::FileKind::Info}, std::pair{e.folder, save::FileKind::Photo}}) {
+        for (const auto& [name, kind] : {std::pair{std::string("thumbnail"), save::FileKind::Info}, std::pair{e.folder, film ? save::FileKind::Film : save::FileKind::Photo}}) {
             const Bytes file = read_file(dir / name);
             const std::optional<Bytes> body = save::unscramble(file, 0, kind);
             bool same = false;
@@ -121,7 +125,7 @@ int check(Disc& disc, const std::string& folder) {
                     const u32 r = rd32(file, o);
                     if (o > 0 && file.size() > 4096 && rd32(file, 0) != 0 && o % 1 != 0) continue;
                     const u64 n = file.size() - 4;
-                    const double f = kind == save::FileKind::Info ? 0.468643 : 0.404;
+                    const double f = kind == save::FileKind::Info ? 0.468643 : kind == save::FileKind::Film ? 0.345678 : 0.404;
                     if (std::abs(double(o) - double(n) * f) > 2) continue;
                     same = save::scramble(ByteSpan(body->data(), body->size()).subspan(0, body->size()), 0, r, kind) == file;
                 }
@@ -130,7 +134,7 @@ int check(Disc& disc, const std::string& folder) {
         }
         // The icon.
         const Bytes icon = read_file(dir / "icon0.ico");
-        const std::optional<Bytes> t = reader(e.portrait ? "icon/GT4_photo_3_to_4_.ico" : "icon/GT4_photo_4_to_3_.ico");
+        const std::optional<Bytes> t = reader(std::string(film ? "icon/GT4_film_" : "icon/GT4_photo_") + (e.portrait ? "3_to_4_.ico" : "4_to_3_.ico"));
         if (const std::optional<std::vector<u32>> px = save::icon_picture(icon); px && t) {
             std::vector<u16> small;
             for (u32 v : *px) small.push_back(u16((v & 255) >> 3 | (v >> 8 & 255) >> 3 << 5 | (v >> 16 & 255) >> 3 << 10));

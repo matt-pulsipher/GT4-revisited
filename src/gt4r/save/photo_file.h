@@ -21,6 +21,7 @@ struct PhotoInfo {
     std::string course_file; // "ss_times"
     std::string car_name;    // "Ford GT `05": the short name
     bool portrait = false;
+    gt3r::s8 mode = 0;            // +0xD8: the race's mode (save/replay_particulars.h kReplayModes; 0 Photo Travel's, 13 the photo drive's)
     Bytes encode() const;                           // 0xE8 bytes
     static std::optional<PhotoInfo> decode(ByteSpan);
 };
@@ -62,6 +63,11 @@ public:
     int needed_kb(ByteSpan jpeg, const std::vector<u16>& small, bool portrait) const;
     // A new photo; `title`: icon.sys's second line ("Photo data").
     Result save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u16>& small, const std::string& title);
+    // A film's data (photo/film.h) and its photo's small picture: the folder ...F + letters, the file F%04d (0x1D0698).
+    int needed_film_kb(ByteSpan film, const std::vector<u16>& small, bool portrait) const;
+    Result save_film(const PhotoInfo& info, ByteSpan film, const std::vector<u16>& small, const std::string& title);
+    // A film's data, unscrambled (with its padding).
+    std::optional<Bytes> film(const std::string& folder) const;
     Result remove(const std::string& folder);
 
     // The slide show's list (the folder ...LSTSLIDE): the photos' folder numbers with their kinds, in order.
@@ -83,7 +89,8 @@ private:
     void write_icon_sys(const std::string& dir, const std::string& title) const;
     std::string card_, product_;
     Reader disc_;
-    Bytes make_icon(const std::vector<u16>& small, bool portrait) const;
+    Bytes make_icon(const std::vector<u16>& small, bool portrait, bool film = false) const;
+    Result save_kind(char kind, const PhotoInfo& info, ByteSpan data, const std::vector<u16>& small, const std::string& title);
 };
 
 // ASCII as the full-width Shift-JIS letters of a save's title; [ ] and digits too (0x1CBD18).

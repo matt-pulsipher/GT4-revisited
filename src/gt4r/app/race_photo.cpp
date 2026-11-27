@@ -169,6 +169,48 @@ void RacePhotoPause::step(const race::photo::PadButtons& b) {
     }
 }
 
+photo::film::Film RacePhotoPause::film() const {
+    photo::film::Film f;
+    photo::film::Photo& p = f.photo;
+    p.upright = camera_.portrait();
+    p.shutter_frames = std::min(1.0f, camera_.shutter_seconds() * 60.0f);
+    p.filter = filter_;
+    p.saturation = saturation_option_ / 10.0f + 1;
+    p.exposure = camera_.exposure(), p.kelvin = camera_.kelvin();
+    // The car's frame in the picture: the JPEG's G4PI record {u32 1, u32 3, f32 x, y, x0, y0, x1, y1} (none: 0).
+    if (picture_ && picture_->focus) {
+        const menu::JpegPicture::Focus& q = *picture_->focus;
+        photo::film::Writer w;
+        w.u32_(1), w.u32_(3);
+        for (float v : {q.x, q.y, q.x0, q.y0, q.x1, q.y1}) w.f32_(v);
+        std::copy(w.data().begin(), w.data().end(), p.frame.begin());
+    }
+    // The cameras (0x33AEA0): the eye, a point the focus distance (at least 1 m) along the view, the view's up; the angle across a
+    // 4:3 picture's width, the projection's scales' ratio, its planes, the settings.
+    auto camera = [&](const race::photo::Vec3& eye, const render::Mat4& view) {
+        photo::film::Camera c;
+        const RVec ahead{-view.at(2, 0), -view.at(2, 1), -view.at(2, 2)}, up{view.at(1, 0), view.at(1, 1), view.at(1, 2)};
+        const float d = std::max(camera_.focus(), 1.0f);
+        c.eye = {eye.x, eye.y, eye.z}, c.target = {eye.x + ahead.x * d, eye.y + ahead.y * d, eye.z + ahead.z * d}, c.up = {up.x, up.y, up.z};
+        c.fov = 2 * std::atan(std::tan(camera_.fov() * 0.5f * kPi / 180.0f) / 0.75f) * 180.0f / kPi;
+        c.aspect = 0.75f;
+        c.near = race::lens_near(camera_.fov() * kPi / 180.0f), c.far = 5000;
+        c.f_number = camera_.f_number(), c.shutter = camera_.shutter_seconds(), c.exposure = camera_.exposure(), c.kelvin = camera_.kelvin();
+        return c;
+    };
+    photo::film::Frame first, second;
+    second.camera = camera(camera_.eye(), camera_.view());
+    if (pan_from_) {
+        const float d = kPi / 180.0f;
+        const render::Mat4 v = render::rotate_z(camera_.roll() * d) * render::rotate_x(pan_from_->pitch * d) * render::rotate_y(pan_from_->yaw * d) * render::translate(-pan_from_->eye);
+        first.camera = camera(pan_from_->eye, v);
+    } else {
+        first.camera = second.camera;
+    }
+    f.frames = {first, second};
+    return f;
+}
+
 void RacePhotoPause::back_from_saving() {
     if (state_ != State::Saved) return;
     state_ = State::Finder;
@@ -214,7 +256,7 @@ race::ViewPose RacePhotoPause::pose(float aspect, float ahead) const {
     const float half_height = aspect >= 1 ? t : t / aspect;
     // (ViewPose's angle is across a 4:3 picture's width, a narrower one keeping that width)
     p.fov = 2 * std::atan(aspect >= kAspect ? half_height * kAspect : half_height * aspect);
-    p.near = race::lens_near(std::max(camera_.fov(), 45.0f) * kPi / 180.0f); // (CameraPhotoBase::vf12 0x400CB8)
+    p.near = race::lens_near(camera_.fov() * kPi / 180.0f); // (CameraVariable::vf12 0x3794A8, no least angle: ✔ 0.818 m at 140 mm in the original's film)
     p.depth_of_field = false;
     return p;
 }

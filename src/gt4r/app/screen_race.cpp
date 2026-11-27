@@ -60,6 +60,7 @@
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/app/race_photo.h"
+#include "gt4r/photo/film.h"
 #include "gt4r/photo/picture.h"
 #include "gt4r/race/photo_pause.h"
 #include "gt4r/race/picture_settings.h"
@@ -275,6 +276,22 @@ Setup setup_from_env() {
     // simple driver.)
     if (s.replay > 0) s.auto_drive = true;
     return s;
+}
+
+// A car's paints' label (the label of its VARIATION rows less the row's number: "ford0006"), as a film's race header names them.
+std::string paint_set(db::SpecDb* db, const std::string& car) {
+    if (!db) return {};
+    const db::Labels* cars = db->labels("GENERIC_CAR");
+    const db::Table* link = db->table("CAR_VARIATION_american");
+    const db::Labels* rows = db->labels("VARIATIONamerican");
+    if (!cars || !link || !rows) return {};
+    const std::optional<u32> id = cars->id(car);
+    if (!id) return {};
+    const ByteSpan l = link->row(*id);
+    if (l.size() < 4) return {};
+    const std::string* label = rows->label(rd32(l, 0));
+    if (!label) return {};
+    return label->substr(0, label->rfind('_'));
 }
 
 // The sequences the free run's conductor runs (DynamicsConductorFreeRun: the arcade's time trial, the free run, Gran Turismo
@@ -2519,6 +2536,31 @@ public:
         r.x = (r.x0 + r.x1) * 0.5f, r.y = (r.y0 + r.y1) * 0.5f;
         return r;
     }
+    // The race's part of a film (0x33A2A0, 0x33A018): the course, the race's kind, its cars (label, paint set and number), each
+    // frame's cars as the car models' sponsors give them (the step shown's, the next's). `paint_set`: a car's paints' label.
+    void photo_film(photo::film::Film& f, const std::string& kind, const std::function<std::string(const std::string&)>& paint_set) const {
+        f.course = world_->setup().course, f.kind = kind;
+        f.cars.clear();
+        for (size_t i = 0; i < world_->car_count() && i < world_->setup().entries.size(); ++i) {
+            const auto& e = world_->setup().entries[i];
+            photo::film::Car c;
+            c.label = e.label, c.paint = paint_set(e.label), c.b = u8(e.paint);
+            f.cars.push_back(std::move(c));
+        }
+        const std::span<const race::CarState> now = shown();
+        const std::span<const race::CarState> next =
+            replaying_ && replay_at_ + 1 < history_.size() && history_[replay_at_ + 1].size() == now.size() ? std::span<const race::CarState>(history_[replay_at_ + 1]) : now;
+        for (size_t k = 0; k < f.frames.size() && k < 2; ++k) {
+            photo::film::Frame& fr = f.frames[k];
+            fr.cars.clear();
+            for (size_t i = 0; i < f.cars.size() && i < now.size(); ++i) {
+                photo::film::CarFrame c;
+                c.params = k == 0 ? photo::film::params_of(now[i]) : photo::film::params_of(next[i], &now[i]);
+                if (k == 1) c.skids = Bytes{0, 0, 0}; // (SMOK: none kept here)
+                fr.cars.push_back(std::move(c));
+            }
+        }
+    }
     // The followed car's label and the course's file (the photo's record on the card).
     std::string photo_car_label() const {
         const size_t f = focus() < world_->car_count() ? focus() : 0;
@@ -2920,6 +2962,9 @@ public:
         // at the program's speed, else a standing start whose hold the event's row gives (start).
         if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
         apply_course_start(app, setup_, setup_.course_start);
+        // The photo drive's race has no number of laps: its display shows the lap alone (✔ the original's GT mode photo drive at
+        // Tsukuba: "Lap 1", the position, the lap clock, the best and last lap), and no count ends it.
+        if (setup_.sequence == "photo_drive") setup_.laps = 0;
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())
@@ -3855,6 +3900,14 @@ private:
 
     // ---- The photo pause (app/race_photo.h): the Replay Theater's replays and the photo drive's (0x10CA50, 0x11ABE0 set it as the
     // race's second pause, +0xE404), Select in a replay or in the photo drive's B-spec run.
+    // The race's mode on a photo's record (+0xD8: the race's +0xD68; ✔ 13 in the original's photo drive).
+    gt3r::s8 photo_race_mode() const {
+        if (sequence_ == "photo_drive") return 13;
+        static const std::pair<const char*, int> kModes[] = {{"single_race", 1}, {"time_trial", 2}, {"solo_event", 13}, {"championship", 14}, {"freerun", 11}, {"practice", 12}};
+        for (const auto& [q, m] : kModes)
+            if (sequence_ == q || setup_.sequence == q) return gt3r::s8(m);
+        return 0;
+    }
     bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
     void open_photo(App& app) {
         // The pause's first step (PhotoPause::vf4 0x3C4A48): with the followed car in a pit visit (0x35BBD8; the program's
@@ -3899,6 +3952,13 @@ private:
             // The race's display state kept, the menus' project over the still race (0x3C51A0).
             std::shared_ptr<menu::PhotoPicture> p = photo_->picture();
             p->course = setup_.course, p->car_label = race_->photo_car_label();
+            p->mode = photo_race_mode();
+            {
+                photo::film::Film f = photo_->film();
+                db::SpecDb* db = app.db();
+                race_->photo_film(f, sequence_.empty() ? setup_.sequence : sequence_, [db](const std::string& car) { return paint_set(db, car); });
+                p->film = f.encode();
+            }
             menus_->photo_picture = p;
             menus_->game().next_menu_arg = "filmphoto";
             try {
@@ -4608,6 +4668,7 @@ private:
         static const std::pair<const char*, const char*> kModes[] = {
             {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
             {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
+            {"photo_drive", "GTMODE_EVENT_RACE"}, // (the race's +0xD68 13: ✔ a photo of the original's photo drive)
         };
         pending->mode = "NOTHING";
         for (const auto& [sequence, mode] : kModes)

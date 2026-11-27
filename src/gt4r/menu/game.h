@@ -207,6 +207,7 @@ struct GameState {
     std::string major_menu_project, major_menu_page, major_menu_widget;
     std::string last_sequence = "boot", next_sequence;
     std::string last_menu_project, next_menu_project, last_menu_arg, next_menu_arg, menu_result;
+    Bytes develop_film; // the film Photo Lab loaded for its development (menu_result "develop"; photo/film.h)
     std::string loading_mode = "default"; // MSystem::SetLoadingMode's (0x104E30): what the next loading page shows
     std::vector<std::string> menu_stack; // menuPush / menuPop / menuRef
 

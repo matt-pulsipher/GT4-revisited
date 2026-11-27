@@ -97,7 +97,12 @@ std::shared_ptr<PhotoFileObject> make_file(GameNatives& n, const save::PhotoEntr
     f->method("load", [rt, weak](Vm&, const Value&, Args) {
         const auto p = weak.lock();
         if (!p) return text("INVALID_FILE");
-        if (p->entry.kind != 'P') return text("INVALID_FILE"); // ❓ a film is not developed here
+        if (p->entry.kind == 'F') { // (a film: its data for the development, 0x1C7BF8)
+            std::optional<Bytes> film = photo_card(*rt, p->slot).film(p->entry.folder);
+            if (!film) return text("INVALID_FILE");
+            rt->game().develop_film = std::move(*film);
+            return text("OK");
+        }
         std::optional<Bytes> jpeg = photo_card(*rt, p->slot).picture(p->entry.folder);
         if (!jpeg) return text("INVALID_FILE");
         p->jpeg = std::move(*jpeg);
@@ -251,8 +256,9 @@ void install_photo_lists(GameNatives& n, script::Module& menu) {
 }
 
 void answer_photo_destination(LiveWidget& project) {
-    // Where to save (a memory card's slot, a USB memory) and whether as a film: always the photo, to the save files.
-    for (const char* name : {"SaveDialog", "DestinationDialog"})
+    // Where to save (a memory card's slot, a USB memory): the photo to the save files. The photo pause's page asks as well whether
+    // as a film (SaveDialog: Film, Film and Photo, Photo): that page is shown, as the program's.
+    for (const char* name : {"DestinationDialog"})
         if (const auto dialog = project.child(name); dialog && dialog->members.count("kind"))
             if (const auto it = dialog->members.find("open"); it != dialog->members.end() && it->second->value.kind == script::Kind::Function) {
                 std::weak_ptr<LiveWidget> weak = dialog;
@@ -368,16 +374,16 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     file->method("remove", [](Vm&, const Value&, Args) { return number(1); });
     file->method("isInfoValid", [](Vm&, const Value&, Args) { return number(0); });
     for (const char* nothing : {"dump", "setNewFile"}) file->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    file->property("size", [rt, slot] {
+    file->property("size", [rt, slot, save_film] {
         if (!rt->photo_picture || rt->photo_picture->jpeg.empty()) return number(0);
         const PhotoPicture& p = *rt->photo_picture;
+        if (save_film) return number(photo_card(*rt, slot).needed_film_kb(p.film, small_picture(p), p.height > p.width));
         return number(photo_card(*rt, slot).needed_kb(p.jpeg, small_picture(p), p.height > p.width));
     });
     file->method("saveNew", [np, rt, slot, save_film](Vm&, const Value&, Args a) {
         if (!rt->photo_picture || rt->photo_picture->jpeg.empty() || (!rt->photo && rt->photo_picture->course.empty())) return text("INVALID_FILE");
-        // ❓ A film (the scene itself, developed in Photo Lab) is not written.
-        if (save_film) return text("DEVICE_ERROR");
         const PhotoPicture& p = *rt->photo_picture;
+        if (save_film && p.film.empty()) return text("INVALID_FILE"); // (a film is the photo pause's only)
         // (the shoot's place and car, or the photo pause's: the picture's own)
         const std::string course = rt->photo ? rt->photo->course : p.course, car_label = rt->photo ? rt->photo->car_label : p.car_label;
         Database& d = np->db();
@@ -389,7 +395,10 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
         const Value car = make_car_object(*rt, car_label, 0);
         if (car.p) info.car_name = rt->vm().attribute(car, "short_name").to_string();
         info.portrait = p.height > p.width;
-        return text(save::result_name(photo_card(*rt, slot).save(info, p.jpeg, small_picture(p), a.size() > 1 ? a[1].to_string() : std::string("Photo data"))));
+        info.mode = p.mode;
+        save::PhotoCard card = photo_card(*rt, slot);
+        if (save_film) return text(save::result_name(card.save_film(info, p.film, small_picture(p), a.size() > 1 ? a[1].to_string() : std::string("Film data"))));
+        return text(save::result_name(card.save(info, p.jpeg, small_picture(p), a.size() > 1 ? a[1].to_string() : std::string("Photo data"))));
     });
     const Value new_file = object_value(file);
     manager.method("getNewFile", [new_file](Vm&, const Value&, Args) { return new_file; });
