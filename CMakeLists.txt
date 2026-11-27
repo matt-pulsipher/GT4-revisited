@@ -16,7 +16,10 @@ option(GT4R_BUILD_TESTS "Build unit tests" ON)
 # ---------------------------------------------------------------------------
 # The shared engine: GT3 Revisited, a git submodule (docs/ARCHITECTURE.md).
 # ---------------------------------------------------------------------------
-set(GT3R_DIR ${CMAKE_SOURCE_DIR}/engine/gt3r)
+# (-DGT3R_DIR=<a GT3 Revisited checkout> builds against another engine tree, to try an engine change first.)
+if(NOT DEFINED GT3R_DIR)
+  set(GT3R_DIR ${CMAKE_SOURCE_DIR}/engine/gt3r)
+endif()
 if(NOT EXISTS ${GT3R_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "engine/gt3r is missing. Run: git submodule update --init")
 endif()
