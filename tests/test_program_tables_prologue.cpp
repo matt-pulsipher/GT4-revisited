@@ -89,7 +89,7 @@ TEST(disc_prologue_tables_equal_the_disc) {
     std::printf("  %zu areas equal to the disc's\n", c.rows.size());
     for (const sim::ProgramTable& t : sim::prologue_tables())
         for (u32 k = 0; k < t.bytes.size(); ++k) CHECK(p.b(t.address + k) == t.bytes[k]);
-    // The penalty's cap: the constant `addiu $v1, $zero, 50` at 0x3C5B48.
+    // The penalty's cap: 50, the immediate the program loads at 0x3C5B48.
     const u32 w = word(p, 0x3C5B48);
     CHECK((w >> 16) == 0x2403 && (w & 0xFFFF) == sim::kProloguePenaltyCap);
     int equal = 0;
