@@ -52,7 +52,7 @@ std::shared_ptr<CarCatalog> CarCatalog::of(App& app) {
         gt3r::Vfs* vfs = app.vfs();
         c->impl_->editor = std::make_unique<menu::SaveEditor>([vfs](const std::string& path) { return vfs->read(path); }, menus_config(app, "boot"));
         c->impl_->editor->start(menu::GameState{});
-        for (const menu::SaveEditor::CarKind& k : c->impl_->editor->cars()) c->cars_.push_back({k.label, k.name, k.maker, k.year, k.price});
+        for (const menu::SaveEditor::CarKind& k : c->impl_->editor->cars()) c->cars_.push_back({k.label, k.name, k.maker, k.maker_key, k.year, k.price});
     } else {
         // Prologue's: the database's names, no makers' (its menus list the cars themselves).
         for (const db::CarEntry& e : sdb->cars()) {
@@ -116,6 +116,7 @@ public:
     }
 
     void update(App& app, double) override {
+        if (o_.keep_open && !o_.keep_open(app)) return app.pop();
         build();
         rows_.update(app);
         if (go_) {

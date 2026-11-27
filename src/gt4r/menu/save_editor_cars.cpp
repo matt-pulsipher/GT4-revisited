@@ -58,6 +58,7 @@ void SaveEditor::read_cars() {
             k.year = s16(u16(row[0x0C] | row[0x0D] << 8));
             const auto it = d.names.tuners.find(row[0x10]);
             if (it != d.names.tuners.end()) {
+                k.maker_key = it->second;
                 k.maker = text("NationRoot", "TunerName", it->second);
                 if (k.maker.empty()) k.maker = it->second;
             }

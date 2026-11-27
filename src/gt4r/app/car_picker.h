@@ -36,6 +36,7 @@ public:
     };
     struct Car {
         std::string label, name, maker; // the maker as the menus name it ("Toyota"); "" when the disc names none
+        std::string maker_key;          // its key ("toyota": Arcade's car lists' names)
         int year = 0;
         u32 price = 0;
     };
@@ -64,6 +65,8 @@ struct CarPickerOptions {
     // Which cars may be chosen (null: all); the others are not listed.
     std::function<bool(const CarCatalog::Car&)> allowed;
     bool colors = true; // a color page after the car (else paint 0, or now.paint when the car is now's)
+    // Called every frame while the picker is shown (the page under it does not run then); false closes it without a choice.
+    std::function<bool(App&)> keep_open;
 };
 
 std::unique_ptr<Screen> make_car_picker(App& app, std::shared_ptr<CarCatalog> cars, CarPickerOptions options, std::function<void(const PickedCar&)> chosen);
