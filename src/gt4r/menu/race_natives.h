@@ -65,6 +65,10 @@ void complete_race_request(Runtime& rt, RaceRequest& request);
 // The race menus' work as a sequence makes it anew (0x127E60, then its own fill): what its pages show before a run.
 void start_quick_work(Runtime& rt, const RaceRequest& request);
 
+// Every license held (Quick race's game, which unlocks nothing: an event that asks for a license offers A-spec): each test of
+// B, A, IB, IA and S passed with gold in the race units (no rankings written).
+void hold_every_license(Runtime& rt);
+
 // The quick work of the game's state (made on first use).
 QuickWork& quick_work(GameState& game);
 
