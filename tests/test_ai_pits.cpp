@@ -45,6 +45,19 @@ TEST(ai_pits_pure) {
     gt3r::ee::F fuel(59.99f); // (2 a second: a step puts 0.033 in)
     sim::ai::pit_refuel(c, fuel, gt3r::ee::F(60.0f), gt3r::ee::F(1.0f / 60.0f), 20);
     CHECK(fuel.host() == 60.0f && c.service == 0 && c.hold == 90);
+    // 0x343C20: laps done past half the lap: over (1); before half: the line just crossed (2); a backward crossing still to
+    // take back (F +0x4B0): racing (0), the time limit passed or not.
+    sim::ai::LapStateInputs ls;
+    ls.laps = 3, ls.lap = 3, ls.lap_length = gt3r::ee::F(1000.0f), ls.d = gt3r::ee::F(800.0f);
+    CHECK(sim::ai::lap_state(ls) == 1);
+    ls.d = gt3r::ee::F(200.0f);
+    CHECK(sim::ai::lap_state(ls) == 2);
+    ls.back = 1;
+    CHECK(sim::ai::lap_state(ls) == 0);
+    ls.limit_minutes = 1, ls.clock_ms = 70000;
+    CHECK(sim::ai::lap_state(ls) == 0);
+    ls.back = 0;
+    CHECK(sim::ai::lap_state(ls) == 1);
 }
 
 TEST(ai_pits_equal_to_the_program) {

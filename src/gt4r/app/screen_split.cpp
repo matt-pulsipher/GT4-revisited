@@ -217,7 +217,7 @@ public:
             for (size_t i = 0; i < kPlayers; ++i) fs.crossings.push_back(world_->start_crossings(i));
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
-        for (size_t i = 0; i < kPlayers; ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < kPlayers; ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         board_.begin(kPlayers, 0, lap_words_[0], lap_words_[1]);
         arrivals_.reset(splits_.size() + 1);
         history_.clear(), prev_cars_.clear();
@@ -275,7 +275,7 @@ public:
         world_->step(inputs_, hold, false, u32(std::max(0, flow_.hold_left() - 1)));
         ++steps_;
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
-        for (size_t i = 0; i < kPlayers; ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < kPlayers; ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         const bool first_finish = !ev.finished.empty() && !flow_.everyone_finished() ? true : ev.finished.size() == kPlayers;
         for (const size_t i : ev.finished) {
             world_->finish_car(i, false); // (the battle's conductor 0x347230: 0x343D78 with 3)

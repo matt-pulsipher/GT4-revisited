@@ -68,13 +68,13 @@ struct PitHooks {
 PitHooks session_pit_hooks(Session& session);
 
 // The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the
-// conductor's virtual +0x180), its time limit (minutes, 0 none), and each car's result being in (F +0x4B0).
+// conductor's virtual +0x180), its time limit (minutes, 0 none). (Each car's backward crossings, F +0x4B0, come from the
+// session: Session::back_crossings.)
 struct PitRace {
     int laps = 0;
     bool pits = true;
     u32 limit_minutes = 0;
     bool pit_menu = true; // the race's pit menu (its virtual +0x120) for the player's and the B-spec car (Gran Turismo mode)
-    std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
 };
 

@@ -122,7 +122,7 @@ void PitStops::after(const Session& session, Field& field) {
         const int control = std::max(field.control(i), 0);
         // 0x343C20 (the race clock in ms: the session's steps; the car's laps as the race flow counts them).
         LapStateInputs ls;
-        ls.finished = race_.finished && race_.finished(i);
+        ls.back = session.back_crossings(i); // (F +0x4B0)
         ls.clock_ms = u32(session.time() * 1000.0);
         ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L;
         const int lap_state = lap_state_[i] = sim::ai::lap_state(ls);

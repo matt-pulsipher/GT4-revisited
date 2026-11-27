@@ -165,7 +165,7 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         fs.marks.push_back(planned[i].start.mark);
     }
     flow_.begin(fs, session.cars());
-    for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
+    for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_back_crossings(i, flow_.car(i).back), session.set_rank(i, flow_.place(i));
     p.inputs.resize(entries.size());
     // A free run's recording starts at its lap's line: the car's record as the recorder kept it, the clock two steps on, its times
     // from the line (0x359D40).
@@ -176,7 +176,7 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         if (p.field) p.field->release_rolling(0);
         session.load_moment(0, r.car, r.x);
         flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, session.cars()[0].course_v);
-        session.set_crossings(0, flow_.car(0).counter);
+        session.set_crossings(0, flow_.car(0).counter), session.set_back_crossings(0, flow_.car(0).back);
     }
 }
 
@@ -206,7 +206,7 @@ void RecordedRace::step() {
     const RaceFlow::Events e = flow_.step(session.cars());
     for (const size_t i : e.started)
         if (session.cars()[i].rolling && (!p.field || p.field->release_rolling(i))) session.release_start(int(i));
-    for (size_t i = 0; i < flow_.car_count(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
+    for (size_t i = 0; i < flow_.car_count(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_back_crossings(i, flow_.car(i).back), session.set_rank(i, flow_.place(i));
     if (p.field)
         for (const size_t i : e.finished) p.field->finish_run(session, i);
     if (e.lap_done == 0) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();

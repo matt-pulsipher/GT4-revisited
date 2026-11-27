@@ -860,12 +860,12 @@ public:
         menu_scene_ = false;
         prev_cars_.clear();
         flow_.begin(flow_setup(), world_->cars());
-        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         // A recorded free run starts at its lap's line (the recorder's state: the clock two steps on, its times from the line, 0x359D40).
         if (demo && demo_run_ && setup_.solo && !demo_run_->demo.streams.empty())
             if (const std::optional<replay::RecorderState> st = replay::recorder_state(demo_run_->demo.streams[0]); st && world_->resume(*st)) {
                 flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, world_->cars()[0].course_v);
-                world_->set_crossings(0, flow_.car(0).counter);
+                world_->set_crossings(0, flow_.car(0).counter), world_->set_back_crossings(0, flow_.car(0).back);
             }
         license_failed_ = false, cones_met_ = 0, graded_place_ = 0, run_ended_ = run_driven_ = false;
         wrong_way_ = false, wrong_prev_ = -1;
@@ -930,7 +930,7 @@ public:
             preview_hold_ = preview_start();
             if (preview_pads_) { // (its crossings of the line: the car let go by the driver that brings it there, the places)
                 preview_flow_.begin(flow_setup(), world_->cars());
-                for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
+                for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_back_crossings(i, preview_flow_.car(i).back), world_->set_rank(i, preview_flow_.place(i));
                 release_past_line();
             }
             camera_.reset(world_->cars()[0]);
@@ -1065,7 +1065,7 @@ public:
                 world_->step(inputs_, hold, false, u32(std::max(0, preview_hold_)));
                 const race::RaceFlow::Events ev = preview_flow_.step(world_->cars());
                 for (const size_t i : ev.started) world_->release_start(i);
-                for (size_t i = 0; i < preview_flow_.car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
+                for (size_t i = 0; i < preview_flow_.car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_back_crossings(i, preview_flow_.car(i).back), world_->set_rank(i, preview_flow_.place(i));
             } else world_->step(inputs_, hold, true);
             if (preview_pads_ && preview_at_ > preview_pads_->pads.size() && guide_ == 0) { // (the recording has run out: again)
                 stand();
@@ -1197,7 +1197,7 @@ public:
         if (net_) step_online(ev);
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
-        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         for (const size_t i : ev.finished)
             if (i != 0 || !is_license(setup_.sequence) || gt3_road_) world_->finish_car(i, i == 0 && is_license(setup_.sequence)); // (a test's player's: end_test)
