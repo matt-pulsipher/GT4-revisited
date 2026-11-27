@@ -5,6 +5,7 @@
 
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/menu/no_card.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/runtime.h"
 
@@ -127,6 +128,19 @@ void leave_lan_pages(Runtime& rt) {
     g.major_menu_page.clear();
     g.next_sequence.clear();
     g.next_menu_project = "arcade";
+    rt.finish();
+}
+
+void ask_for_lan_battle(Runtime& rt) {
+    // The boot project's onLoad as at power on: a new game's open cars, courses and favorites (its initCourse, initAvailable,
+    // initFavorite from InitData), the cars the LAN Battle's pages offer; then the saved game over them, as the boot loads it.
+    rt.start_project(rt.first_project());
+    if (!rt.config().console_card) load_saved_game(rt);
+    GameState& g = rt.game();
+    g.menu_stack = {"LANBattle"};
+    g.major_menu_project = "arcade", g.major_menu_page = "MatchingRoot", g.major_menu_widget.clear();
+    g.next_sequence.clear();
+    g.next_menu_project = "network", g.next_menu_arg = "LAN";
     rt.finish();
 }
 

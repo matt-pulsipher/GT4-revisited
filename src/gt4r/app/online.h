@@ -33,6 +33,11 @@ public:
     OnlineMenus(App& app, menu::Runtime& rt);
     ~OnlineMenus();
 
+    // This disc has online races (online_setup).
+    bool available() const;
+    // Opened by the home screen's Online battle: a lobby that ends leaves for the home screen (what its window says).
+    bool from_home = false;
+
     // Each frame, the menus running. True when the panel has the pad this frame (the pages get no key).
     bool frame(App& app, const MenuInput& m);
     // The menus ended (Runtime::finished) asking for something of ours: the `network` project's connection, or the LAN race.

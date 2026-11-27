@@ -515,9 +515,11 @@ through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (
 | The pages from *Matching* to the pregrid, their rules and texts | the disc's scripts | Gran Turismo 4 |
 | What the pages share (the natives) | `menu/game_network.*`, `net/lobby.*` | Gran Turismo 4's rules on the shared engine's session |
 | The connection's page, the panel, the rules that are ours | `app/screen_online.cpp`, `app/race_online_ui.*` | ours |
+| The home screen's *Online battle*: the Multi-LAN Race asked for without the arcade's pages (the boot project's onLoad for a new game's open cars, the saved game, the state GameRoot leaves: menu stack `LANBattle`, major page `MatchingRoot`, project `network` with "LAN"); back to the home screen when the connection's page is left or the lobby ends | `menu/game_network.cpp` `ask_for_lan_battle`, `app/screen_menu_viewer.cpp`, `app/screen_hub.cpp` | ours, on Gran Turismo 4's own pages |
 | The transport, the codes, the relay | `engine/gt3r/src/net` | the shared engine's |
 | The update check's question, the update dialog, the Discord status's text | `net/version_check.*`, `app/updates.*`, `net/presence_text.*`, `app/presence.*` | ours (the engine's prompt rules, links and Discord client) |
 | The car's parameter block, the race's tires | `sim/convert.*`, `sim/race_tires.*` | Gran Turismo 4 |
 
 Tests: `updates_*`, `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
-`disc_net_lan_garage_car` (two games' menus in one process from the Multi-LAN Race to the race and back).
+`disc_net_lan_garage_car` (two games' menus in one process from the Multi-LAN Race to the race and back), `disc_hub_online_battle`
+(a host by the home screen's Online battle and a guest by the arcade's icon meet on the course page).

@@ -33,6 +33,12 @@ std::optional<net::CarChoice> choice_of_pages(Runtime& rt);
 
 // The pages left from outside: the lobby gone, the arcade's first page next (a lost connection, the lobby's Leave).
 void leave_lan_pages(Runtime& rt);
+
+// Arcade's Multi-LAN Race asked for without its pages (the home screen's Online battle): the boot project started for its onLoad
+// (a new game's open cars, courses and favorites), the saved game loaded (saves of the app's own), then the state the arcade's GameRoot leaves when the
+// icon is chosen (the menu stack's "LANBattle", the major project arcade and page MatchingRoot, the project `network` with the
+// argument "LAN"), and the menus ended, as if the arcade's project had ended so. The connection's page then answers it.
+void ask_for_lan_battle(Runtime& rt);
 // The app's car picker in place of the makers' page (any car, the host's rule): the car the player picked there, which the car page
 // then lists alone (its colors and the driving options are the page's own); "" clears it (the makers' page shown again).
 void set_lan_pick(Runtime& rt, const std::string& car);

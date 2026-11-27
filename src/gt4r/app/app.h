@@ -399,6 +399,9 @@ std::unique_ptr<Screen> make_menu_viewer(App& app);
 // them (screen_menu_viewer.cpp). On the title, Select or the GT4R menu button beside it leaves it.
 // (`new_card`: a new game, to be made in this folder: save/save_library.h.)
 std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card = {});
+// The game's menus opened at Arcade's Multi-LAN Race (the home screen's Online battle): the connection's page first; back from it,
+// or the lobby left, the home screen again.
+std::unique_ptr<Screen> make_online_game_screen(App& app);
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);
