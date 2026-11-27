@@ -362,7 +362,10 @@ every body's switches and what each level draws (test `disc_car_body_levels`).
 **The 1886 Benz Patent Motor Wagen** (`benz0001`): its body is drawn at level 0 only. Its
 switch's second entry draws the four wheels' callbacks and jumps to the program's end, and its
 third draws 256 triangles, the wheels as shapes (1.12 m tall: the rear wheels), so from about
-11 m of depth in the chase view (28 m in a replay shot) the program draws its wheels alone. Every other body's levels 1 and 2 have a quarter or more of level 0's triangles.
+11 m of depth in the chase view (28 m in a replay shot) the program draws its wheels alone.
+⚠ The race view here departs from that by choice: a level with under a tenth of level 0's
+triangles is shown as the nearest level that draws the body, the farther one first, so the Benz
+is drawn whole (level 0) at every distance (`CarVisual::level`). Every other body's levels 1 and 2 have a quarter or more of level 0's triangles.
 **K** (the view's factor, kept at 0x8465E4) measured in the original's saved states: 721.2 in the
 chase view at Tsukuba's start, 121.4 in a wide start shot, 1851.6 in a replay shot, 3905.6 in a
 telephoto opening pass. A car 3.0 in size in the chase view is at level 0 nearer than 10.8 m

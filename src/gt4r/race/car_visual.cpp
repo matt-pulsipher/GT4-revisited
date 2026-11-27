@@ -68,11 +68,6 @@ mdls::Scene body_scene(bool brake, int lamp_level, int spoiler = 0) {
     return s;
 }
 
-// Whether a body level draws the body: at least a tenth of the nearest level's triangles (judged: on the US disc's
-// 807 race bodies every level has a quarter or more but the 1886 Benz's farther two, whose level 1 draws nothing and
-// level 2 its wheels alone, 256 of 4520).
-bool draws_body(int triangles, int nearest) { return triangles > 0 && 10 * triangles >= nearest; }
-
 // What model 0's draw program reaches: every level switch (0x07) with the stack's depth there, in address order, and
 // whether it calls callback 46 (0x59 46 or a 0x06 on it: the far level's wheels drawn as shapes of the body).
 struct ProgramWalk {
@@ -448,6 +443,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         } catch (const std::exception& e) {
             LOG_WARN("Car %s: its body of its own (%s): %s; the model's is drawn", name.c_str(), mod->glb_path.c_str(), e.what());
         }
+    body_shown_.fill(false);
     for (int brake = 0; brake < 2; ++brake) {
         // With turned parts: the body without them, and each part alone.
         const int turned = moving_ && !moving_->parts.empty() ? -1 : -2;
@@ -472,7 +468,12 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             m.compute_bounds();
             min_ = {m.bounds_min[0], m.bounds_min[1], m.bounds_min[2]};
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
-            for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
+            std::array<size_t, 4> triangles{};
+            for (const scene::Mesh& mesh : m.meshes) {
+                lods_ = std::max(lods_, mesh.lod + 1);
+                if (mesh.lod >= 0 && mesh.lod < int(triangles.size())) triangles[size_t(mesh.lod)] += mesh.indices.size() / 3;
+            }
+            for (size_t l = 0; l < triangles.size(); ++l) body_shown_[l] = draws_body(int(triangles[l]), int(triangles[0]));
         }
         // The band: a model of its own (the body's pictures it draws with), drawn at rest without a Motion.
         if (moving_ && !moving_->band[size_t(brake)].meshes.empty()) {
@@ -930,15 +931,15 @@ void CarVisual::set_still_skeleton(size_t seat, const posture::Skeleton& s) {
 
 int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* view) const {
     const Mat4 body = body_matrix(s);
-    if (!view || lod_size_ <= 0) return std::min(render::length(v3(s.position) - eye) < 30.0f ? 0 : 1, lods_ - 1);
+    const auto shown = [&](int level) { return shown_level(level, lods_, body_shown_.data(), int(body_shown_.size())); };
+    if (!view || lod_size_ <= 0) return shown(render::length(v3(s.position) - eye) < 30.0f ? 0 : 1);
     // The program's choice (0x07 with the car's callback, 0x4539A8): v = K x size / depth of the switch's
     // centre; v > T: 0, v > 0.33 T: 1, else 2, T = 200.
     const render::Vec3 c = body.transform_point(lod_centre_);
     const float depth = std::max(render::dot(c - eye, view->forward), 0.0001f);
     const float v = view->k * lod_size_ / depth;
     constexpr float kT = 200;
-    const int level = v > kT ? 0 : v > kT * 0.33f ? 1 : 2;
-    return std::min(level, lods_ - 1);
+    return shown(v > kT ? 0 : v > kT * 0.33f ? 1 : 2);
 }
 
 void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view, bool wheels,
@@ -1077,6 +1078,20 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});
+}
+
+// Judged: on the US disc's 807 race bodies every level has a quarter or more of level 0's triangles but the 1886
+// Benz's farther two (level 1 draws nothing, level 2 its wheels alone: 256 of 4520).
+bool draws_body(int triangles, int nearest) { return triangles > 0 && 10 * triangles >= nearest; }
+
+int shown_level(int level, int levels, const bool* drawn, int drawn_count) {
+    level = std::max(0, std::min(level, levels - 1));
+    const int n = std::min(levels, drawn_count);
+    for (int l = level; l < n; ++l)
+        if (drawn[l]) return l;
+    for (int l = std::min(level, n) - 1; l >= 0; --l)
+        if (drawn[l]) return l;
+    return level;
 }
 
 BodyLods body_lods(ByteSpan file) {

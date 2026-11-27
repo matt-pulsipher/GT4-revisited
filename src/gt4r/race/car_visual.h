@@ -90,7 +90,7 @@ public:
         float k = 0;
     };
     // The body's level of detail for a state seen from `eye`: the program's rule with a view, else by
-    // the distance alone (30 m).
+    // the distance alone (30 m); a level that does not draw the body shows the nearest that does (the 1886 Benz's).
     int level(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
@@ -197,6 +197,7 @@ private:
     render::Vec3 min_, max_;
     render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
     float lod_size_ = 0;
+    std::array<bool, 4> body_shown_{true, true, true, true}; // per level: the body draws shapes there
     bool far_wheel_face_ = true; // the body's far level draws its wheels as its own shapes (callback 46)
     // The driver's models, and the figures (a co-driver's too) of a car whose driver sits still.
     std::unique_ptr<DriverModels> driver_models_;

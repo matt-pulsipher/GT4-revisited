@@ -12,6 +12,16 @@
 
 using namespace gt4r;
 
+TEST(car_body_shown_level) {
+    // Every level drawn: the program's own; an empty middle level: the farther one; the farther ones empty: the nearer.
+    const bool all[3] = {true, true, true}, middle[3] = {true, false, true}, near_only[3] = {true, false, false};
+    for (int k = 0; k < 3; ++k) CHECK((race::shown_level(k, 3, all, 3)) == (k));
+    CHECK((race::shown_level(1, 3, middle, 3)) == (2));
+    CHECK((race::shown_level(2, 3, near_only, 3)) == (0));
+    CHECK((race::shown_level(2, 2, all, 3)) == (1)); // (clamped to the body's levels)
+    CHECK((race::shown_level(0, 1, near_only, 3)) == (0));
+}
+
 TEST(disc_car_body_levels) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
@@ -47,6 +57,10 @@ TEST(disc_car_body_levels) {
                     CHECK((l.level[1].triangles) == (0));
                     CHECK(l.level[1].missing && l.level[2].missing);
                     CHECK(l.level[2].triangles > 200 && l.level[2].extent[1] < 1.2f);
+                    // The race view shows level 0 wherever the program would pick 1 or 2 (a choice: the program draws
+                    // the wheels alone there).
+                    const bool drawn[3] = {!l.level[0].missing, !l.level[1].missing, !l.level[2].missing};
+                    for (int k = 0; k < 3; ++k) CHECK((race::shown_level(k, 3, drawn, 3)) == (0));
                 }
             }
         }

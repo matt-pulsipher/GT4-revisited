@@ -42,4 +42,11 @@ struct BodyLods {
 // A car file's (car/lod/<model>, "CAR4") body levels, unpainted. Throws FormatError.
 BodyLods body_lods(ByteSpan car_file);
 
+// Whether a body level draws the body: at least a tenth of the nearest level's triangles.
+bool draws_body(int triangles, int nearest);
+// The level the race view shows for the program's `level` (clamped to `levels` - 1): a level that does not draw the
+// body (`drawn` false) is shown as the nearest that does, the farther one first. This departs from the program, which
+// draws such a level as it is (the 1886 Benz's levels 1 and 2: its wheels alone).
+int shown_level(int level, int levels, const bool* drawn, int drawn_count);
+
 } // namespace gt4r::race
