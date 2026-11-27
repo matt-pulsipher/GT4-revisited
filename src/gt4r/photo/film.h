@@ -6,6 +6,7 @@
 // camera PCAM, a CARD a car with its CPRM). docs/formats/photo.md "Films".
 
 #include "gt4r/base/types.h"
+#include "gt4r/race/posture_solver.h"
 #include "gt4r/race/simulation.h"
 
 #include <array>
@@ -104,9 +105,11 @@ struct Camera {
 // A car's state as the car model's parameter sponsor gives it (CPRM, 0x459E30: CarParamSponsor virtuals 4 .. 27 at the frame's
 // time). Course space; angles in degrees.
 struct Params {
-    Vec3 ground_turn, ground_at; // virtuals 4, 5: the frame of the road under the car (pitch, yaw, roll), its point (the shadow's)
+    Vec3 ground_turn, ground_at; // virtuals 4, 5: the frame the body and the driver's figure are drawn in (pitch, yaw, roll) and its place
+                                 // (car + 0x888: ✔ the original's film developed at it gives its photo); a state's `position`
     Vec3 velocity;               // virtual 6
-    Vec3 turn, at;               // virtuals 7, 8: the body's angles (pitch, yaw, roll) and its point
+    Vec3 turn, at;               // virtuals 7, 8: the body's angles (pitch, yaw, roll) and a point CarState::ground_drop below virtual 5's
+                                 // (car + 0x894), the wheels' places measured from it
     float v15 = 0, v16 = 0.02f;  // virtuals 15, 16
     bool v18 = false;            // virtual 18
     float v19 = 0, v20 = 0, v21 = 0, v22 = 0;
@@ -161,6 +164,18 @@ constexpr u16 kGadgetSlots = 160;
 Bytes gadgets_payload(std::span<const GadgetSlot> slots);
 // A frame's particle emitters (PTCL, 0x3C2990): u8 0, each emitter's kind + 1 and its own record, u8 0 at the end.
 Bytes no_particles();
+
+// A driver's or co-driver's figure (DRVR / NAVI, 0x339AD0, 952 bytes): u8 1; the 20 bones in the name table's order (0x41A988),
+// each its place and quaternion (x, y, z, w) in course space (Bone 0x41B678), its vector in its own frame (StickBone 0x41BCC0),
+// and for the pelvis and the scapula their two joints (PlateBone 0x41C0B8); the figure's four floats at +0x680; the posture
+// caller's fields (a bool, a word, a bool, two floats, a 4 x 4 matrix, a bool, 8 bytes). The figure's frame in course space:
+// `at` its place (the body's point at the center of gravity's height: CPRM's virtual 5) and the car's axes; the skeleton is in
+// the car's frame (CarVisual::body_matrix's).
+constexpr size_t kFigureBytes = 952;
+Bytes figure_payload(const race::posture::Skeleton& s, const Vec3& at, const Vec3& right, const Vec3& up, const Vec3& forward);
+// A figure back in its frame; `base` gives what the payload does not hold (the bones' lengths). None when it does not read.
+std::optional<race::posture::Skeleton> figure_of(ByteSpan payload, const Vec3& at, const Vec3& right, const Vec3& up, const Vec3& forward,
+                                                 const race::posture::Skeleton& base);
 
 // The parameters of a car drawn from a state (the drawn body and wheels, course space), and back.
 Params params_of(const race::CarState& s, const race::CarState* before = nullptr);

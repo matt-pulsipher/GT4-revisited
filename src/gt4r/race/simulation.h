@@ -85,6 +85,10 @@ struct CarState {
     // The position is the drawn body's own place (the simulation placed the wheels from the body's frame, as the game
     // draws them): race::body_matrix draws the body there, without seating it on its wheels.
     bool body_placed = false;
+    // How far below `position` along `up` the car's lower drawn point lies (m): a film's CPRM virtual 8 (car + 0x894 against
+    // + 0x888, 0x344040), which the program gives beside virtual 5, the place the body and its driver's figure are drawn about
+    // (✔ the original's film developed: its car and figure where its photo has them). Films only.
+    float ground_drop = 0;
     // A hit's jolt of the in-car view (the collision step's record, sim::rules::view_jolt): for the step that made it, its
     // change of velocity along the body and across it (to its right), m/s, scaled.
     bool jolt = false;

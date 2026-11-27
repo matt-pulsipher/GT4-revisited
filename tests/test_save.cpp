@@ -8,6 +8,8 @@
 #include "gt4r/save/codec.h"
 #include "gt4r/save/game_data.h"
 #include "gt4r/save/memory_card.h"
+#include "gt4r/save/prologue_data.h"
+#include "gt4r/save/save_edit.h"
 
 #include "formats/ps2/memcard.h"
 
@@ -373,4 +375,52 @@ TEST(save_japan_language_for_unit) {
     w.option_defaults("uk");
     const Bytes uk = save::write_game(w, codes);
     CHECK(uk[kOption + 0x10] == 1 && uk[kOption + 0x11] == 2 && uk[kOption + 0x12] == 1 && uk[kOption + 0x13] == 0 && !w.options.count("language_for_unit"));
+}
+
+// A Japanese card's save that builds before the release's own layout wrote in Prologue's format (the profile's name, no
+// garage file): read as the game with that name, and the next save writes the release's files in its place, under the title
+// its icon.sys gave. The save editor says what to do with it.
+TEST(save_japan_earlier_format) {
+    const save::Codes codes = made_up_codes();
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-save-test-japan-earlier";
+    std::filesystem::remove_all(dir);
+    const std::filesystem::path folder = dir / "BISCPS-17001GAMEDATA";
+    std::filesystem::create_directories(folder);
+    menu::GameState old;
+    old.username = "Earlier";
+    auto put = [](const std::filesystem::path& p, const Bytes& b) {
+        std::ofstream out(p, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    };
+    put(folder / "BISCPS-17001GAMEDATA", save::write_prologue(old));
+    Bytes sys(0x3C4, 0); // (the earlier save's icon.sys: its title at +0xC0 in full-width letters)
+    const u8 title[] = {0x82, 0x66, 0x82, 0x81, 0x82, 0x8D, 0x82, 0x85, 0x81, 0x40, 0x82, 0x63, 0x82, 0x81, 0x82, 0x94, 0x82, 0x81}; // "Game Data"
+    std::memcpy(sys.data() + 0xC0, title, sizeof title);
+    put(folder / "icon.sys", sys);
+    CHECK(save::is_earlier_japan_save("BISCPS-17001", save::write_prologue(old)) && !save::is_earlier_japan_save("BISCPS-15055", save::write_prologue(old)));
+
+    save::GameSave card(dir.string(), codes, {}, "BISCPS-17001");
+    CHECK(card.exists() == 0);
+    menu::GameState s;
+    s.option_defaults("jp");
+    s.money = 10'000;
+    CHECK(card.load(s) == save::Result::Ok);
+    CHECK(s.username == "Earlier" && s.money == 10'000);
+    menu::GameState other;
+    CHECK(card.load_instance(other) == save::Result::Ok && other.username == "Earlier");
+    std::string why;
+    const auto place = save::edit_place(dir.string(), "BISCPS-17001", &why);
+    CHECK(place && !save::read_files(*place, "BISCPS-17001", &why) && why.find("earlier build") != std::string::npos);
+
+    // The next save: the release's game data and garage file in the same folder.
+    s.money = 54'321;
+    CHECK(card.save(s) == save::Result::Ok);
+    CHECK(std::filesystem::exists(folder / "garage") && std::filesystem::file_size(folder / "BISCPS-17001GAMEDATA") == 0x3A0C0);
+    menu::GameState t;
+    t.option_defaults("jp");
+    CHECK(save::GameSave(dir.string(), codes, {}, "BISCPS-17001").load(t) == save::Result::Ok);
+    CHECK(t.username == "Earlier" && t.money == 54'321);
+    CHECK(card.save(t) == save::Result::Ok); // (written over now, as any save of the release)
+    CHECK(save::GameSave(dir.string(), codes, {}, "BISCPS-17001").load(t) == save::Result::Ok && t.money == 54'321);
+    std::filesystem::remove_all(dir);
 }

@@ -609,6 +609,7 @@ TEST(race_replay_file) {
             st[size_t(c)].speed = float(s), st[size_t(c)].gear = c + 1, st[size_t(c)].lap = s / 60;
             st[size_t(c)].wheels[2].spin = float(s) * 0.1f, st[size_t(c)].wheels[3].surface = 7;
             st[size_t(c)].brake_lamps = s % 2;
+            st[size_t(c)].ground_drop = 0.1f + 0.01f * float(c);
         }
         f.steps.push_back(st);
     }
@@ -619,6 +620,7 @@ TEST(race_replay_file) {
     CHECK(g.steps.size() == 120);
     CHECK(g.steps[119][1].position.x == 59.5f && g.steps[119][1].gear == 2 && g.steps[119][0].lap == 1 && g.steps[61][0].brake_lamps);
     CHECK(g.steps[50][0].wheels[2].spin == f.steps[50][0].wheels[2].spin && g.steps[50][1].wheels[3].surface == 7);
+    CHECK(g.steps[0][0].ground_drop == 0.1f && g.steps[119][1].ground_drop == 0.11f && g.other.empty()); // (the figures' section)
     // A cut file.
     bool threw = false;
     try {

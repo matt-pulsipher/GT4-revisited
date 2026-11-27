@@ -149,3 +149,47 @@ TEST(film_gadgets_and_particles) {
     CHECK(y == 2.0f && b.back() == 0);
     CHECK(photo::film::no_particles() == Bytes({0, 0}));
 }
+
+// The driver's figure in a film (DRVR / NAVI, figure_payload): its 952 bytes, the bones put in course space about the figure's
+// place by the car's turn (a quaternion the car's turn times the bone's), and back; the figure's place in the parameters
+// (virtual 5: the state's place; virtual 8 ground_drop below it).
+TEST(film_driver_figure) {
+    namespace rp = race::posture;
+    rp::Skeleton s;
+    for (int n = 0; n < rp::kNodes; ++n) {
+        s[n].pos = {rp::f(0.01f * float(n)), rp::f(0.2f + 0.01f * float(n)), rp::f(0.05f)};
+        s[n].q = rp::about_y(rp::f(0.1f * float(n)));
+        s[n].vec = {rp::f(0), rp::f(-0.45f), rp::f(0)};
+    }
+    s[rp::kPelvis].q = {rp::f(0), rp::f(1), rp::f(0), rp::f(0)}; // (turned about y: the figure's own frame looks along +z)
+    s[rp::kPelvis].left = {rp::f(0.0885f), rp::f(0), rp::f(0)}, s[rp::kPelvis].right = {rp::f(-0.0885f), rp::f(0), rp::f(0)};
+    Vec3 r, u, fw;
+    axes_of({0, -90, 0}, r, u, fw); // heading along +x, its right +z
+    const Vec3 at{40, 14.5f, -180};
+    const Bytes b = figure_payload(s, at, r, u, fw);
+    CHECK(b.size() == kFigureBytes && b[0] == 1);
+    const auto f32 = [&](size_t i) { float v; std::memcpy(&v, &b[1 + 4 * i], 4); return v; };
+    // The pelvis: at the place + its offset turned (x right = +z, z back = -x), its quaternion the car's turn after its own
+    // (a half turn about y after a quarter turn back: (0, 0.7071, 0, 0.7071)); its vector and its two joints as they are.
+    CHECK(near(f32(0), 40 - 0.05f, 1e-5f) && near(f32(1), 14.7f, 1e-5f) && near(f32(2), -180, 1e-5f));
+    CHECK(near(std::fabs(f32(4)), 0.70711f, 1e-4f) && near(std::fabs(f32(6)), 0.70711f, 1e-4f) && near(f32(3), 0, 1e-5f));
+    CHECK(near(f32(8), -0.45f, 1e-6f) && near(f32(10), 0.0885f, 1e-6f) && near(f32(13), -0.0885f, 1e-6f));
+    // The thigh after it (16 floats on): a stick bone's 10.
+    CHECK(near(f32(16), 40 - 0.05f, 1e-5f) && near(f32(17), 0.21f + 14.5f, 1e-5f) && near(f32(18), -180 + 0.01f, 1e-5f));
+    const std::optional<rp::Skeleton> back = figure_of(b, at, r, u, fw, s);
+    CHECK(back.has_value());
+    for (int n = 0; back && n < rp::kNodes; ++n) {
+        const rp::Bone &x = (*back)[n], &y = s[n];
+        CHECK(near(x.pos.x.host(), y.pos.x.host(), 1e-4f) && near(x.pos.y.host(), y.pos.y.host(), 1e-4f) && near(x.pos.z.host(), y.pos.z.host(), 1e-4f));
+        const float dq = std::fabs(x.q.x.host() * y.q.x.host() + x.q.y.host() * y.q.y.host() + x.q.z.host() * y.q.z.host() + x.q.w.host() * y.q.w.host());
+        CHECK(near(dq, 1, 1e-4f));
+    }
+    CHECK(!figure_of(ByteSpan(b).first(100), at, r, u, fw, s));
+    // The places in the parameters: virtual 5 the state's, virtual 8 ground_drop below it along its up; and back.
+    race::CarState c = moving_car();
+    c.ground_drop = 0.108f;
+    const Params p = params_of(c);
+    const race::CarState t = state_of(p);
+    CHECK(p.ground_at.y == c.position.y && near(p.ground_at.y - p.at.y, 0.108f * c.up.y, 1e-5f) && near(t.ground_drop, 0.108f, 1e-5f));
+    CHECK(near(t.position.x, c.position.x, 1e-5f) && near(t.wheels[1].center.y, c.wheels[1].center.y, 1e-4f));
+}

@@ -1636,6 +1636,18 @@ public:
             for (size_t i = 0; i < cars.size() && i < fr.cars.size(); ++i) cars[i] = photo::film::state_of(fr.cars[i].params);
             history_.push_back(std::move(cars));
         }
+        // The figures as the film holds them (its first frame's), in place of their postures.
+        if (!f.frames.empty())
+            for (size_t i = 0; i < world_->car_count() && i < f.frames[0].cars.size(); ++i) {
+                const photo::film::CarFrame& c = f.frames[0].cars[i];
+                const race::CarState st = photo::film::state_of(c.params);
+                for (size_t seat = 0; seat < 2; ++seat) {
+                    const std::optional<Bytes>& b = seat ? c.navigator : c.driver;
+                    const std::optional<race::posture::Skeleton> base = world_->driver_skeleton(i, seat);
+                    if (!b || !base) continue;
+                    if (const auto sk = photo::film::figure_of(*b, c.params.ground_at, st.right, st.up, st.forward, *base)) world_->set_driver_skeleton(i, seat, *sk);
+                }
+            }
         replaying_ = !history_.empty(), replay_done_ = false, replay_at_ = 0;
         prev_cars_.clear();
     }
@@ -2757,6 +2769,11 @@ public:
             for (size_t i = 0; i < f.cars.size() && i < now.size(); ++i) {
                 photo::film::CarFrame c;
                 c.params = k == 0 ? photo::film::params_of(now[i]) : photo::film::params_of(next[i], &now[i]);
+                // The driver's and the co-driver's figures in course space, about the figure's place (DRVR / NAVI).
+                const race::CarState& st = k == 0 ? now[i] : next[i];
+                for (size_t seat = 0; seat < 2; ++seat)
+                    if (const std::optional<race::posture::Skeleton> sk = world_->driver_skeleton(i, seat))
+                        (seat ? c.navigator : c.driver) = photo::film::figure_payload(*sk, c.params.ground_at, st.right, st.up, st.forward);
                 if (k == 1) c.skids = Bytes{0, 0, 0}; // (SMOK: none kept here)
                 fr.cars.push_back(std::move(c));
             }

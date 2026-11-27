@@ -1,6 +1,9 @@
 #include "gt4r/race/display_mode_prologue.h"
 
+#include "base/ee_float.h"
+
 #include <algorithm>
+#include <cmath>
 
 namespace gt4r::race {
 
@@ -32,6 +35,17 @@ float prologue_times_opacity(int steps, float from) {
     a = std::min(1.0f, a + kRate * float(std::min(steps, kHold) - 1));
     if (steps > kHold) a = std::max(0.0f, a - kRate * float(steps - kHold));
     return a;
+}
+
+float prologue_screen_x(float x) {
+    namespace ee = gt3r::ee;
+    using gt3r::s32, gt3r::u32;
+    // (VU0's products and sums each chopped: vmulax, vmaddw, vmadd; vftoi4 truncates)
+    const auto mul = [](u32 a, u32 b) { return ee::from_double(ee::to_double(a) * ee::to_double(b), ee::Round::Chop); };
+    const u32 across = ee::sub(mul(ee::from_host(x), ee::from_host(1.0f / 320)), ee::from_host(1.0f));
+    const u32 gs = ee::add(ee::from_host(2048.0f), mul(across, ee::from_host(320.0f)));
+    const s32 fixed = s32(std::trunc(ee::to_double(gs) * 16));
+    return float(fixed - 1728 * 16) / 16;
 }
 
 } // namespace gt4r::race

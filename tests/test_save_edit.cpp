@@ -210,28 +210,24 @@ TEST(save_edit_write_backup_refusals) {
 
 TEST(save_edit_card_image) {
     const fs::path dir = a_saved_game("gt4r-test-save-edit3");
-    // The card's root entries ("." and "..") take the clock's second when a card is made (the engine's make_card: the export's
-    // image and the new card below each make one) and replace_in_card keeps the image's: all three are made again until they
-    // fall within one second, so the times agree.
-    Bytes image, other, fresh;
-    std::vector<gt3r::ps2::McDir> dirs;
+    // The card's root entries ("." and "..") take the time the card is made at (the engine's make_card) and replace_in_card keeps
+    // the image's: the image changed and the new card are both made at one time.
+    constexpr s64 kTime = 1792250709;
+    const Bytes exported = save::export_card((dir / "card").string(), std::nullopt);
+    CHECK(!exported.empty());
+    if (exported.empty()) return;
+    std::vector<gt3r::ps2::McDir> dirs = gt3r::ps2::read_card(exported);
+    const Bytes image = gt3r::ps2::make_card(dirs, kTime);
+    // The game data file replaced by other bytes: the image a new card with them would be, page for page, its spare bytes too.
+    Bytes other;
+    for (gt3r::ps2::McFile& f : dirs[0].files)
+        if (f.name == kName) {
+            for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
+            other = f.data;
+        }
+    const Bytes fresh = gt3r::ps2::make_card(dirs, kTime);
     std::string why;
-    std::optional<Bytes> patched;
-    for (int tries = 0; tries < 5; ++tries) {
-        const std::time_t before = std::time(nullptr);
-        image = save::export_card((dir / "card").string(), std::nullopt);
-        if (image.empty()) break;
-        // The game data file replaced by other bytes: the image a new card with them would be, page for page, its spare bytes too.
-        dirs = gt3r::ps2::read_card(image);
-        for (gt3r::ps2::McFile& f : dirs[0].files)
-            if (f.name == kName) {
-                for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
-                other = f.data;
-            }
-        fresh = gt3r::ps2::make_card(dirs);
-        patched = save::replace_in_card(image, kName, kName, other, &why);
-        if (std::time(nullptr) == before) break;
-    }
+    const std::optional<Bytes> patched = save::replace_in_card(image, kName, kName, other, &why);
     CHECK(!image.empty() && dirs.size() == 1);
     CHECK(patched && patched->size() == fresh.size());
     size_t differ = 0;

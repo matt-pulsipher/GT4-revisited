@@ -110,6 +110,15 @@ DriverModels::DriverModels(render::GpuContext& ctx, ByteSpan set, const std::str
 void DriverFigure::pose(const posture::PostureInput& in) {
     posture::Controls c = in.controls;
     posture::solve(c, skeleton_, in.places, in.has_gaze ? &in.gaze : nullptr);
+    skin();
+}
+
+void DriverFigure::set_skeleton(const posture::Skeleton& s) {
+    skeleton_ = s;
+    skin();
+}
+
+void DriverFigure::skin() {
     if (models_.bones_.empty()) return;
     // Each bone by the node of its name.
     u32 slots = 0;

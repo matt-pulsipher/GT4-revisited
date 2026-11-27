@@ -138,3 +138,20 @@ TEST(race_glow_filter_values) {
     put(0x1754, -0.1f);
     CHECK(!race::GlowFilter::from_env(env));
 }
+
+// Prologue's display places through the screen's projection (0x40C0D8, race::prologue_screen_x): rounded toward zero at each
+// step on VU0, 614 comes out 613.9375 and a right-aligned line at it ends at 613 (✔ the original's GS dump: the race time's box
+// ends at 613 for its row's 614, the in-car speed's at its computed 250, the rank's digit at 32).
+TEST(prologue_display_places_through_the_projection) {
+    using gt4r::race::prologue_screen_x;
+    CHECK(prologue_screen_x(614) == 613.9375f && int(prologue_screen_x(614)) == 613);
+    CHECK(prologue_screen_x(250) == 250.0f && prologue_screen_x(32) == 32.0f && prologue_screen_x(16) == 16.0f);
+    CHECK(prologue_screen_x(615) == 615.0f && prologue_screen_x(457) == 456.9375f && prologue_screen_x(484.5f) == 484.4375f);
+    int moved = 0; // (a whole place either kept or a 16th less)
+    for (int x = 0; x <= 640; ++x) {
+        const float got = prologue_screen_x(float(x));
+        CHECK(got == float(x) || got == float(x) - 0.0625f);
+        moved += got != float(x);
+    }
+    CHECK(moved > 0 && moved < 641);
+}

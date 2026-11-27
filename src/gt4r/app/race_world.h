@@ -392,6 +392,10 @@ public:
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
+    // A car's driver's figure (seat 0) or co-driver's (seat 1) as drawn last, in the car's frame (CarVisual::body_matrix); none
+    // without one. And a skeleton given in its place (a film's figure, developed).
+    std::optional<race::posture::Skeleton> driver_skeleton(size_t car, size_t seat) const;
+    void set_driver_skeleton(size_t car, size_t seat, const race::posture::Skeleton& s);
     const std::string& car_name(size_t i) const { return names_[i]; }
     // The short name the results show ("VW Beetle 1100 Standard (Type-11) `49").
     const std::string& car_short_name(size_t i) const { return short_names_[i]; }

@@ -1,5 +1,7 @@
 #include "gt4r/app/race_photo.h"
 
+#include "gt4r/race/picture_settings.h"
+
 #include "base/config.h"
 #include "base/log.h"
 #include "gt4r/app/race_hud.h"
@@ -287,12 +289,12 @@ void RacePhotoPause::back_from_saving() {
 // The finder's color correction (0x3C58C0 -> 0x3EFC10): a gain of 2^EV, the white balance against 5,500 K, the saturation of the
 // option photo_saturation (1 + it / 10), then the filter's (x 0.6, or 0).
 photo::Correction RacePhotoPause::correction() const {
+    // (0x3EFC10 in the EE's arithmetic: race::screen_correction, the white level 1.)
     photo::Correction c;
-    const float gain = std::pow(2.0f, camera_.exposure());
-    const float shift = (camera_.kelvin() - 5500.0f) * 0.2f / 2000.0f;
-    c.gamma[0] = gain * (1 - shift), c.gamma[1] = gain, c.gamma[2] = gain * (1 + shift);
-    c.white = 1;
-    c.saturation = saturation_option_ / 10.0f + 1;
+    const race::PictureSettings::Correction s = race::screen_correction(camera_.exposure(), 0, saturation_option_ / 10.0f + 1, camera_.kelvin());
+    for (int i = 0; i < 3; ++i) c.gamma[i] = s.gamma[i];
+    c.white = s.contrast;
+    c.saturation = s.saturation;
     if (filter_ == 1) c.saturation *= 0.6f;
     if (filter_ == 2) c.saturation = 0;
     return c;

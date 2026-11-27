@@ -102,7 +102,7 @@ CarState get_state(Reader& r) {
 
 namespace {
 constexpr u32 tag_of(const char (&t)[5]) { return u32(u8(t[0])) | u32(u8(t[1])) << 8 | u32(u8(t[2])) << 16 | u32(u8(t[3])) << 24; }
-constexpr u32 kInfo = tag_of("INFO"), kPicture = tag_of("PICT");
+constexpr u32 kInfo = tag_of("INFO"), kPicture = tag_of("PICT"), kFigures = tag_of("FIGS");
 } // namespace
 
 Bytes ReplayFile::encode() const {
@@ -128,6 +128,12 @@ Bytes ReplayFile::encode() const {
         Writer pict;
         for (u32 c : picture) pict.u32v(c);
         section(kPicture, pict.b);
+    }
+    // Each car's lower drawn point below its place (CarState::ground_drop: the same at every step), for a film made in the replay.
+    if (!steps.empty()) {
+        Writer figs;
+        for (size_t i = 0; i < cars.size(); ++i) figs.f(i < steps[0].size() ? steps[0][i].ground_drop : 0.0f);
+        section(kFigures, figs.b);
     }
     for (const auto& [tag, b] : other) section(tag, b);
     Writer out;
@@ -172,6 +178,12 @@ ReplayFile ReplayFile::decode(ByteSpan file) {
         if (tag == kInfo) f.title = in.str(), f.mode = in.str(), f.submode = int(s32(in.u32v())), f.time_ms = in.u32v(), f.bspec = in.u8v() != 0;
         else if (tag == kPicture && bytes == 64 * 64 * 4) {
             for (int i = 0; i < 64 * 64; ++i) f.picture.push_back(in.u32v());
+        } else if (tag == kFigures && bytes == 4 * n) {
+            for (u32 i = 0; i < n; ++i) {
+                const float lift = in.f();
+                for (std::vector<CarState>& st : f.steps)
+                    if (i < st.size()) st[i].ground_drop = lift;
+            }
         } else f.other.emplace_back(tag, b);
     }
     return f;

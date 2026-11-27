@@ -130,6 +130,10 @@ public:
 
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;
+    // The still figures' skeletons (the driver's, a co-driver's: in the figure's frame), and one set in place of a seat's
+    // posture (a film's figure when it is developed).
+    const posture::Skeleton* still_skeleton(size_t seat) const { return seat < still_.size() ? &still_[seat]->skeleton() : nullptr; }
+    void set_still_skeleton(size_t seat, const posture::Skeleton& s);
     const std::vector<CameraMount>& mounts() const { return mounts_; }
     // The car's lamps for their glows at night (the file's three lists: lit with the lights, the
     // tail lamps, the brake lamps), in the model's frame. `head`, `brake`, `tail`: the course's

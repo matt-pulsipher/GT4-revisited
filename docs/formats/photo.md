@@ -20,7 +20,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
 | The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎 |
-| Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the cones and boards (GDGT) as the program writes them, ✔ the same bytes as the original's film at Tsukuba; no particle emitter written (PTCL empty: the race's smoke is the shared engine's); the drivers' figures and skid marks not written (DRVR, SMOK's marks: read and kept, not drawn) |
+| Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the cones and boards (GDGT) as the program writes them, ✔ the same bytes as the original's film at Tsukuba; no particle emitter written (PTCL empty: the race's smoke is the shared engine's); the drivers' figures written and developed (DRVR / NAVI), skid marks not written (SMOK's marks: read and kept, not drawn) |
 
 ## The sequence
 
@@ -259,14 +259,14 @@ scrambled, icon) made again the same; developed here, its photo has the original
     the next): `PCAM` (0x33AEA0 -> 0x33ADE8): u8 1, the eye, a target the focus distance (at least 1 m) along the view, the up axis (upright: the view's right, the camera turned a quarter; ✔ the original's upright film), the angle across a 4:3 width (2 atan of the projection's x scale: 13.02 at 140 mm), the scales' ratio 0.75, the near plane
     (0.818 at 140 mm: 0.07 / tan of half the angle over the height, CameraVariable::vf12 0x3794A8), the far (5,000), the f-number,
     the shutter (s), EV, K. A `CARD` a car (0x339F38): `CPRM` (0x459E30, 370 bytes with its head): u8 0, then the car model's
-    parameter sponsor (CarParamSponsor; the race's RaceCarParamSponsor 0x3D6F40 ..) at the frame's time: virtuals 4, 5 the road's
-    frame under the car (angles, point: the shadow's), 6 the velocity (course space: F +0x648 as x, z, -y), 7 the body's angles
+    parameter sponsor (CarParamSponsor; the race's RaceCarParamSponsor 0x3D6F40 ..) at the frame's time: virtuals 4, 5 the frame the
+    body and its driver are drawn in (angles, point: car + 0x888), 6 the velocity (course space: F +0x648 as x, z, -y), 7 the body's angles
     (degrees: pitch, yaw, roll; the body turned by yaw about y, pitch about x, roll about z; front -z, right +x), 8 its point,
     15, 16 (0.02), 18 (a bool), 19 .. 22, a wheel each: 9 its angles (the spin, negative forward, unwrapped; the steering), 10 its
     place in the body's frame (x right, y up, z back: the Ford GT's (-+0.800, 0.227, -1.355) front), 11 the tire's width (0.235),
     12 its radius (0.334), 13 its sidewall (0.106), 14 the spin over a step, 9's spin now less a step before, 24, 25; then 26 a
     wheel each (-1), 23 the engine's rpm, 27 a vector a wheel. Then the driver's and co-driver's figures (`DRVR` / `NAVI`, 0x339AD0:
-    960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
+    960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame: u8 0, u16 the car's marks (0x3E9190), each mark of that car by 0x3E93D0 ❓ its record not followed; ours draws no skid marks and writes none, as the original's film does without them); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
     0x3C2990), the last frame.
   - `GDGT` (0x3E5408), the last frame: u8 0, u16 160 (the rigid bodies' slots, RigidBodyManager 0x3E4CE0, the course's cones and
     boards in them in order, 0x3E4E50), each slot a bool in use (on the manager's list, 0x3E4F60), for one in use a bool moving
@@ -276,16 +276,22 @@ scrambled, icon) made again the same; developed here, its photo has the original
     7 f32; a StickBone, 18 of them, 0x41BCC0: and its vector, 3 f32; a PlateBone, the pelvis and the scapula, 0x41C0B8: and its two
     joints, 6 f32), in course space; then the figure's 4 f32 at +0x680 (1, 1, 0, 0.5 in the original's), and the posture caller's
     bool, 4 bytes, bool, f32, f32, a 4 x 4 matrix, bool, 8 bytes (❓ not followed: 1, a word that changes a frame, 1, 0, 0, identity,
-    0, 0 in the original's). The bones are the car's figure turned by the car (each quaternion the car's turn times the bone's:
-    the Ford GT's pelvis (0, 0.709, 0.018, 0.705) heading along +x) about a point 0.108 m above CPRM's body point, which is where
-    the film's road point (virtual 5) lies: the still posture of this board car (0x3B4040) put there gives the original's spine,
-    neck and head within 1 mm (its hands, forearms and shanks are posed otherwise). ❓ What the two points are in the car's state
-    (ours writes both as the car's place) is not read, so DRVR is not written here.
-  Here the pause's film carries the cameras (L1 + Cross's two), every car's parameters from its drawn state (the body, the
-  wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), an empty `SMOK`, the cones
+    0, 0 in the original's). The bones are the car's figure in course space: each place virtual 5's point plus the car's turn
+    (virtual 4's angles) of the bone's place in the car's frame, each quaternion the car's turn times the bone's (✔ the board
+    car's still posture (0x3B4040) so put gives the original's pelvis and thighs to 0.01 mm, spine, neck and head to 1 mm; its
+    hands, forearms and shanks are posed otherwise there ❓). Virtual 5 (car + 0x888, which the HumanModel's place +0x7C4 holds,
+    0x3B2508) is the place the body and the figure are drawn about; virtual 8 (car + 0x894) lies below it (0.108 m on the Ford GT;
+    the wheels' places, virtual 10, are measured from it). ✔ The original's side-on film (Tsukuba, the Ford GT, 82 mm) developed
+    here at virtual 5 gives its photo's car and the driver's head inside the cabin; at virtual 8 the car sat 0.1 m low and the
+    head showed through the roof.
+  Here the pause's film carries the cameras (L1 + Cross's two), every car's parameters from its drawn state (virtual 5 the state's
+  place, virtual 8 `CarState::ground_drop` below it (the simulation's two drawn points), the body's angles for 4 and 7, the
+  wheels' places, spins and steering, the velocity, the rpm, the brake lamps at 18; the others 0 🔎), the driver's and co-driver's
+  figures (`DRVR` / `NAVI`: the skeleton as drawn, a board's still posture or a torso's last, turned into course space as above;
+  the figure's four floats and the caller's fields the original's constants, its changing word 0 ❓), an empty `SMOK`, the cones
   and boards (`GDGT`, ✔ the original's bytes at Tsukuba: 18 in use, none moving) and no particle emitter (`PTCL` empty: the race's
-  smoke is the shared engine's, not the program's emitters); no `DRVR` (the figure is solved in the car's frame here: its bones
-  would need putting in course space). What it reads of them is kept and written again as it was.
+  smoke is the shared engine's, not the program's emitters). Developing puts each figure as its film's first frame holds it
+  (`RaceWorld::set_driver_skeleton`) in place of its posture. What it reads of the rest is kept and written again as it was.
 - **Developing** (Photo Lab's Film folder, the first of its buttons, "Develop the selected film", "Do you wish to develop the selected
   film?"): the film is loaded (`load`), `photo_labo`'s result is `develop`, and 0x1C7BF8 runs `RacePhotoDevelop` (0x335248 reads
   the film into a race of its course and cars, steps it until loaded, 0x3C8AA8 draws the photo at the film's settings): black
