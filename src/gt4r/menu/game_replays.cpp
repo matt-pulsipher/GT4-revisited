@@ -103,8 +103,10 @@ std::shared_ptr<ListedFile> replay_object(GameNatives& n, const ReplayRow& r) {
     f->set("date", text(r.date)), f->set("size", number(r.kb)), f->set("spectatorMode", number(r.bspec)), f->set("dispstep", number(0));
     f->set("portrait", number(0)), f->set("racemode", text(r.mode)), f->set("racesubmode", number(r.submode));
     f->method("isInfoValid", [valid = r.valid](Vm&, const Value&, Args) { return number(valid); });
-    f->method("isIconValid", [icon = r.icon](Vm&, const Value&, Args) { return number(!icon.empty()); });
-    f->method("getIconTexture", [icon = r.icon](Vm&, const Value&, Args) { return text(icon); });
+    // A file with no icon has none to wait for: its row is done (the list's update_widget reaches its last step and
+    // asks no more updates); its texture is nil.
+    f->method("isIconValid", [](Vm&, const Value&, Args) { return number(1); });
+    f->method("getIconTexture", [icon = r.icon](Vm&, const Value&, Args) { return icon.empty() ? Value{} : text(icon); });
     return f;
 }
 
@@ -483,8 +485,8 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
         f->set("portrait", number(0)), f->set("racemode", number(0)), f->set("racesubmode", number(0));
         const bool valid = d.run.has_value();
         f->method("isInfoValid", [valid](Vm&, const Value&, Args) { return number(valid); });
-        f->method("isIconValid", [icon = d.icon](Vm&, const Value&, Args) { return number(!icon.empty()); });
-        f->method("getIconTexture", [icon = d.icon](Vm&, const Value&, Args) { return text(icon); });
+        f->method("isIconValid", [](Vm&, const Value&, Args) { return number(1); }); // (as a file's above)
+        f->method("getIconTexture", [icon = d.icon](Vm&, const Value&, Args) { return icon.empty() ? Value{} : text(icon); });
         f->method("writeInfo", [](Vm&, const Value&, Args) { return text("OK"); });
         f->method("load", [s, valid, path = "replay/" + d.name + "/" + d.name](Vm&, const Value&, Args) {
             if (!valid) return text("INVALID_FILE");
