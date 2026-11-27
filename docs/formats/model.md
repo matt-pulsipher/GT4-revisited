@@ -146,7 +146,9 @@ memory). It is the shared engine's renderer state machine (presentation.md §M o
   shininess below 6 / below 12 / else. Program 0x52 starts each vertex's sum by adding to the last one's partial dot product
   (at most a level or two). The engine's kind 1 is this rule.
 - **Kind 4** (the sheen, 0x49EB90): specular alone from the first slot against a viewer in object space (x 1 / the shape's
-  scale for packed shapes), RGB = s Ls Ms max(L.R / |D|, 0)^p, alpha 127, not clamped. **p = 8 for a shininess below 12, 16
+  scale for packed shapes; the viewer is the state's +0xAB0 in eye space put through the modelview's rigid inverse, 0x49EE00,
+  and +0xAB0 starts at (0, 0, 0, 1), 0x4A0080, which no caller moves: the camera itself, where Gran Turismo 3's renderer has
+  (0, 2, 0); ours where the engine has `DrawOptions::sheen_viewer_up` (GT3 Revisited PR #521), `race::use_gt4_light_model`, not in Prologue), RGB = s Ls Ms max(L.R / |D|, 0)^p, alpha 127, not clamped. **p = 8 for a shininess below 12, 16
   from 12** (programs 0x195 and 0x1D4; Gran Turismo 3's renderer and Prologue's, 0x44F960, pick 4 / 8 / 16 at 6 / 12). The
   conversion to GTM1 lifts a material only kind-4 shapes use to a shininess of 6, so the engine picks this game's exponent
   (174 course and 217 car sheen primitives; `gt4tool looks <disc> materials`, test `disc_sheen_exponent_is_this_games`).

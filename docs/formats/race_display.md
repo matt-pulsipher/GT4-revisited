@@ -181,7 +181,13 @@ chopped) and divides by w, then on the FPU x = (ndc x + 1) x W x 0.5 and y = (1 
 +0x30 / +0x34, ❓ 640 x 448 not read from a state); 0x44E1E0 then takes trunc of it for every alignment: the box [0, trunc x] right-aligned, the pen
 at trunc x left-aligned, trunc x - 320 centered, the line at trunc y. So, as in Prologue (prologue.md part 11), a place can
 land a hair under its whole pixel and draw a pixel left or up, but by other arithmetic (no fixed point with 4 fraction
-bits). 🔎 Ours draws GT4's elements at their layout places as they are: the per-display translations are not read.
+bits). The matrix is the renderer's current one: 0x44DCC0 starts with 0x49E3E0, which (through 0x49E480 when the state
+changed) leaves modelview x projection in VU0's vf24 .. vf27 and the state's +0xFA0 .. +0xFD0 in vf20 .. vf23 (vf22 the
+clamp of the `vmini`); so a display's translation is the 2D modelview its draw sets before its elements, and the
+elements' places (RaceTimeDisplay::vf5: the element's +4 / +6 through 0x3AFD18's side push) are taken from it. With the
+translation -1 (no display offset) 374 of the 641 places 0 .. 640 come out a hair under their whole pixel and land one to
+the left (`~/gt4re-out/daylight/tools/gt4proj.py`). 🔎 Ours draws GT4's elements at their layout places as they are: the
+per-display translations are not read (they are set in each display's draw, and a saved state holds only the last).
 Text colors are the GS colors
 above, used as the shared engine's race display uses them: the RGB as it is, alpha 0x80
 opaque. Setting a color also sets the outlined fonts' outline: black, with alpha

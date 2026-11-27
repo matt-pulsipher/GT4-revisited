@@ -70,8 +70,12 @@ the scenery is decoded with the same options as its own courses: cut-outs by the
 test, the blended decals without depth writes, and the second pass of kind 4 over the road, the
 curbs and the fences (blend 0x58: added where the frame's alpha, written by the pass under it,
 lets it). Left as an ordinary pass that second pass covers what is under it: Tsukuba's noise
-barriers come out black. 🔎 The kind 4 pass is taken to be the shared engine's road sheen (the
-first scene light's specular term); its arithmetic has not been read in this program.
+barriers come out black. The kind 4 pass is the shared engine's road sheen (the first scene light's
+specular term, model.md "Lighting") seen from the camera itself, not from 2 m above it as in Gran
+Turismo 3: with the engine's `DrawOptions::sheen_viewer_up` at 0 (GT3 Revisited PR #521, tried on a build against that branch), Tsukuba's noise barrier at the GS
+dump's eye comes out 128 / 141 / 160 against the original's 140 / 153 / 174 (2 m above: 120 / 133 /
+152), its white frames 203 .. 229 against 255. 🔎 The rest not found (the frame alpha the base pass
+leaves above 0x80, a weight over 1 the engine keeps at 1, is a candidate).
 
 ## Env0 (slot 32)
 
@@ -343,8 +347,8 @@ panels (an engine change, not made).
 
 Code: `CourseScene::reflection_course` hands slots 9, 10, 13 and 14 to the shared engine's pass
 (`engine/gt3r/src/race/wet_road.*`) as a course file of its layout; slot 50's sky is drawn into
-the buffer first. The buffer's items are drawn at the strength (+0xC10..+0xC18 averaged) x
-+0xC1C. Not drawn: the mirrored cars and the lamp streaks.
+the buffer first. `race::RoadReflection` (`src/gt4r/race/road_reflection.*`) runs that pass
+without its blur and does GT4's blur passes and composite (below). Not drawn: the lamp streaks.
 
 The shared engine's wet-road pass, on every course that has slot 9 or slot 50 (no flag asks for
 it; 85 courses have slot 9): dry roads get a faint mirror of the sky and the backdrop, wet ones
@@ -364,8 +368,32 @@ the full scenery.
   +0xC18) x +0xC1C (gain 0.5 on 74 courses; dry Tsukuba 1 1 1 x 0.5, wet Tsukuba 0.9 0.9 0.85
   x 1.0 with mode 0x54).
 
-🔎 The mask's and composite's GS states were not re-derived; the routine is the counterpart of
-Gran Turismo 3's.
+**The program's pass** (RacePS2Base::vf111 0x3411D0, checked by the GS dump of dry Tsukuba,
+`~/gt4re-out/daylight/gs/tkp.gs`):
+
+- The buffer is a frame of +0xC24 x +0xC28 (0x1052E0) drawn with the race view's own camera and
+  projection (the same angle and aspect: its picture's light falls where ours does to within 0.2
+  of a texel). Its XYOFFSET is (2048 - w / 2) x 16 + 8 (0x4A2478, 0x4A2BC8: the frame's center
+  fraction 0.5 in sixteenths), so the picture sits half a pixel off the GS's whole pixels and lines
+  up with a GPU's picture of the same projection (Gran Turismo 3's is drawn on whole pixels).
+- Each blur pass (0x3414C8) copies the buffer to the other one by a sprite over (0, 0) .. (w, h)
+  with texture coordinates (0.5, 0.5) .. (w + 0.5, h + 0.5), color 0x80FFFFFF (0x4AA168: 255 is
+  GS 128, a copy at full strength): every pass half a texel the same way, right and down
+  (Gran Turismo 3 alternates).
+- The composite (0x3415D0) is a strip of sprites over the whole frame with texture coordinates
+  (0, 0) .. (w + 0.5 - n, h + 0.5 - n), n the blur passes (the dump: 0 .. 64.5 over 640 x 448),
+  GS blend +0xC20 (0x58 on dry Tsukuba), no fog, color (+0xC10, +0xC14, +0xC18) x +0xC1C as GS
+  bytes int(min(c x 128 + 0.5, 255)) (0x4AA1D8; the dump: 64 64 64), the buffer's texel modulated
+  by it. The buffer itself holds the scenery at full strength. Over the 110 US courses: 64 64 64 on 72,
+  90 90 90 on 9, 0 0 0 on 6; blur 0 on 74, 1 to 8 on 36 (test `road_reflection_courses_disc`).
+- Ours: the buffer and mask are the engine's; the blur and the composite's texture coordinates and
+  color are the program's (Gran Turismo 4's discs; Prologue's runs the engine's pass as it is, its Env0
+  holding other values there: 0 0 0 on 60 of its 62 courses). Checked on dry Tsukuba at the dump's eye: the reflection's added light
+  now lines up with the original's (best shift 0, 0; Gran Turismo 3's composite put it half a
+  texel lower, 3.5 pixels at 448) and follows it as 1.006 x + 1.1 levels of the frame (rms 0.52;
+  before 0.976 x + 0.8, rms 0.65). 🔎 The 1.1 levels left over are in the buffer (ours about 3
+  levels lighter than the dump's buffer, the same shape) and the GS's truncations of the
+  composite's blend; the engine filters slot 9's textures with the GPU's filter, not the GS's.
 
 ### Visibility lists
 

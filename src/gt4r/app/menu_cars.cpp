@@ -12,6 +12,7 @@
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/race/light_model.h"
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/showroom.h"
@@ -571,6 +572,7 @@ void MenuCars::draw_backdrops(const std::vector<render::DrawItem>& backdrops, co
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
+    if (app_.db() && !app_.db()->prologue()) race::use_gt4_light_model(o); // (the cars' glints seen from the camera)
     SDL_SetRenderTarget(r, stage_target_);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
@@ -707,6 +709,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
+    if (app_.db() && !app_.db()->prologue()) race::use_gt4_light_model(o); // (the cars' glints seen from the camera)
     // The stage's lights from light.mot at its time (CustumLightPosition 0x1D6C98): each one's place
     // as the direction toward it, in the world, with its ambient, diffuse and specular; the global
     // ambient 0. (Light 3, all zero, lights nothing. The file's ColorScale is not read by the

@@ -29,7 +29,9 @@
 #include "gt4r/race/license_scene.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
+#include "gt4r/race/light_model.h"
 #include "gt4r/race/pit_scene.h"
+#include "gt4r/race/road_reflection.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_drive.h"
@@ -40,7 +42,6 @@
 #include "race/sun_disc.h"
 #include "race/sun_glare.h"
 #include "race/tyre_smoke.h"
-#include "race/wet_road.h"
 #include "render/view3d.h"
 
 #include <algorithm>
@@ -119,7 +120,7 @@ struct RaceWorld::Impl {
     gt3r::race::CarLampGlows car_lamps_lit; // a daytime race's: the cars lit whatever the course (CarVisual::lamp_level)
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
-    gt3r::race::WetRoad wet;
+    race::RoadReflection wet; // the road reflection (GT4's blur and composite over the shared engine's picture)
     std::vector<race::CarLight> lights; // the cars', this frame
     // The drivers that move (race/driver_figure.h): a car's figures and what each does.
     struct MovingDriver {
@@ -365,7 +366,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         lit[0x11] = u8(lit[0x11] | 0x80);
         m.car_lamps_lit.load(app.renderer(), &gpu, lit, course_->section(course::kSlotFlareShape));
     }
-    if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0);
+    if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0, !(app.db() && app.db()->prologue()));
     if (setup.smoke) m.smoke.load(gpu, env0, course_->section(course::kSlotSmoke));
     LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", m.lamps.count(), m.billboards.count(), m.sun.params().enabled ? "on" : "off");
 }
@@ -1200,7 +1201,7 @@ const gt3r::render::DrawStats& RaceWorld::draw_stats() const { return impl_->vie
 
 namespace {
 
-render::DrawOptions draw_options(const race::CourseScene& course, float far) {
+render::DrawOptions draw_options(const race::CourseScene& course, float far, bool gt4_lights) {
     const gt3r::race::SunParams& env = course.env();
     render::DrawOptions o;
     o.frustum_cull = true;
@@ -1208,6 +1209,7 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     o.far_clip = far;
     // The guard band's near plane is the projection's: the screen's 0.1 m (render() sets the camera's own).
     o.guard_near = race::kScreenNear;
+    if (gt4_lights) race::use_gt4_light_model(o); // (Prologue's renderer keeps the shared one's)
     for (int i = 0; i < 3; ++i) o.clear[i] = 0;
     if (env.has_env) {
         // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
@@ -1458,7 +1460,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     }
 
     render::DrawOptions& o = s.options;
-    o = draw_options(*course_, far);
+    o = draw_options(*course_, far, !app_.db()->prologue());
     const float scale = course_->color_scale();
     race::draw_at_picture_scale(o, scale);
     race::light_at_picture_scale(m.items, 0, scale);
@@ -1473,7 +1475,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         const render::Mat4 sky_rot = render::rotate_x(env.sky_pitch * kPi / 180) * render::rotate_y(env.sky_yaw * kPi / 180);
         if (course_->add_env_items(m.env_items, at, sky_rot)) {
             race::light_at_picture_scale(m.env_items, 0, scale);
-            render::DrawOptions eo = draw_options(*course_, far);
+            render::DrawOptions eo = draw_options(*course_, far, !app_.db()->prologue());
             race::draw_below_picture_scale(eo, scale);
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
@@ -1509,10 +1511,12 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
         if (m.wet.params().cars && !cars_hidden_)
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye, m.motion(i));
-        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
-        for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
+        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye);
+        // (GT4's at full strength: the composite's color weighs it, Env0 +0xC10..+0xC1C. Prologue's at the engine's composite.)
+        if (!m.wet.gt4())
+            for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
         race::light_at_picture_scale(m.wet_items, 0, course_->color_scale());
-        render::DrawOptions wo = draw_options(*course_, far);
+        render::DrawOptions wo = draw_options(*course_, far, !app_.db()->prologue());
         race::draw_below_picture_scale(wo, course_->color_scale());
         if (SDL_GPUTexture* t = m.wet.render(view3d, pose.view, proj, pose.eye, m.wet_items, wo)) {
             std::vector<render::DrawItem> frame;
@@ -1713,7 +1717,7 @@ void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel
     std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
     items[0].sphere_map = own_reflection; // (the reflection picture is in the model)
     items[0].lights = lights;
-    render::DrawOptions o = draw_options(*course_, 100);
+    render::DrawOptions o = draw_options(*course_, 100, !app_.db()->prologue());
     o.fog = false;
     o.frustum_cull = false;
     for (float& c : o.clear) c = 0;
@@ -1758,7 +1762,7 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f, &lod_view);
         for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
-    render::DrawOptions o = draw_options(*course_, kDepth);
+    render::DrawOptions o = draw_options(*course_, kDepth, !app_.db()->prologue());
     o.mirrored = true;
     o.far_clip = kDepth; // (the program's far plane: the screen's depth, as the race view's)
     o.post_grade = grade_;
