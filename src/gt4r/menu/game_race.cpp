@@ -305,7 +305,8 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
 // A ranking entry's pass code (0x10F718 -> 0x44B258; docs/formats/menu.md "After a race"): ten fields packed, the record's kind 17
 // (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x4482C0, 0x448398: 0x449190), a flag
 // (the free run's and machine test's: the car as sold, 0x445B88), the car's power (PS) and weight (kg) as the showroom gives them
-// (0x364E90, 0x364FA8), the run's kind (0 the time trial, 1 the free run, 2 a license test, 3 a machine test), the time, and two
+// (0x364E90, 0x364FA8), the run's kind (0 the time trial, 1 the free run, 2 a license test, 3 the 400 m test, 4 the 1000 m, 5 the
+// top speed: 0x116268, 0x116440, 0x1165B8), the time (the top speed's: its +0x6CC x 1000, truncated), and two
 // more: the front and rear tires' kinds (0x4462E0, 0x446320), or a license test's category (B 0, A 1, IB 2, IA 3, S 4, coffee 5:
 // RaceLicense::vf96 0x3BCB38 by the race's label) and its number less one; the first four bits a hash of the real clock's
 // seconds (0x44AF40). ✔ The original's codes on the reference cards (a B-1 run, a time trial of the Ka at Tsukuba) decode to
@@ -647,7 +648,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
         } else if (r.course_kind == 6 && r.finished) {
             const u8 kind = row.size() > 0x10 ? u8(row[0x10] - 6) : 0;
             const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
-            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, 3, r.best_lap_ms));
+            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, kind == 0x10 ? 3 : 4, r.best_lap_ms));
         }
     }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player

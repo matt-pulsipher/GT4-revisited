@@ -667,7 +667,7 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   `menu/prologue_passcode.*` PassLayout::gt4): ten fields of 5, 11, 9, 1, 12, 12, 3, 22, 4, 4 bits (83) — the kind 17
   (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x449190), the car as sold (the
   free run's and machine test's, 0x445B88; ❓ the parts compared judged), the showroom's PS and kg (0x364E90, 0x364FA8), the
-  run's kind (0 time trial, 1 free run, 2 license, 3 machine test), the time, the front and rear tires' kinds (0x4462E0,
+  run's kind (0 time trial, 1 free run, 2 license, 3 / 4 / 5 the 400 m, 1000 m and top-speed tests), the time (the top speed's: the car's +0x6CC x 1000, truncated), the front and rear tires' kinds (0x4462E0,
   0x446320) or a license test's category (B 0, A 1, IB 2, IA 3, S 4, coffee 5; RaceLicense::vf96 0x3BCB38) and number less
   one — packed into 11 bytes after two zero bytes, the first four bits a hash of the real clock's seconds (0x44AF40: ❓ taken
   from 2000-01-01, local), the next twelve the folded CRC-32, enciphered as Prologue's (SAFER SK-128, 13 rounds) under the
