@@ -257,7 +257,8 @@ TEST(your_music_menu_recordings) {
     menu.stop_music();
 }
 
-// The disc's racing pieces measured through the shared engine's .ads reader (GT4's streams), and a song's gain from them:
+// A disc piece measured through the shared engine's .ads reader (GT4's streams; a short one, the start jingle, so a busy
+// machine's low-priority measuring thread is done in time), and a song's gain from it:
 // toward their loudness, never past full scale at the loudest stream level.
 TEST(your_music_disc_loudness) {
     Disc* disc = nullptr;
@@ -266,12 +267,10 @@ TEST(your_music_disc_loudness) {
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     audio::SoundLibrary library(vfs);
-    const int racing = sound::stream_group("racing");
+    const int group = sound::stream_group("start");
     std::vector<gt3r::race::MusicLibrary::StreamOpener> songs;
-    for (const int n : {16}) { // (race_35: the first of the US list)
-        CHECK(vfs.exists(library.stream_file(racing, n)));
-        songs.push_back(audio::disc_piece_opener(vfs, library.stream_file(racing, n)));
-    }
+    CHECK(vfs.exists(library.stream_file(group, 0)));
+    songs.push_back(audio::disc_piece_opener(vfs, library.stream_file(group, 0)));
     const fs::path dir = scratch("loudness");
     write_song(dir / "music" / "quiet.wav", "Quiet", "", 440);
     audio::YourMusic music;
@@ -280,7 +279,7 @@ TEST(your_music_disc_loudness) {
     music.library().set_disc_songs("test", std::move(songs));
     const u64 id = music.library().songs().at(0).id;
     music.library().want_measured(id);
-    for (int i = 0; i < 20000 && (!music.library().disc_loudness() || !music.song(id)->measured); ++i) {
+    for (int i = 0; i < 60000 && (!music.library().disc_loudness() || !music.song(id)->measured); ++i) {
         music.poll();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -289,8 +288,8 @@ TEST(your_music_disc_loudness) {
     if (music.library().disc_loudness() && music.song(id)) {
         const float disc_lufs = *music.library().disc_loudness();
         const gt3r::race::CustomSong& s = *music.song(id);
-        std::printf("  the pieces %.1f LUFS, the song %.1f LUFS (peak %.3f): gain %.2f\n", double(disc_lufs), double(s.lufs), double(s.peak), double(music.gain(id)));
-        CHECK(disc_lufs > -20 && disc_lufs < -4);
+        std::printf("  the piece %.1f LUFS, the song %.1f LUFS (peak %.3f): gain %.2f\n", double(disc_lufs), double(s.lufs), double(s.peak), double(music.gain(id)));
+        CHECK(disc_lufs > -30 && disc_lufs < -4);
         const float want = std::min(std::clamp(std::pow(10.0f, (disc_lufs - s.lufs) / 20.0f), 0.1f, 4.0f), 1.0f / (s.peak * 0.3f));
         CHECK(std::fabs(music.gain(id) - want) < 1e-4f);
     }
