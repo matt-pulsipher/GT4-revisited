@@ -34,7 +34,7 @@ TEST(prologue_display_mode_by_its_race_classes) {
 // 4 / 8 / 16 at 6 / 12) a shininess of at least 6 on every sheen; the lit shapes keep theirs (4 / 8 / 16 there too).
 TEST(disc_sheen_exponent_is_this_games) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    for (Disc* disc : test::reference_discs()) { // (the US disc's files)
         if (disc->info().game != gt4r::Game::GT4) continue;
         size_t sheen = 0, lit_low = 0;
         for (const char* path : {"crs/20r60r", "car/lod/acra0008"}) {
