@@ -23,7 +23,7 @@ float prologue_times_opacity(int steps, float from = 1);
 
 // A display's place across the screen (0x40C230 -> 0x40C0D8): the place goes through the screen's projection on VU0 before it
 // is drawn: the display's matrix (x / 320 - 1 across, 1 / 320 as a float, 0x3B4CCCCD), the viewport's scale 320 and middle
-// 2048 (scratchpad 0x70003E40 / E50), to the GS's fixed point of 4 fraction bits (vftoi4, truncating), less the frame's offset
+// 2048 (scratchpad 0x70003E40 / E50), to the GS's fixed point of 4 fraction bits (truncating), less the frame's offset
 // 1728 (scratchpad +0x1A8), in 16ths. Each step rounds toward zero, so an x like 614 comes out 613.9375, and a right-aligned
 // line's box, [0, int(x)] (0x40C4C8), ends a pixel short. For the 640-wide frame.
 float prologue_screen_x(float x);

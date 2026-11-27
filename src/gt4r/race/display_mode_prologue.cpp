@@ -40,7 +40,7 @@ float prologue_times_opacity(int steps, float from) {
 float prologue_screen_x(float x) {
     namespace ee = gt3r::ee;
     using gt3r::s32, gt3r::u32;
-    // (VU0's products and sums each chopped: vmulax, vmaddw, vmadd; vftoi4 truncates)
+    // (VU0's products and sums each chopped; the conversion to fixed point truncates)
     const auto mul = [](u32 a, u32 b) { return ee::from_double(ee::to_double(a) * ee::to_double(b), ee::Round::Chop); };
     const u32 across = ee::sub(mul(ee::from_host(x), ee::from_host(1.0f / 320)), ee::from_host(1.0f));
     const u32 gs = ee::add(ee::from_host(2048.0f), mul(across, ee::from_host(320.0f)));
