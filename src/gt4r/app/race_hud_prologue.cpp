@@ -12,6 +12,7 @@
 #include "gt4r/menu/kanji_font.h"
 #include "gt4r/menu/text_layout.h"
 #include "gt4r/menu/text_table.h"
+#include "gt4r/race/display_mode_prologue.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "vfs/vfs.h"
@@ -129,6 +130,7 @@ struct PrologueHud::Impl {
     std::array<float, 2> pedals{}; // the replay monitor's last brake and throttle
     float sign = 0;                // the wrong-way sign's fade
     float rank_shown = 0; // the rank's rolling digit (+0x2C)
+    float lap_step = -1;  // the lap counter's step past its lap (+0x70): the first lap's width, kept
     double clock = 0, step = 0;
     Uint64 last_ns = 0;
 
@@ -410,7 +412,7 @@ void PrologueHud::Impl::draw_rank(const hr::HudRow& row, int place_now, float op
     if (place_now >= 1 && place_now <= 9) text(f, x + float(int(width(f, "0") * 0.9f)), y, kGray, opacity, kEnds[place_now]);
 }
 
-// 0x394448: "Lap" in DC_12, the lap in FC_26, the slash and the laps at 0.77.
+// 0x394448 (RaceRichCountDisplay::vf5): "Lap" in DC_12, the lap in FC_26, the slash and the laps at 0.77.
 void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float opacity) {
     float x = left_of(row.x, 0, row.align);
     const float y = row.y;
@@ -423,11 +425,14 @@ void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float
     const float down = (line_height(big) - line_height(label)) * 0.3f;
     text(big, x, y + down, kOrange, opacity, now);
     if (laps <= 0) return;
-    x += float(int(width(big, now)));
+    // The slash at the pen the lap's digits left; the laps at the first lap's width (measured once and kept, +0x70) and then
+    // 15 divided by the slash's scale (int(15 / 0.77) = 19, +0x74).
+    const float pen = width(big, now);
+    if (lap_step < 0) lap_step = float(int(pen));
     FontSpec small = big;
     small.sx = small.sy = 0.77f;
-    text(small, x, y + down, kGray, opacity, "/");
-    x += 15;
+    text(small, x + pen, y + down, kGray, opacity, "/");
+    x += lap_step + float(int(15 / small.sx));
     text(small, x, y + (line_height(big) * 0.77f - line_height(label)) * 0.3f, kOrange, opacity, std::to_string(laps));
 }
 
@@ -773,9 +778,8 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
         m.draw_picture(p, {left_of(604, p.w, 5), 423 - p.h, p.w, p.h}, 0x80808080, 0.5f * a);
         if (!s.replay_display) return;
     }
-    hr::HudModeSelect select;
-    select.run = e.run, select.event_laps = s.laps, select.play = e.live ? hr::HudPlay::Live : hr::HudPlay::Replay;
-    const hr::HudMode mode = hr::hud_mode(select);
+    // Prologue's own choice (race/display_mode_prologue.h): no endurance mode for a run of 10 laps or more (lesson 35).
+    const hr::HudMode mode = race::prologue_display_mode(e.run, e.live ? hr::HudPlay::Live : hr::HudPlay::Replay);
     // The opening (0x389D30): the course's logo for 5 s from half a second (fading in over half a second and out over one), the display
     // fading in over half a second from 4.5 s before the start.
     float opacity = std::clamp(s.opacity, 0.0f, 1.0f);
