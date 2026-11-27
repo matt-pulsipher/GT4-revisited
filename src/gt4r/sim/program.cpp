@@ -16,7 +16,7 @@ namespace gt4r::sim {
 namespace {
 
 const TableCheck kNoCheck;
-constexpr const char* kPrologue = "Gran Turismo 4 Prologue's program, whose own physics block, driver sets and spec defaults serve; for the rest";
+constexpr const char* kPrologue = "Gran Turismo 4 Prologue's program, whose own tables serve";
 
 // Each disc program's check, made once (by the image it was made of).
 std::shared_ptr<const TableCheck> checked(const std::shared_ptr<const gt3r::CoreImage>& core) {
