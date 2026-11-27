@@ -127,7 +127,7 @@ A folder `BASCUS-97328P` + seven letters: 42 bits, six a letter from the lowest,
   ([save.md](save.md) "Scrambling") with swap constants 0.6809 and 0.404;
 - `thumbnail`: a record of 0xE8 bytes {u64 car, u64 course, text[64] name `P0000`, text[64] course file,
   text[72] car name, ..., +0xD9 0xFF, u32 portrait at +0xDC}, scrambled with 0.314159 and 0.468643 and its
-  bytes past the first four shuffled (films the same with 0.654321 / 0.345678);
+  bytes past the first four shuffled (a film's record the same; its data with 0.654321 / 0.345678, shuffled too: "Films");
 - `icon.sys`, and `icon0.ico`: the disc's `icon/GT4_photo_4_to_3_.ico` (`3_to_4_` upright) with a
   64 x 64 of the photo in its texture's top left, packed again when it fits (0x1D3E20).
 
