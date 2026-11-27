@@ -27,20 +27,28 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
    memory card image*.
 4. GT4 Revisited's own menu, the home screen, is underneath the game: press **Select** on the title (on a keyboard Tab),
-   or click or tap the **GT4R menu** button beside it. (On Prologue's board, Select stays the board's while a sign has the
+   or click or tap the **GT4R menu** button beside it. The button is beside Gran Turismo mode's map too (there Select is
+   the map's own: a pad reaches the home screen through the title). Leaving saves the game first, as it saves itself
+   (Options, Miscellaneous, Autosave). (On Prologue's board, Select stays the board's while a sign has the
    focus: Triangle first goes back to its menu.) The home screen: *Play* (the game from the start: the opening movie, then
-   the title), *Quick race*, *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
+   the title), *Quick race*, *Saved games*, *Settings*, *Controls*, *Mods*, the *Car database*, the *Save editor*, *Discs...* (the disc library: switch to
    another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
    race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back) and a touch screen (a tap chooses; **< Back** at the top left of Settings, Controls,
    Saved games, the Save editor and Developer tools goes back, **< Back to game** where the page was opened from the game's);
    the game's pages a pad, the keyboard or the on-screen controls.
-5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
+5. The *Car database* lists every car of the disc (by maker, name, power, price or year: Square, or the *Order* button) with
+   its picture and four tabs: *Specifications* (the dealer's spec sheet in the game's units for the disc's region, then the
+   wheelbase, gears, tires and more), *Power & torque* (the engine's curves as the settings pages chart them), *Tune shop
+   parts* (what the tune shops sell for it, with prices) and *Events* (which of Gran Turismo mode's events the car as sold
+   may enter, and the rules it breaks in the others). Up and down choose a car, left and right the tab, Cross moves into the
+   details to scroll them; a click or tap chooses, the wheel or a finger's drag scrolls. Prologue's has the first two tabs.
+6. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
    save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
    images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
-6. *Quick race* races any event of the game with any car, with nothing to unlock and nothing saved to your game: every race
+7. *Quick race* races any event of the game with any car, with nothing to unlock and nothing saved to your game: every race
    of Gran Turismo mode's event lists (a championship's races one at a time), the license tests (the test, or a free run on
    its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
    then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
@@ -364,9 +372,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
-  title's GT4R menu button and the Controller Settings button in place of the Options' controller pages
-  (`screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what they set: `app/game_options.*` into the game's
-  own options)
+  GT4R menu button beside the title and Gran Turismo mode's map and the Controller Settings button in place of the Options'
+  controller pages (which pages: `menu/app_button.h`; `screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what
+  they set: `app/game_options.*` into the game's own options)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
 - Quick race (`screen_quick_race.cpp`) and the car picker (`car_picker.*`) are the app's pages. What they list is the
@@ -424,6 +432,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The movies are the shared engine's player (`video::MoviePlayer`, its MPEG-2 decoder and PSS demuxer); which of a movie's
   sound tracks plays is ours, as the game's player picks it (`formats/movie_tracks.*`, [formats/menu.md](formats/menu.md)
   "Sound tracks").
+- The Car database (`app/screen_database.cpp`) is the app's page; its facts are the game's (`menu/car_database.*`): the
+  spec sheet as the car's natives write it, the settings pages' chart, the tune shops' parts and prices and the events'
+  regulations by Gran Turismo mode's own scripts run behind the menus' natives (formats/menu.md "The Car database").
+  On the Japanese release the page's words are the database's American names and ours, since the app's font has no kana.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

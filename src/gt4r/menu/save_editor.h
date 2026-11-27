@@ -270,6 +270,7 @@ public:
     void set_wing(int slot, const std::string& label);
 
 private:
+    friend class CarDatabase; // (the Car database's facts: car_database.h)
     std::unique_ptr<Runtime> rt_;
     FileReader read_;
     std::string started_zone_;
