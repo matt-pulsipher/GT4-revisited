@@ -250,8 +250,10 @@ private:
     race::ViewPose pose(const menu::PhotoShoot& s) const {
         race::ViewPose p;
         p.eye = s.camera.eye, p.view = s.camera.view();
-        const float py = scales(s)[1];
-        p.fov = 2 * std::atan(1.0f / (py * 0.75f)); // (ViewPose's is across a 4:3 picture's width)
+        // (ViewPose's angle is across a 4:3 picture's width, a narrower picture keeping that width: a square or upright photo's
+        // height is 1 / py over its width's ratio)
+        const float py = scales(s)[1], ratio = picture_ratio(s);
+        p.fov = 2 * std::atan(ratio >= 4.0f / 3.0f ? 1.0f / (py * 0.75f) : ratio / py);
         // Its near plane by its angle, taken no narrower than 45 degrees (CameraPhotoBase::vf12 0x400CB8).
         p.near = race::lens_near(std::max(s.camera.angle, 45.0f) * kPi / 180.0f);
         return p;
