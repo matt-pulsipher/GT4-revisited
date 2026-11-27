@@ -9,6 +9,7 @@
 #include "gt4r/menu/runtime.h"
 
 #include <algorithm>
+#include <map>
 
 namespace gt4r::menu {
 
@@ -57,6 +58,11 @@ Value as_split_battle(Runtime& rt, Vm& vm, const Value& callee, Args a) {
     return out;
 }
 
+std::map<const Runtime*, std::string>& lan_picks() {
+    static std::map<const Runtime*, std::string> picks;
+    return picks;
+}
+
 bool on_lan(Runtime& rt) { return live(rt) && page_value(rt, "GameRoot::current_game").to_string() == "LANBattle"; }
 bool any_car(Runtime& rt) { return on_lan(rt) && rt.network->host_member().limits.any_car; }
 
@@ -99,6 +105,19 @@ std::optional<net::CarChoice> choice_of_pages(Runtime& rt) {
     const GameSettings s = settings_of(g);
     c.driver = s.steering_assist_kind(), c.wheel_aid = s.active_steering;
     return c;
+}
+
+void set_lan_pick(Runtime& rt, const std::string& car) {
+    if (car.empty()) lan_picks().erase(&rt);
+    else lan_picks()[&rt] = car;
+}
+
+bool pick_lan_car(Runtime& rt, const std::string& car, const std::string& maker) {
+    if (!rt.current_page() || rt.current_page()->name != "MakerRoot") return false;
+    if (const std::shared_ptr<script::Module> m = page_module(rt, "MakerRoot")) m->define("selected_name", text(maker));
+    set_lan_pick(rt, car);
+    rt.queue_function(page_value(rt, "start_page"), {rt.update_context(), page_value(rt, "CarRoot")}, "the app's car picker");
+    return true;
 }
 
 void leave_lan_pages(Runtime& rt) {
@@ -243,7 +262,9 @@ void adapt_lan_pages(Runtime& rt) {
         return Value{};
     });
     for (const auto& [module, name] : {std::pair<const char*, const char*>{"MethodRoot", "getCurrentCategory"}, {"MethodRoot", "getCurrentCarList"}})
-        replace(rt, module, name, [r](Vm& vm, const Value& original, const Value&, Args a) {
+        replace(rt, module, name, [r, list = std::string(name) == "getCurrentCarList"](Vm& vm, const Value& original, const Value&, Args a) {
+            if (list && any_car(*r))
+                if (const auto it = lan_picks().find(r); it != lan_picks().end() && !it->second.empty()) return Value::array({text(it->second)});
             return any_car(*r) ? as_split_battle(*r, vm, original, a) : vm.call(original, a);
         });
     replace(rt, "MakerRoot", "onInitialize", [r](Vm& vm, const Value& original, const Value&, Args a) {

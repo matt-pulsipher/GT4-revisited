@@ -185,6 +185,7 @@ public:
     // ---- The garage
     struct CarKind {
         std::string label, name, maker;
+        std::string maker_key; // the maker's key ("toyota": the pictures', texts' and Arcade's car lists' names)
         int year = 0;
         u32 price = 0;
     };

@@ -390,6 +390,8 @@ struct RaceStart {
     // game's options (menu::GameState::options; empty: a new game's).
     std::shared_ptr<const net::OnlineRace> online;
     std::map<std::string, std::variant<s32, float, std::string>> options;
+    // Each entry's start place (0 the front) by the entry's number, 0 the player's (Quick race's custom race); empty: the race's own.
+    std::vector<int> grid_slots;
 };
 std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
 // The photo shoot the menus ask for (the sequence "photo_shoot"): the location and the car of the running menus' request; it runs the

@@ -53,7 +53,14 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
    then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
    pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for. The last
-   choices are kept (`config.ini` `[quickrace]`). Not on Prologue yet.
+   choices are kept (`config.ini` `[quickrace]`). On Prologue, Quick race is its arcade's single race on any of its courses
+   with any of its arcade's cars, at its three difficulties (no custom race).
+   Its first item, *Custom race*, is your own race: any course, the laps, your car and color and your place on the grid, and
+   up to as many opponents as the course's field holds, each any car in any color. *Fill the grid like Arcade* draws the
+   opponents as Arcade does for your car at its difficulty level (-10 to +10); then change any of them. The race is Arcade's
+   single race (its start, tires and pages). Gran Turismo 4 sets no skill per driver (Arcade's difficulty only chooses which
+   cars race), and no race of the game has a catch-up: the opponents drive as Arcade's do. *Save as...* keeps a race under a
+   name (the same name replaces it); saved races follow *Custom race* in the list ({Square} deletes one).
 
 ## Controls
 
@@ -325,7 +332,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
 - `--screen quickrace` with `GT4R_QUICKRACE="event=am_sunday_0002,car=ford_gt_05,start"` starts a Quick race at once
-  (`event=arcade:tsukuba`, `license:l0b0001`, `mission:<label>`; the top of `src/gt4r/app/screen_quick_race.cpp`).
+  (`event=arcade:tsukuba`, `license:l0b0001`, `mission:<label>`; a custom race `page=custom,course=tsukuba,grid=ka_01:2/cobra_67:0,place=1`;
+  the top of `src/gt4r/app/screen_quick_race.cpp`).
 - Scripted runs (`--shot`, `--sweep`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
   nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
   driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
@@ -383,9 +391,14 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   saved; the player's options read from the data folder) given the request the game's pages give: an event's race as the
   event page's entry (its race label, `solo_event`; tests `license`, missions `mission`, a test's course `freerun`), and
   Arcade's single race through Arcade's own script (`GameRoot.set_enemy_cars`, then `MCarData.ShiftCarCode` on each entry,
-  as `doGame`); the race sequence's pages (quick-event, quick-arcade, ...) run before and after it. Ours (judged): the open
+  as `doGame`); the race sequence's pages (quick-event, quick-arcade, ...) run before and after it. A custom race is
+  Arcade's single race on its row `sample_entry_6` with the entry table set as `doGame` leaves it (the cars chosen, each
+  through `ShiftCarCode`) and the grid's places ours (`RaceStart::grid_slots`); *Fill the grid like Arcade* runs
+  `set_enemy_cars` at the level chosen; the course's field is `MCourseData.GetMaxCarNum`. Ours (judged): the open
   car's two-car field is applied for model type 2 only (Arcade's open-top option page is not asked), and the tire is the
-  setting page's default.
+  setting page's default. Prologue's: its arcade's lists (the configuration script's `ArcadeCourseList`, `ArcadeCarList`) and
+  its `setupRace` (the dirt race and the car's dirt version on a dirt course, else the car's own race; `_h` / `_p` after it at
+  the second and third difficulty). Names the app's pages cannot show (Japanese) are the database's American names or labels.
 - The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
   `game::app_bundle_folder`, else SDL's preference folder) is ours (`app.cpp` `user_data_dir`). The update check and the
   online session's relay requests are the shared engine's (`net::VersionCheck`, `net::Session`) carrying our game tag

@@ -3160,6 +3160,7 @@ public:
                 test_car(app, setup_, q);
                 entry_row_car(app, setup_, q);
                 draw_grid(app, setup_, q);
+                if (!chosen->grid_slots.empty() && chosen->grid_slots.size() == setup_.opponents.size() + 1) setup_.grid_slots = chosen->grid_slots;
                 arcade_tires(app, setup_, q);
                 if (sequence_ == "single_race") apply_arcade_options(setup_);
                 if (sequence_ == "photo_develop") develop_setup();

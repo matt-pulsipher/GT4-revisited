@@ -155,7 +155,8 @@ private:
             const bool prologue = app.disc()->info().game == Game::Prologue;
             // GT3 Revisited's main menu's order and words for what this app has; Saved games and Controls are this app's own.
             items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
-            if (!prologue) items_.push_back({"Quick race", "", "Any event of the game with any car: Gran Turismo mode's races, the license tests, the missions and Arcade's single race. Nothing is unlocked and nothing is saved to your game.", 26});
+            if (prologue) items_.push_back({"Quick race", "", "Arcade's single race on any of its courses with any of its cars. Nothing is saved to your game.", 26});
+            else items_.push_back({"Quick race", "", "Any event of the game with any car: Gran Turismo mode's races, the license tests, the missions and Arcade's single race. Nothing is unlocked and nothing is saved to your game.", 26});
             items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
             items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
