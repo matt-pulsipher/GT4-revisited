@@ -28,16 +28,14 @@ int surface_of_core_row(int row) { return row >= 0 && row < 16 ? kRowSurface[row
 ex::ProgramData core_program(const Program& program) {
     using T = ex::ProgramData::Table;
     ex::ProgramData d = ex::ProgramData::synthetic(gt3r::sim::Program::NtscU);
-    if (!program.known()) {
-        // Prologue's own tables, when it is Prologue's program; no Gran Turismo 3 value under them: the core's tables Prologue's
-        // step does not read stay 0 (its step's routines read its own, rules_prologue.h).
-        PrologueProgram::locate(program).apply(program, d);
-        return d;
-    }
+    // Prologue's own tables, when it is Prologue's program; no Gran Turismo 3 value under them: the core's tables Prologue's
+    // step does not read stay 0 (its step's routines read its own, rules_prologue.h).
+    if (!program.known() && PrologueProgram::locate(program).apply(program, d)) return d;
     for (int t = 0; t < ex::ProgramData::kTables; ++t) {
         const ByteSpan bytes = ex::gt3_table(T(t));
         for (u32 i = 0; i < bytes.size() && i < ex::ProgramData::size(T(t)); ++i) d.poke(T(t), i, bytes[i]);
     }
+    if (!program.known()) return d; // (another build: the engine's own, for GT4R_SIM_RULES=engine)
     // The static physics block in the core's layout: the head as it is, each per-surface array by row,
     // what follows the arrays 0x30 bytes back.
     const u32 g = Program::kStatic;
