@@ -83,13 +83,22 @@ TEST(disc_sheen_exponent_is_this_games) {
 TEST(race_correction_levels) {
     const float plain[3] = {1, 1, 1};
     const auto id = race::correction_levels(plain, 0, 1, 255);
-    // (i x (1 / 255 in float) x 255 truncates to i or one under it, as the program's does)
-    for (int i = 0; i < 256; ++i) CHECK((id[size_t(i)][0] == i || id[size_t(i)][0] == i - 1) && id[size_t(i)][2] == id[size_t(i)][0]);
+    // (A gamma of 1 through the program's log and exp series: each level as it is or one under it, 28 of them one under, the
+    // program's own: gt4r_diff grade.)
+    int same = 0, under = 0;
+    for (int i = 0; i < 256; ++i) {
+        same += id[size_t(i)][0] == i, under += id[size_t(i)][0] == i - 1;
+        CHECK(id[size_t(i)][1] == id[size_t(i)][0] && id[size_t(i)][2] == id[size_t(i)][0]);
+    }
+    CHECK(same == 228 && under == 28 && id[35][0] == 34 && id[250][0] == 249);
     const race::PictureSettings settings; // (brightness +3: a gamma of 2^0.3)
     const race::PictureSettings::Correction c = settings.correction();
     const auto l = race::correction_levels(c.gamma, 0, c.contrast, 255);
     CHECK(l[0][0] == 0 && l[255][1] == 255);
     CHECK(l[128][1] == 145); // 255 x (128 / 255)^(1 / 1.2311)
+    // The program's levels for brightness +3 every 16th level (0x4A8CB8 in the interpreter: gt4r_diff grade).
+    const int every16[17] = {0, 26, 47, 65, 82, 99, 115, 130, 145, 160, 174, 188, 202, 216, 229, 242, 255};
+    for (int k = 0; k < 17; ++k) CHECK(l[size_t(std::min(16 * k, 255))][1] == every16[k] && l[size_t(std::min(16 * k, 255))][0] == every16[k]);
     // A Dive camera's colors stop at 220, a course's at 235.
     CHECK(race::correction_levels(plain, 0, 1, 220)[255][0] == 220);
     // The black level: nothing at or under it; the white level: everything over it full.
