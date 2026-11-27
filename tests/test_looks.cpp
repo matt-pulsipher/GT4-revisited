@@ -96,8 +96,8 @@ TEST(race_glow_filter_values) {
     CHECK(std::fabs(g->radius - 30.0f / 781.2196f) < 1e-6f);
     CHECK(std::fabs(g->sum - 25.0f * 36.0f / 128.0f) < 1e-5f); // trunc(128 x 1.9 / (0.27 x 25)) = 36
     CHECK(std::fabs(g->gain - 65.0f / 128.0f) < 1e-5f);        // trunc(128 x 0.27 x 1.9) = 65
-    // The sum at a place: the picture around 16 pixels left and 17 lines up of it (r / 2 + 1, r / 2 + 2).
-    CHECK(std::fabs(g->offset_x + 16.0f / 781.2196f) < 1e-6f && std::fabs(g->offset_y + 17.0f / 781.2196f) < 1e-6f);
+    // The sum at a place: the picture around half a pixel right of and below it.
+    CHECK(std::fabs(g->offset_x - 0.5f / 781.2196f) < 1e-7f && g->offset_y == g->offset_x);
     struct {
         struct {
             bool on = false, tent = false;
