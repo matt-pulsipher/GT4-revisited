@@ -325,12 +325,22 @@ void brakes(ex::Car& c, AidExtra& x, const TireExtra& t, const WheelLayout& l, c
     }
 }
 
+F tcs_lateral(F x, F a, F b) {
+    const F zero = F(), one = F::raw(0x3F800000);
+    if (x < zero) x = -x;
+    x = x - b;
+    if (x < zero) return one;
+    x = x * a;
+    if (one < x) return zero;
+    return one - x;
+}
+
 void tcs(ex::Car& c, AidExtra& x, const TireExtra& t, const DriveExtra& d, const WheelLayout& l, const AidTables& g, const ex::Aids& a) {
     const u8 on = block_tcs_on(a);
     x.tcs_status = on;
     if (!on) return settle(c, x);
     F lat = kOne;
-    if (g.tcs_mode == 0) lat = ex::tcs_lateral(c.lat_g, a.tcs_lat_a, a.tcs_lat_b);
+    if (g.tcs_mode == 0) lat = rules::tcs_lateral(c.lat_g, a.tcs_lat_a, a.tcs_lat_b); // (0x3F9C80)
     if (c.torque_wot <= k0) return;
     if (c.clutch == 0) return settle(c, x);
     if (!(k0 < c.throttle)) return;

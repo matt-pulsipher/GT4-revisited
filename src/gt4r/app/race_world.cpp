@@ -27,6 +27,7 @@
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
 #include "gt4r/race/license_scene.h"
+#include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/sections.h"
@@ -371,6 +372,11 @@ void RaceWorld::build_simulation() {
     if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
     start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
+        // A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing (no stand-in): the race says so.
+        if (const sim::Program p = sim::Program::load(*app_.disc()); !p.known() && !sim::PrologueProgram::locate(p).recognized()) {
+            LOG_WARN("Drive: %s", p.issue().c_str());
+            throw std::runtime_error("This release of the game isn't supported yet.");
+        }
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
             if (program.known() && !hand_speeds_ && !impl_->drivers.empty()) {
@@ -423,6 +429,7 @@ void RaceWorld::build_simulation() {
             for (size_t i = 0; i < choices_.size(); ++i) session_->set_wheel_options(i, choices_[i].wheel_strength, choices_[i].wheel_assist);
             const sim::RaceRules race_rules = sim::race_rules(setup_.event_row, program);
             session_->set_race_rules(race_rules.hits, race_rules.speed_cap, race_rules.penalty_cap);
+            session_->set_pit_rule(setup_.pit_rule);
             { // the race's class grips (the rule block's +0x18 .. +0x1B from the row's +0x53 .. +0x56, 0x35E108)
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)
@@ -827,7 +834,7 @@ std::array<int, 3> RaceWorld::signs(size_t i) const {
     out[0] = aid == 2 ? 3 : aid == 1 ? 1 : 0;
     const auto& c = session_->record(i);
     out[1] = c.handbrake.host() > 0.25f ? 2 : 0;
-    if (program_ && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host();
+    if (program_ && program_->known() && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host(); // (Gran Turismo 4's static block)
     out[2] = oil_from_ && c.oil.host() >= *oil_from_ ? 2 : 0;
     return out;
 }

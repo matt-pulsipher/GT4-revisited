@@ -31,11 +31,9 @@ ex::ProgramData core_program(const Program& program) {
     // Prologue's own tables, when it is Prologue's program; no Gran Turismo 3 value under them: the core's tables Prologue's
     // step does not read stay 0 (its step's routines read its own, rules_prologue.h).
     if (!program.known() && PrologueProgram::locate(program).apply(program, d)) return d;
-    for (int t = 0; t < ex::ProgramData::kTables; ++t) {
-        const ByteSpan bytes = ex::gt3_table(T(t));
-        for (u32 i = 0; i < bytes.size() && i < ex::ProgramData::size(T(t)); ++i) d.poke(T(t), i, bytes[i]);
-    }
-    if (!program.known()) return d; // (another build: the engine's own, for GT4R_SIM_RULES=engine)
+    // Gran Turismo 4's: its static block and soft materials; every other table of the core 0 (none of Gran Turismo 3's values;
+    // no step reads them). Another build: all 0 (a session refuses it).
+    if (!program.known()) return d;
     // The static physics block in the core's layout: the head as it is, each per-surface array by row,
     // what follows the arrays 0x30 bytes back.
     const u32 g = Program::kStatic;

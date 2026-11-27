@@ -292,9 +292,12 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   then x the computer driver's grip for the tire (0x467470: 1 for a player's car; for a car a
   computer drives, a word of its driver's table by the tire record's index ❓). The wheel's
   +0xDD is the record's +0x1DA.
-- **Slip angles** (0x357690 / 0x3575E0): as the engine's 2002 Tokyo-Geneva rule: the fade 0
-  below 1 km/h, 1 above 10 km/h, (|v| - 1 km/h) x 0.4 between, the direction
-  atan2(-vy, vx) where it is not 0.
+- **Slip angles** (0x357690 / 0x3575E0, `rules::slip_angle`): the fade 0 to 1 km/h, 1 from
+  10 km/h, (|v| - 1 km/h) x 0.4 between, the direction atan2(-vy, vx) where it is not 0. The
+  fold of a slip angle (0x352218, `rules::slip_angle_fold`) and TCS's lateral factor (0x3F9C80,
+  `rules::tcs_lateral`) are Gran Turismo 4's own too; all three word for word with both programs'
+  (Prologue's 0x3BF4E8, 0x3BAF48, 0x3E18F0) on drawn inputs (test
+  `disc_slip_angle_and_tcs_factor_equal_the_programs`).
 - **Slip ratios** (0x351778 / 0x3513F8): the hub's speed along the wheel's heading
   (cos steer vx - sin steer vy) against the rim's. A tire record whose byte +0x1D8 is set
   takes the ratio as (along - rim) x P +0xFC8 (its sign turned for a rim turning backwards),
@@ -327,8 +330,9 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   A force taken along the wheel's steer angle (sin steer) instead of its slip direction.
 - **The forces across the car and the yaw** (0x352848): per wheel, in the car's frame, the
   lateral forces (as the speed's: along the steer angle for +0xDD = 1), the camber force
-  (-cos / -sin steer), the low-speed hold (0x3522B0: the engine's with 2002 Tokyo-Geneva's
-  constants), the longitudinal force; the force across the car kept per wheel (+0xD4); the
+  (-cos / -sin steer), the low-speed hold (0x3522B0, `rules::low_speed_hold`: 0 for a wheel
+  without load, its rim over 5 km/h either way, the hub off the rim by over 2 km/h or over 4 km/h across the wheel, else
+  sin(0.9 pi x across) cos(0.36 pi x rim) x the load; Prologue's 0x3BAFE0 is the same routine), the longitudinal force; the force across the car kept per wheel (+0xD4); the
   torque about levers from the layout: across, ± the half track of the layout's axle byte
   (+0x2C + w) by side (0 left -, 1 right +, other 0); along, ± that axle's distance from the
   center of gravity by the signed byte +0x3C + w. Yaw acceleration = torque x P +0x118, its
@@ -1178,9 +1182,9 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 
 | Part | Runs | Follows |
 |---|---|---|
-| Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2): equal to the program's on all 722 cars, byte for byte (§9); computed gearboxes' ratios by the engine's generator (7 gears at most) |
-| Spec → parameter block | `convert.*` (`sim::convert`, `sim::build_record`) | Gran Turismo 4 (§4.3): the converter 0x361908 and every routine it calls, in the program's arithmetic: the whole 0x1100-byte block equal to the program's in every word on all 722 cars, as sold and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages (§9). The step's record is read out of the block: the engine mirror's members by their places, the mirror's members the block keeps in another shape made from Gran Turismo 4's (the 24-point curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the steering and camber curves, the inverse masses: the engine's routines that still run read these), and Gran Turismo 4's own part. The engine's converter (`exact_bridge.*`: `core_spec`, `gt4_params`, and `gt4_extras`) serves only the engine's rules (`GT4R_SIM_RULES=engine`) |
-| Program tables | `program.*`, `program_tables.*`, `program_code.*`, `rules::tables` | Gran Turismo 4's own on every Gran Turismo 4 disc: the tables the simulation, the computer drivers and the race's rules read are values in our code (`program_tables_values.inc`: 14 areas, 6,180 bytes, SCUS-97328 v1.01's, named fields, a pinned hash; each release's own over them, "The releases" in §5), served by their v1.01 address (`sim::Program::b`); a read outside them gives 0 and is logged. The disc's program is checked against them once: v1.01 at their places, another build where the routines that address each table put it (masked-code hashes, `ProgramCode`: no loaded value hashed, an index added to an upper half followed; one to three routines a table); a table that differs or is not found is logged (`gt4tool tables`). ✔ v1.01 bit for bit; a copy with the code and data moved finds every table at its new place (test `disc_program_tables_found_by_their_routines`); Europe's SCES-51719 and Japan's SCPS-17001 equal their own (test `disc_program_tables_per_release`). The race's globals the start makes (`rules::tables`, the converter's, `speed_tables`, `wear_rules_block`) are made from them. `core_program` (the engine's `ProgramData`: GT3's values but for the static block and the soft materials) reaches no step on a Gran Turismo 4 disc: only the engine's rules read it (`GT4R_SIM_RULES=engine`) and Prologue's path (Prologue's own tables over some of it, program_prologue.h). A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing ("this release is not supported yet") |
+| Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2): equal to the program's on all 722 cars, byte for byte (§9); computed gearboxes' ratios by Gran Turismo 4's generator 0x354FF8 (Prologue's 0x3E0BE0 on a Prologue disc, prologue.md) |
+| Spec → parameter block | `convert.*` (`sim::convert`, `sim::build_record`) | Gran Turismo 4 (§4.3): the converter 0x361908 and every routine it calls, in the program's arithmetic: the whole 0x1100-byte block equal to the program's in every word on all 722 cars, as sold and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages (§9). The step's record is read out of the block: the engine mirror's members by their places, the mirror's members the block keeps in another shape made from Gran Turismo 4's (the 24-point curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the steering and camber curves, the inverse masses: the engine's routines that still run read these), and Gran Turismo 4's own part. The engine's converter does not run in a race (`exact_bridge.*`: `core_spec` serves Prologue's spec; `gt4_params` and `gt4_extras` only the `gt4r_diff params` check) |
+| Program tables | `program.*`, `program_tables.*`, `program_code.*`, `rules::tables` | Gran Turismo 4's own on every Gran Turismo 4 disc: the tables the simulation, the computer drivers and the race's rules read are values in our code (`program_tables_values.inc`: 14 areas, 6,180 bytes, SCUS-97328 v1.01's, named fields, a pinned hash; each release's own over them, "The releases" in §5), served by their v1.01 address (`sim::Program::b`); a read outside them gives 0 and is logged. The disc's program is checked against them once: v1.01 at their places, another build where the routines that address each table put it (masked-code hashes, `ProgramCode`: no loaded value hashed, an index added to an upper half followed; one to three routines a table); a table that differs or is not found is logged (`gt4tool tables`). ✔ v1.01 bit for bit; a copy with the code and data moved finds every table at its new place (test `disc_program_tables_found_by_their_routines`); Europe's SCES-51719 and Japan's SCPS-17001 equal their own (test `disc_program_tables_per_release`). The race's globals the start makes (`rules::tables`, the converter's, `speed_tables`, `wear_rules_block`) are made from them. `core_program` (the engine's `ProgramData`) holds no Gran Turismo 3 value: Gran Turismo 4's static block and soft materials (the rest 0) on a Gran Turismo 4 disc, Prologue's own tables (program_prologue.h) on a Prologue disc. A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing ("this release is not supported yet") |
 | Releases | `sim::Release`, `program_tables.cpp` (`own_values`, `kGaps`, `kRates`), `car_spec.cpp`, `convert.cpp` `europe_share`, `race/license_rules.cpp`, `sim/ai/demo_driver.*` (`rate`) | US v1.01's rules on its disc. Europe's own rules on its disc, at 60 steps a second (its inertia floors, its converter's scale bytes, its stopping box), its 50 Hz step counts served as v1.01's, the same in seconds; its own recordings played by time as a check. Japan's tables (oil limit, the shorter static block) on its disc; ❓ Japan's own routines (TCS, slipstream, ground, AI, the lap step and more, "The releases" in §5) still run v1.01's |
 | The road query (0x3E5A30 with 0x3E5BC8 / 0x3E5FD8), surface index | `ground.*` | Gran Turismo 4 (§6), in the PlayStation 2's arithmetic: equal to the program's answer at every call (§9) |
 | The collision step (phase 13: 0x3F4B20, 0x45BB60 and its routines, 0x3F4C18; the walls near a body, 0x395A38 / 0x3E6A58) | `collide.*` through `session.cpp` | Gran Turismo 4 (§7): every body field equal to the program's at every call (§9); the bodies built as 0x45B978 builds them |
@@ -1201,9 +1205,11 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The start: the car's set-up (0x363B10 from the converter on: the pose 0x3630C0, the standing start 0x363560, the rolling hold 0x3452F0, the moving start 0x363868), the countdown's hold per car (0x34C210, cond + 0xCBFC + 4 i into F +0x4BC), the attitude's start hold (0x36AE20), the rolling start's release (0x345228 through the conductor's virtual 20) | `rules_start.*` through `session.cpp` (`setup`, `release_start`, `place_standing`, `set_pit_hold`, `set_countdown`) | Gran Turismo 4: equal at every call; the grid pose at Grand Canyon equal to the original's saved states; a rolling start's place on the road's middle, not the driving line (0x34C5E0 / 0x46ADE8); the session's countdown is its last 2 s (120 steps) before time 0 |
 | Japan's disc (SCPS-17001 v1.05) | the same files, `Program::release()` | Japan's own rules where its program differs and they are ported (§5 "Japan's rules"): TCS, the ground's normals, proximity and the closing, the drivers' lines, decisions, lanes, arc speeds and spread (its switches after the set-up), the pace levels and B-spec commands, a run's end and the rolling hold, the test's end and section times, the odometer, the engine condition, no kind-7 lift, the pits, the A-spec points; the lap step's sector record and the race step's replay skips are read, not ported 🔎. Checked against Japan's program in the interpreter: our race ends on the program's time in all 76 timed license files (75 bit for bit), and all 17 Replay Theater races bit for bit |
 
-**What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` calls the shared engine's step
-routines only on its own rules (`GT4R_SIM_RULES=engine`) and Prologue's; its math
-(`ex::lookup_bisect`, `ex::bump_wave`, `ex::atan2`) is shared. Not ported, because nothing here asks for them: a LAN battle's
+**What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` runs Gran Turismo 4's step on a
+Gran Turismo 4 disc and Prologue's on a Prologue disc, none of the shared engine's step routines; its math
+(`ex::lookup_bisect`, `ex::atan2`) is shared; the bump wave (0x369640, Prologue's 0x375340) and the hold near standstill
+(0x3522B0, 0x3BAFE0) are Gran Turismo 4's own (`rules::bump_wave`, `rules::low_speed_hold`: word for word with both
+programs on drawn inputs, test `disc_bump_wave_and_low_speed_hold_equal_the_programs`). Not ported, because nothing here asks for them: a LAN battle's
 packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives and the pad block's sending (0x354A78):
 [input.md](input.md). Judged or ours:
 
@@ -1224,7 +1230,7 @@ packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives 
   ✔ the Impreza WRC at Grand Canyon: its loaded wheels on their bumped road (3 mm), the body exactly at the simulated pose,
   the wheels' height on the body 9 mm rms from step to step (the suspension's own travel; ours drew 17 mm before, two
   places for loaded and unloaded wheels, and raised the body by their misfit: 8 mm rms, 11 mm a step), at Tsukuba 1 mm
-  (test `drawn_car_rides_its_suspension`). Prologue's disc and the engine's rules still draw by the earlier rule.
+  (test `drawn_car_rides_its_suspension`). Prologue's disc still draws by the earlier rule.
 
 | Distance along the course (F +0x4A4 at each step's end: the conductor's virtual +0x108, 0x3585F0 → 0x358558 → 0x3955E8 → 0x3E6858 / 0x3E6610: the point (F +0, F +8, -F +4) in the checkpoints' quads (left, middle) and (middle, right) of the cluster under the hint F +0x4A8, the nearest in height; v_i + (v_j - v_i, + a lap) x u, less a lap past one; 0 outside every quad) and its rate F +0x650 | `ground.*` `RoadGround::course_distance`, `session.cpp` `publish` | Gran Turismo 4: equal at every step (§9); the laps the race view counts are ours (`distance_along`) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
@@ -1242,9 +1248,8 @@ launch speed + 500 rpm for every gear (0x34ACA8 reloads the launch speed each ge
 Volkswagen's automatic box hunted between second and third. With the driveline Gran Turismo 4's the
 figures below do not change: on these four cars its routines are the engine's later builds' to the
 bit (the taps show it); with the suspension, attitude, steering and aids Gran Turismo 4's: 400 m Civic 16.05 s,
-NSX 13.45 s, Viper 12.50 s; top speed NSX 290.4 km/h, Viper 308.0 km/h. `GT4R_SIM_RULES=engine` runs the
-engine's routines throughout, for comparison. The figures a run gives (the engine's
-throughout → with Gran Turismo 4's routines): standing 400 m Mazda 787B 9.73 → 9.50 s, Dodge
+NSX 13.45 s, Viper 12.50 s; top speed NSX 290.4 km/h, Viper 308.0 km/h. The figures a run gave with the
+engine's routines throughout → with Gran Turismo 4's routines: standing 400 m Mazda 787B 9.73 → 9.50 s, Dodge
 Viper GTS 12.98 → 12.67 s, Honda NSX Type R 13.70 → 13.55 s, Honda Civic Type R 16.23 →
 15.93 s; top speed on the test course Viper 294.2 → 305.9 km/h, NSX 279.1 → 288.9 km/h (the
 tires these cars wear give no force against the velocity while running straight, §3.3).

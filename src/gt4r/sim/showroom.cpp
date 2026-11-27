@@ -159,7 +159,7 @@ struct Showroom::Data {
 };
 
 Showroom::Showroom(db::SpecDb& db, const Program& program) : db_(db), program_(program), data_(std::make_unique<Data>()) {
-    data_->tables = rules::tables(program, {});
+    if (program.known()) data_->tables = rules::tables(program, {}); // (Gran Turismo 4's ShowRoomCar: Prologue's program has none)
 }
 
 Showroom::~Showroom() = default;

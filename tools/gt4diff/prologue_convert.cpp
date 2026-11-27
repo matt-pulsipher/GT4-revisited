@@ -119,9 +119,10 @@ ConvertStats convert_compare(Disc& disc, const std::string& course, const std::s
             sim::Equipment eq_ours;
             if (sim::stock_car(sdb, program, c.label, eq_ours)) {
                 sim::Spec ours_spec;
-                sim::build_spec(sdb, program, eq_ours, 0, ours_spec);
+                const int course_kind = int(spec_args.a3); // (the builder's a3: the course's kind, 2 dirt, as the session's)
+                sim::build_spec(sdb, program, eq_ours, course_kind, ours_spec);
                 gt3r::sim::exact::Spec core{};
-                sim::prologue::core_spec(ours_spec, c.label, 0, data, core);
+                sim::prologue::core_spec(ours_spec, c.label, course_kind, data, core);
                 int n = 0;
                 for (u32 k = 0; k < core.size(); ++k)
                     if (core[k] != s[k]) {

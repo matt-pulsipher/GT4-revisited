@@ -38,6 +38,7 @@ struct ConvertData {
     std::array<u8, 8> lsd{};                       // 0x504AD0: the differential type letters
     u8 awd3_gain = 0, awd3_cap = 0;                // 0x504AD8 / 0x504AD9: four wheel drive system 3's gain (%) and capacity
     u8 kind7_tire = 0;                             // 0x503CB0: 0 leaves the special kind 7 without the pitch's tire term
+    std::array<u8, 18> gear_steps{};               // 0x504AF0: a made gearbox's steps, the rows of 5, 6 and 7 gears (0x3E0BE0)
     F air_density;                                 // 0x504A74 (0x3DBA58: the static block's +0 x 0.1)
     // The rolling resistance's curve (0x504428) and its paved surface's factor (0x504438: the static block's s16 +0x2C x
     // 0.01), as the race's start makes them (0x3C5BC0).
@@ -56,6 +57,14 @@ ConvertData convert_data(const Program& program);
 // with the inner builder's bytes where they differ from ours, then the wrapper's rules (the special cars by label, their
 // aerodynamic devices, the overhangs, the pitch inertia's scale, the defaults).
 void core_spec(const Spec& s, const std::string& label, int course_kind, const ConvertData& d, ex::Spec& out);
+
+// 0x3E0BE0 (Gran Turismo 4's 0x354FF8): a made gearbox's ratios x 1000 from the spec as the inner builder makes it (the
+// core's layout): its gears (+0xC8), rev byte (+0x6F), final drive (+0xC6, x 0.001 in the soft doubles) and the driven
+// axle's tire radius (0x3DFFD0's axle, 0x3DFE98), and the slider x 10 (km/h). The top gear's ratio from the speed the
+// slider gives at the rev byte's rpm; each gear below by the steps (gear_steps, the row of 5 gears for fewer), eased
+// between a row's pairs by (slider x 10 - 150) / 250; first gear once more by the third pair; out[0] (reverse)
+// (3 first + second) / 4. out[1 ..] up to the gear count (at most 7).
+void gear_ratios(const ex::Spec& spec, const ConvertData& d, int slider10, gt3r::s16 out[8]);
 
 // What the car's set-up (0x3C93A0) hands the converter besides the spec and the block.
 struct ConvertIn {

@@ -45,6 +45,10 @@ void aero(ex::Car& c, const ChassisExtra& x, u8 speed_part_kind, F speed_part_li
 // lateral forces' share, which stops the car rather than turn its speed's sign. A wheel whose tire
 // takes its lateral force across the wheel (Tire::x1da 1) has it along the wheel's steer angle.
 void forward_step(ex::Car& c, const ChassisExtra& x, const TireExtra& t, const WheelLayout& l);
+// 0x3522B0 (Prologue's 0x3BAFE0 is the same routine in its wheel layout): the wheel's sideways hold near standstill, 0 for
+// a wheel without load (+0x4C), its rim (+0x20) over 5 km/h either way, the hub (+0x28) off the rim by over 2 km/h, or the hub's
+// speed across the wheel (by the wheel's angle +0x00, +0x2C) over 4 km/h; else sin(0.9 pi x across) cos(0.36 pi x rim) x load.
+F low_speed_hold(const ex::Wheel& w);
 // 0x352848: the forces across the car and the yaw: each wheel's tire forces, its camber's force, the
 // low-speed hold (0x3522B0, the engine's with 2002 Tokyo-Geneva's constants) and the longitudinal
 // force turned into the car's frame, about the levers the wheel layout gives; the yaw rate within a

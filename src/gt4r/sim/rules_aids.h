@@ -189,6 +189,8 @@ void apply_shares(ex::Car& c, const WheelLayout& l, const BrakeShares& s, std::a
 // kept at 0.001.
 void brakes(ex::Car& c, AidExtra& x, const TireExtra& t, const WheelLayout& l, const AidTables& g, const AidRace& r, const ex::Aids& a,
             bool ascc_enabled);
+// 0x3F9C80 (Prologue's 0x3E18F0 the same): TCS's lateral factor: 1 - a (|x| - b), 1 for |x| under b, 0 past 1 / a more.
+F tcs_lateral(F x, F a, F b);
 // 0x3F9D00: TCS: the status (F + 0x5F9) 1 when on; the most negative slip ratio of the loaded driven wheels (by the
 // layout: 0 and 5 .. 7 the wheels behind the center of gravity, 1 those ahead, others all) against its tire's
 // driving slip target (with tcs_mode 1 at least curve D's rising side at curve A's value; else x the lateral fade),

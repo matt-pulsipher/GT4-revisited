@@ -12,6 +12,20 @@ namespace gt4r::sim::prologue {
 namespace {
 const F kZero = F(), kOne = F::raw(0x3F800000);
 constexpr u32 kLeanOn = 0x5042B8, kRollOn = 0x5042B4;
+
+// 0x3B1788: the odometer (2 m units, at most 0xEE6B27A6) takes x's whole metres in pairs; the rest carried (0 for x not above 0
+// and at the limit).
+F odometer_add(u32& odometer, F x) {
+    if (x <= kZero) return kZero;
+    const s32 n = gt3r::ee::to_int(x);
+    const s32 half = s32(u32(n) + (u32(n) >> 31)) >> 1;
+    odometer += u32(half);
+    if (0xEE6B27A5u < odometer) {
+        odometer = 0xEE6B27A6u;
+        return kZero;
+    }
+    return x - gt3r::ee::int_to_f(s32(u32(half) << 1));
+}
 } // namespace
 
 rules::SpeedTables speed_tables(const Program& program, u8 special_row) {
@@ -37,7 +51,7 @@ void speeds(ex::Car& c, FeelPart& x, const rules::WheelLayout& l, const rules::S
     // 0x3C5698: the odometer and the distance total from the signed speed (Gran Turismo 3's 2 m odometer, 8,000 km wrap).
     if (!(c.speed_abs < kZero)) {
         const F d = c.speed_abs * c.dt;
-        c.odo_carry = ex::odometer_add(c.odometer, c.odo_carry + d);
+        c.odo_carry = odometer_add(c.odometer, c.odo_carry + d);
         const F wrap = F::raw(0x4AF42400);
         const F total = c.dist_total + d;
         c.dist_total = total;

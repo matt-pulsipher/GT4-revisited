@@ -208,10 +208,8 @@ bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& t
 // 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
 // `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
 int gear_for_speed(const ex::Car& c, F v);
-// 0x375340 (= Gran Turismo 4's 0x369640): a surface's bump wave at (x, z): sin(f x) + cos(f z), mode 1 its signed square.
-F bump_wave(int mode, F x, F z, F freq);
-// 0x3BAFE0 (= Gran Turismo 4's 0x3522B0 in its layout): the wheel's sideways hold near standstill.
-F low_speed_hold(const ex::Wheel& w);
+// (0x375340 and 0x3BAFE0 are Gran Turismo 4's 0x369640 and 0x3522B0, its wheel record's layout aside: rules::bump_wave and
+// rules::low_speed_hold)
 // 0x3DD910 (= Gran Turismo 4's 0x3484D0 in its layout): the HUD's steering percentage and the full throttle's flag from a pad.
 void pad_hud(ex::Car& c, const ex::PadFrame& f);
 // 0x3DDC40 and its caller's blend (0x3DEDE0): a computer's HUD steering percentage two thirds of the way to its command's
@@ -335,7 +333,11 @@ void pad_watched(ex::Car& c, const ex::PadFrame& f, const Tables& t, u8 special_
 // 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
 // force's lever the tire's radius or, with the static block's +0xD9 0, its width).
 void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift);
-// 0x3765F8 (phase 19): the start's hold (0x376330: the engine's, with Gran Turismo 4's axes), else the pitch and roll from the
+// 0x376330: the hold while the car's hold counter (F +0x53A) runs: the body 0.3 m over the ground (rising out of it over the
+// counter's first 30 steps of 300, down to it over the last 30), at rest in pitch and roll, unless it is above that; in the
+// middle turned toward `box_heading` (the conductor's pit box's, 0x3B6350) at dt x 0x3F060A90; its axes. False with no hold.
+bool start_hold(ex::Car& c, F box_heading);
+// 0x3765F8 (phase 19): the start's hold (start_hold), else the pitch and roll from the
 // body forces and dampers by the wheel layout (the in-line layout's lean), Gran Turismo 4's axes (0x377310) and the heave:
 // Gran Turismo 4's (0x36B0C8) but every damper counted, the sums times the inverse sprung mass, each wheel's whole load
 // (no preload taken off) projected onto the ground's up axis and no speed part's lift. `in_line_lean` is the record's
@@ -364,8 +366,9 @@ void terrain(ex::Car& c, const CarPart& x);
 // it, by the wheel layout; Gran Turismo 4's axes; the downward speed held to the ground plane's.
 void bump_nudge(ex::Car& c, const CarPart& x);
 
-// 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
-// (0x377310: the pitch before the roll).
+// 0x3C4D80 (the layout's kind 0): the ground's pitch from the axles' mean heights over the wheelbase, its roll and height from
+// the sides' heights at the center of gravity (by the rear weight) over the track, its axes as Gran Turismo 4's (0x377310: the
+// pitch before the roll). (Its kinds 1 .. 3, the layout rows of the special kinds 4 .. 6, are not ported: no car has them.)
 void ground_frame(ex::Car& c);
 
 } // namespace gt4r::sim::prologue

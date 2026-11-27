@@ -1424,5 +1424,3 @@ Still the shared engine's code or a stand-in (file, function → the GT4 routine
 - `app/screen_race.cpp` the results movie's points pages (isChampionship, isStage1, getPoint, the ranking's
   rows): what the host answers in each phase is judged from the movie's calls, not read from the program's
   result page (0x3E0xxx) ❓;
-- `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
-  0x354FF8 (the same rule, sim-parts' area).

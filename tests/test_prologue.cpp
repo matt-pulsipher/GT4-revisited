@@ -452,6 +452,10 @@ TEST(disc_prologue_converter_equal) {
     CHECK(st.equal_blocks == st.cars);
     CHECK(st.equal_specs == st.cars);
     CHECK(st.race_start_equal);
+    // On a dirt course (the builder's course kind 2: the wrapper's dirt rule; no loose set-up of Gran Turismo 4's).
+    const diff::prologue::ConvertStats dirt = diff::prologue::convert_compare(*disc, "grandcanyon", "civic_r_98", false);
+    std::printf("  on grandcanyon: %d cars, %d blocks, %d specs equal\n", dirt.cars, dirt.equal_blocks, dirt.equal_specs);
+    CHECK(dirt.err.empty() && dirt.cars >= 80 && dirt.equal_blocks == dirt.cars && dirt.equal_specs == dirt.cars);
 }
 
 // The pass codes (menu/prologue_passcode.h): the program's 0x1A31A0 in the interpreter against ours on 64 sets of fields.
