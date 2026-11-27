@@ -333,7 +333,11 @@ void pad_watched(ex::Car& c, const ex::PadFrame& f, const Tables& t, u8 special_
 // 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
 // force's lever the tire's radius or, with the static block's +0xD9 0, its width).
 void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift);
-// 0x3765F8 (phase 19): the start's hold (0x376330: the engine's, with Gran Turismo 4's axes), else the pitch and roll from the
+// 0x376330: the hold while the car's hold counter (F +0x53A) runs: the body 0.3 m over the ground (rising out of it over the
+// counter's first 30 steps of 300, down to it over the last 30), at rest in pitch and roll, unless it is above that; in the
+// middle turned toward `box_heading` (the conductor's pit box's, 0x3B6350) at dt x 0x3F060A90; its axes. False with no hold.
+bool start_hold(ex::Car& c, F box_heading);
+// 0x3765F8 (phase 19): the start's hold (start_hold), else the pitch and roll from the
 // body forces and dampers by the wheel layout (the in-line layout's lean), Gran Turismo 4's axes (0x377310) and the heave:
 // Gran Turismo 4's (0x36B0C8) but every damper counted, the sums times the inverse sprung mass, each wheel's whole load
 // (no preload taken off) projected onto the ground's up axis and no speed part's lift. `in_line_lean` is the record's

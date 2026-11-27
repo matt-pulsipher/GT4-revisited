@@ -1130,6 +1130,33 @@ void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t,
     moment = m, lift = up;
 }
 
+bool start_hold(ex::Car& c, F box_heading) {
+    const s32 n = c.hold;
+    if (n == 0) return false;
+    const F zero = F(), height = F::raw(0x3E999999); // 0.3 m
+    // 0x375C40: the height over the ground by the counter (300 steps: rising out of 0.3 m over the first 30, held, 0 the last 30)
+    int mode = 2;
+    F offset = height;
+    if (n >= 270) mode = 1, offset = (gt3r::ee::int_to_f(300 - n) * height) / F::raw(0x41F00000);
+    else if (n < 30) mode = 0, offset = zero;
+    // 0x375CC0: held there unless the body is above it, at rest in pitch and roll.
+    const F target = c.ground_pos.z + offset;
+    if (target < c.pos.z) return false;
+    c.pos.z = target;
+    c.vel.z = zero, c.roll = zero, c.pitch = zero, c.roll_rate = zero, c.pitch_rate = zero;
+    if (mode == 2) { // (turned toward the box at 0.52 rad/s: 0x3B6350, the conductor's box heading)
+        const F d = rules::angle_diff(box_heading, c.heading); // (0x377620 = 0x36CC40)
+        if (!(d == zero)) {
+            const F step = c.dt * F::raw(0x3F060A90);
+            if (step < d) c.heading = c.heading + step;
+            else if (d < -step) c.heading = c.heading - step;
+            else c.heading = box_heading;
+        }
+    }
+    rules::body_axes(c); // (0x377310)
+    return true;
+}
+
 void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_line_lean) {
     using gt3r::ee::cos;
     using gt3r::ee::sin;
@@ -1139,11 +1166,7 @@ void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_lin
     const F dt = c.dt;
     F moment, lift;
     pitch_terms(c, l, t, moment, lift);
-    // The start's hold (0x376330): the engine's settling and turn toward the box, Gran Turismo 4's axes.
-    if (c.hold != 0 && ex::spawn_hold(c, F())) {
-        rules::body_axes(c);
-        return;
-    }
+    if (start_hold(c, c.heading)) return; // (0x376330; ❓ the box's heading: no Prologue race sets a hold)
     // Pitch: the axles' body forces and dampers about their levers, and the tires' moment.
     std::array<F, 4> s{};
     for (int w = 0; w < n; ++w) s[l.axle[size_t(w)] & 3] = s[l.axle[size_t(w)] & 3] + c.body_force[size_t(w)];
