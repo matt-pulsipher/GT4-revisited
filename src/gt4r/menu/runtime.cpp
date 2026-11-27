@@ -1,4 +1,5 @@
 #include "gt4r/menu/runtime.h"
+#include "gt4r/photo/film.h"
 
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/race_natives.h"
@@ -670,8 +671,17 @@ void Runtime::finish() {
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
     }
+    // A film loaded for its development (Photo Lab's "develop", 0x1C7BF8): the race of its course and cars (the race screen's
+    // sequence photo_develop: the photo taken again, then photo_save), then the lab again.
+    if (sequence_ == "photo_labo" && game_->next_sequence.empty() && game_->next_menu_project.empty() && game_->menu_result == "develop" &&
+        !game_->develop_film.empty())
+        if (const std::optional<photo::film::Film> f = photo::film::Film::decode(game_->develop_film); f && !f->cars.empty()) {
+            game_->next_sequence = "photo_develop";
+            game_->race.course = f->course, game_->race.car = f->cars.front().label, game_->race.paint = f->cars.front().b;
+            game_->race.max_entry = int(f->cars.size()), game_->race.laps = 0, game_->race.race.clear();
+        }
     // The Photo Lab's project ended: the project print when its result is "print", else the lab again, until its result
-    // is "exit" (0x1C7A88; the scripts then ask for a sequence). ❓ Developing a film ("develop") is not built.
+    // is "exit" (0x1C7A88; the scripts then ask for a sequence).
     if (sequence_ == "photo_labo" && game_->next_sequence.empty() && game_->next_menu_project.empty() && game_->menu_result != "exit") {
         const bool print = game_->menu_result == "print";
         game_->next_menu_project = print ? "print" : "labomode", game_->next_menu_arg.clear();

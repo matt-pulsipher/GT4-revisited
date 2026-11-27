@@ -50,6 +50,7 @@ struct Shot {
     bool portrait = false;           // +0x58: held upright
     Vec3 focus_point;                // +0x5C
     float fov_min = 2;               // +0x68: the closest view (a 0.7 m wide stretch at the car's distance)
+    bool fov_min_found = false;      // +0x6C: the closest view set by the scenery's check of a zoom (0x380C50)
     bool fov_min_set = false;        // +0x6E
     u8 limits = 0;                   // +0x6D: the view at its edge: 1 left, 2 right, 4 top, 8 bottom
     bool manual_focus = false;       // +0x6F
@@ -105,13 +106,21 @@ public:
         std::function<float(const Vec3& eye, const gt3r::render::Mat4& view)> middle_depth;
         // A focus on the car by itself for the view (0x3FD3D8; none: no car).
         std::function<std::optional<float>(const gt3r::render::Mat4& view, float f_number, float fov_degrees)> car_focus;
+        // Whether a point is in the followed car's box grown by `margin` metres across, up and along (0x3FDD60: its width and
+        // length, from its floor to its height).
+        std::function<bool(const Vec3& point, float margin)> in_car;
     };
     struct Events {
         bool refused = false; // the "disable" sound: a limit met
         bool focused = false; // Square: the focus taken (ISFOCUSTRIGGER, the "zoom" sound)
         bool shutter = false;
+        bool on_point = false; // L1 + Cross: the shutter on the focused place
     };
     Events step(const Pad& pad, const World& world);
+    // L1 + Cross with the focus on a place (0x380A04 -> 0x37FA38): the eye and the focused place carried with the followed car
+    // over a step (`moved`: where course space at the step's start is at its end), the camera aimed at the place again. False
+    // without a focused place.
+    bool recompose(const gt3r::render::Mat4& moved);
 
     const Shot& shot() const { return *shot_; }
     Vec3 eye() const { return shot_->eye; }

@@ -63,6 +63,7 @@
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/app/race_photo.h"
+#include "gt4r/photo/film.h"
 #include "gt4r/photo/picture.h"
 #include "gt4r/race/photo_pause.h"
 #include "gt4r/race/picture_settings.h"
@@ -280,6 +281,22 @@ Setup setup_from_env() {
     // simple driver.)
     if (s.replay > 0) s.auto_drive = true;
     return s;
+}
+
+// A car's paints' label (the label of its VARIATION rows less the row's number: "ford0006"), as a film's race header names them.
+std::string paint_set(db::SpecDb* db, const std::string& car) {
+    if (!db) return {};
+    const db::Labels* cars = db->labels("GENERIC_CAR");
+    const db::Table* link = db->table("CAR_VARIATION_american");
+    const db::Labels* rows = db->labels("VARIATIONamerican");
+    if (!cars || !link || !rows) return {};
+    const std::optional<u32> id = cars->id(car);
+    if (!id) return {};
+    const ByteSpan l = link->row(*id);
+    if (l.size() < 4) return {};
+    const std::string* label = rows->label(rd32(l, 0));
+    if (!label) return {};
+    return label->substr(0, label->rfind('_'));
 }
 
 // The sequences the free run's conductor runs (DynamicsConductorFreeRun: the arcade's time trial, the free run, Gran Turismo
@@ -913,7 +930,7 @@ public:
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1], flow_.setup().limit_ms > 0);
         camera_.reset(world_->cars()[0]);
-        history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
+        history_.clear(), pit_history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
         begin_ghost(watched || demo);
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
@@ -1311,7 +1328,12 @@ public:
         if (split_steps_ >= 0) ++split_steps_;
         if (name_steps_ >= 0) ++name_steps_;
         step_ghost(ev, hold);
-        if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
+        if (history_.size() < kHistory) {
+            history_.emplace_back(world_->cars().begin(), world_->cars().end());
+            std::vector<u8> stages(world_->car_count());
+            for (size_t i = 0; i < stages.size(); ++i) stages[i] = u8(world_->pit_stage(i));
+            pit_history_.push_back(std::move(stages));
+        }
         hear(world_->cars(), true);
     }
 
@@ -1589,6 +1611,17 @@ public:
         return lap;
     }
 
+    // A film's frames as the race's replay (its development): the cars' states of each frame, the first shown.
+    void play_film(const photo::film::Film& f) {
+        history_.clear(), pit_history_.clear();
+        for (const photo::film::Frame& fr : f.frames) {
+            std::vector<race::CarState> cars(world_->car_count());
+            for (size_t i = 0; i < cars.size() && i < fr.cars.size(); ++i) cars[i] = photo::film::state_of(fr.cars[i].params);
+            history_.push_back(std::move(cars));
+        }
+        replaying_ = !history_.empty(), replay_done_ = false, replay_at_ = 0;
+        prev_cars_.clear();
+    }
     // ---- The Analyzer's tracks (the project logger, menu/logger.h): Track A the best lap's recorder (the race's vf72(0x100),
     // 0x3EA8C8: the ghost's lap here), Track B the lap loaded into the other (vf72(1), 0x3EA908). The analysis runs a
     // track's lap again: its car put at the lap's moment, stepped by its records, each picture's distance along the course
@@ -2083,6 +2116,23 @@ public:
                 h.event_gap_opacity = h.event_opacity * window(event_steps_, 2.85f, 0.15f);
             }
         }
+        // A notice of the race's (RaceDisplay::vf19 0x3A2198 on the event display: hn_20R, 0x80C8C8C8, its seconds, fades of 0.15 s),
+        // in a replay too.
+        if (notice_time_ >= 0 && notice_time_ < 3.15) {
+            h.event = notice_, h.event_gap.clear(), h.event_gap_opacity = 0, h.event_gap_car = -1;
+            h.event_opacity = std::min(1.0f, float(notice_time_) / 0.15f) * window(int(notice_time_ * 60), 3.0f, 0.15f);
+        }
+    }
+    // A line of the race's text shown for three seconds (RaceDisplay::vf19 through 0x38BC98); its time.
+    void post_notice(std::string text) { notice_ = std::move(text), notice_time_ = 0; }
+    void age_notice(double dt) {
+        if (notice_time_ >= 0) notice_time_ += dt;
+    }
+    // Where the followed car is in a pit visit as the step shown has it (0x35BBD8: RaceWorld::pit_stage).
+    int shown_pit_stage() const {
+        const size_t f = focus() < world_->car_count() ? focus() : 0;
+        if (replaying_) return replay_at_ < pit_history_.size() && f < pit_history_[replay_at_].size() ? pit_history_[replay_at_][f] : 0;
+        return world_->pit_stage(f);
     }
 
     // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on until it is asked off again: the
@@ -2613,6 +2663,31 @@ public:
         }
         return t0 <= t1 && t1 > 0 ? std::max(t0, 0.1f) : far;
     }
+    // Where course space is carried by the followed car from the step shown to the next (a replay's): L1 + Cross's recomposing.
+    std::optional<render::Mat4> photo_car_motion() const {
+        if (!replaying_ || replay_at_ + 1 >= history_.size()) return std::nullopt;
+        const size_t f = focus() < history_[replay_at_].size() ? focus() : 0;
+        if (f >= history_[replay_at_ + 1].size()) return std::nullopt;
+        const race::CarVisual& v = world_->visual(f);
+        return v.body_matrix(history_[replay_at_ + 1][f]) * render::inverse(v.body_matrix(history_[replay_at_][f]));
+    }
+    // Whether a point is in the followed car's box grown by `margin` (0x3FDD60: across and along, and up from its floor).
+    bool photo_in_car(const RVec& point, float margin) const {
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const race::CarVisual& v = world_->visual(f);
+        const render::Mat4 body = v.body_matrix(cars[f]);
+        const RVec o = body.transform_point({0, 0, 0});
+        const RVec d = point - o;
+        const RVec ax[3] = {body.transform_point({1, 0, 0}) - o, body.transform_point({0, 1, 0}) - o, body.transform_point({0, 0, 1}) - o};
+        const float lo[3] = {v.bounds_min().x - margin, std::min(0.0f, v.bounds_min().y), v.bounds_min().z - margin};
+        const float hi[3] = {v.bounds_max().x + margin, v.bounds_max().y + margin, v.bounds_max().z + margin};
+        for (int k = 0; k < 3; ++k) {
+            const float len = render::length(ax[k]), p = len > 0 ? render::dot(d, ax[k]) / (len * len) : 0;
+            if (p < lo[k] || p > hi[k]) return false;
+        }
+        return true;
+    }
     // The focus on the followed car by itself (0x3FD3D8): where its nearest point blurs by 1/960 of the picture (photo::auto_focus).
     std::optional<float> photo_car_focus(const render::Mat4& view, float f_number, float fov_degrees) const {
         const std::span<const race::CarState> cars = shown();
@@ -2641,6 +2716,31 @@ public:
         r.x0 = std::max(x0, -1.0f), r.x1 = std::min(x1, 1.0f), r.y0 = std::max(y0, -1.0f), r.y1 = std::min(y1, 1.0f);
         r.x = (r.x0 + r.x1) * 0.5f, r.y = (r.y0 + r.y1) * 0.5f;
         return r;
+    }
+    // The race's part of a film (0x33A2A0, 0x33A018): the course, the race's kind, its cars (label, paint set and number), each
+    // frame's cars as the car models' sponsors give them (the step shown's, the next's). `paint_set`: a car's paints' label.
+    void photo_film(photo::film::Film& f, const std::string& kind, const std::function<std::string(const std::string&)>& paint_set) const {
+        f.course = world_->setup().course, f.kind = kind;
+        f.cars.clear();
+        for (size_t i = 0; i < world_->car_count() && i < world_->setup().entries.size(); ++i) {
+            const auto& e = world_->setup().entries[i];
+            photo::film::Car c;
+            c.label = e.label, c.paint = paint_set(e.label), c.b = u8(e.paint);
+            f.cars.push_back(std::move(c));
+        }
+        const std::span<const race::CarState> now = shown();
+        const std::span<const race::CarState> next =
+            replaying_ && replay_at_ + 1 < history_.size() && history_[replay_at_ + 1].size() == now.size() ? std::span<const race::CarState>(history_[replay_at_ + 1]) : now;
+        for (size_t k = 0; k < f.frames.size() && k < 2; ++k) {
+            photo::film::Frame& fr = f.frames[k];
+            fr.cars.clear();
+            for (size_t i = 0; i < f.cars.size() && i < now.size(); ++i) {
+                photo::film::CarFrame c;
+                c.params = k == 0 ? photo::film::params_of(now[i]) : photo::film::params_of(next[i], &now[i]);
+                if (k == 1) c.skids = Bytes{0, 0, 0}; // (SMOK: none kept here)
+                fr.cars.push_back(std::move(c));
+            }
+        }
     }
     // The followed car's label and the course's file (the photo's record on the card).
     std::string photo_car_label() const {
@@ -2837,6 +2937,9 @@ private:
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
+    std::vector<std::vector<u8>> pit_history_; // each step's pit stages (RaceWorld::pit_stage), beside history_
+    std::string notice_;      // a line of the race's text on the event line (the photo pause's refusal)
+    double notice_time_ = -1; // seconds it has been up
     bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
     bool page_replay_ = false; // the replay runs behind a license test's page (stand)
     bool preview_ = false; // the scene behind the menus is Prologue's run (stand)
@@ -3006,6 +3109,7 @@ public:
                 draw_grid(app, setup_, q);
                 arcade_tires(app, setup_, q);
                 if (sequence_ == "single_race") apply_arcade_options(setup_);
+                if (sequence_ == "photo_develop") develop_setup();
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
                 if (q.laps <= 0) {
@@ -3065,6 +3169,9 @@ public:
         // at the program's speed, else a standing start whose hold the event's row gives (start).
         if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
         apply_course_start(app, setup_, setup_.course_start);
+        // The photo drive's race has no number of laps: its display shows the lap alone (✔ the original's GT mode photo drive at
+        // Tsukuba: "Lap 1", the position, the lap clock, the best and last lap), and no count ends it.
+        if (setup_.sequence == "photo_drive") setup_.laps = 0;
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())
@@ -3157,7 +3264,11 @@ public:
         if (saved && race_) race_->play_saved(std::move(*saved));
         if (setup_.demo_run && race_) race_->play_demo(*setup_.demo_run, setup_.demo_skip), demo_ = true;
         if (setup_.save_replay && race_ && race_->has_run()) save_replay(app);
-        if (menus_ && sequence_ == "replay") {
+        if (menus_ && sequence_ == "photo_develop") {
+            // A film's development: its photo at once, its page, then Photo Lab again (0x1C7BF8).
+            if (race_ && film_) open_develop(app);
+            if (!photo_) leave_to_menus(app);
+        } else if (menus_ && sequence_ == "replay") {
             // A saved replay: no race menus; the menus again at its end (or at once without it).
             if (!saved_replay_ || !race_) leave_to_menus(app);
         } else if (menus_ && sequence_ == "race_view") {
@@ -3219,7 +3330,7 @@ public:
             const auto word = [&](const char* key, const char* otherwise) { return gt3r::to_lower(app.config().get("cameras", key).value_or(otherwise)); };
             race_->set_view_options(word("race_views", "original") == "all", word("in_car_shake", "on") != "off");
         }
-        if (race_) race_->set_lap_named(settings_.display.config);
+        if (race_) race_->set_lap_named(settings_.display.config), race_->age_notice(dt);
         if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config())), race_->set_replay_style(settings_.replay_mode == "DIVE" ? race::ReplayStyle::Dive : settings_.replay_display ? race::ReplayStyle::Display : race::ReplayStyle::Plain);
         if (!playing()) feedback_.stop(app.input(), 0);
         if (online_) {
@@ -4045,8 +4156,22 @@ private:
 
     // ---- The photo pause (app/race_photo.h): the Replay Theater's replays and the photo drive's (0x10CA50, 0x11ABE0 set it as the
     // race's second pause, +0xE404), Select in a replay or in the photo drive's B-spec run.
+    // The race's mode on a photo's record (+0xD8: the race's +0xD68; ✔ 13 in the original's photo drive).
+    gt3r::s8 photo_race_mode() const {
+        if (sequence_ == "photo_drive") return 13;
+        static const std::pair<const char*, int> kModes[] = {{"single_race", 1}, {"time_trial", 2}, {"solo_event", 13}, {"championship", 14}, {"freerun", 11}, {"practice", 12}};
+        for (const auto& [q, m] : kModes)
+            if (sequence_ == q || setup_.sequence == q) return gt3r::s8(m);
+        return 0;
+    }
     bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
     void open_photo(App& app) {
+        // The pause's first step (PhotoPause::vf4 0x3C4A48): with the followed car in a pit visit (0x35BBD8; the program's
+        // override 0x6201A8 is 0 and never set) the race's text CantCaptureWhenPitSequence for 3 s, and no pause.
+        if (race_->shown_pit_stage() != 0) {
+            if (hud_ && hud_->ready()) race_->post_notice(hud_->word("CantCaptureWhenPitSequence"));
+            return;
+        }
         RacePhotoPause::Race r;
         Race* race = race_.get();
         r.draw = [race](Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {
@@ -4054,9 +4179,44 @@ private:
         };
         r.world.middle_depth = [race](const RVec& eye, const render::Mat4& view) { return race->photo_middle_depth(eye, view); };
         r.world.car_focus = [race](const render::Mat4& view, float f_number, float fov) { return race->photo_car_focus(view, f_number, fov); };
+        r.world.in_car = [race](const RVec& point, float margin) { return race->photo_in_car(point, margin); };
+        r.car_motion = [race] { return race->photo_car_motion(); };
         r.car_frame = [race](const render::Mat4& view, float px, float py) { return race->photo_car_frame(view, px, py); };
         race_->pause_sound(true);
         photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), race_->photo_scene(u32(SDL_GetTicksNS() >> 10) | 1), menus_ ? &menus_->game() : nullptr);
+        photo_saving_ = false;
+    }
+    // A film's development (0x1C7BF8: RacePhotoDevelop reads the film into a race of its course and cars, 0x335248): the film
+    // Photo Lab loaded, its course and cars set up (the first the player's).
+    void develop_setup() {
+        menu::GameState& g = menus_->game();
+        film_ = photo::film::Film::decode(g.develop_film);
+        g.develop_film.clear(), g.menu_result.clear();
+        if (!film_ || film_->cars.empty()) {
+            LOG_WARN("Photo: the film does not read");
+            film_.reset();
+            return;
+        }
+        setup_.course = film_->course;
+        setup_.cars = int(film_->cars.size());
+        setup_.opponents.clear(), setup_.paints.clear(), setup_.opponent_equipment.clear();
+        for (size_t i = 0; i < film_->cars.size(); ++i) {
+            if (i == 0) setup_.car = film_->cars[i].label, setup_.paint = film_->cars[i].b;
+            else setup_.opponents.push_back(film_->cars[i].label);
+            setup_.paints.push_back(film_->cars[i].b);
+        }
+        setup_.laps = 0, setup_.start = race::StartType::None, setup_.start_given = true, setup_.course_start = false;
+        setup_.player_equipment.reset(), setup_.player_condition.reset();
+    }
+    void open_develop(App& app) {
+        RacePhotoPause::Race r;
+        Race* race = race_.get();
+        r.draw = [race](Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {
+            race->draw_photo(ui, rect, pose, lens, grade, ahead);
+        };
+        race_->play_film(*film_);
+        race_->pause_sound(true);
+        photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), *film_, &menus_->game());
         photo_saving_ = false;
     }
     void update_photo(App& app, const MenuInput& m, double dt) {
@@ -4072,6 +4232,12 @@ private:
             if (!menus_->finished()) return;
             photo_saving_ = false;
             menus_->photo_picture.reset();
+            if (photo_->developing()) {
+                // Photo Lab again (the photo_labo sequence's next project, 0x1C7A88), on its Film folder as it was left.
+                menu::GameState& g = menus_->game();
+                g.next_menu_project = "labomode", g.next_menu_arg.clear(), g.menu_result.clear();
+                return leave_to_menus(app);
+            }
             photo_->back_from_saving();
             return;
         }
@@ -4081,8 +4247,16 @@ private:
             // The race's display state kept, the menus' project over the still race (0x3C51A0).
             std::shared_ptr<menu::PhotoPicture> p = photo_->picture();
             p->course = setup_.course, p->car_label = race_->photo_car_label();
+            p->mode = photo_race_mode();
+            if (photo_->developing() && film_) p->course = film_->course, p->car_label = film_->cars.front().label;
+            if (!photo_->developing()) {
+                photo::film::Film f = photo_->film();
+                db::SpecDb* db = app.db();
+                race_->photo_film(f, sequence_.empty() ? setup_.sequence : sequence_, [db](const std::string& car) { return paint_set(db, car); });
+                p->film = f.encode();
+            }
             menus_->photo_picture = p;
-            menus_->game().next_menu_arg = "filmphoto";
+            menus_->game().next_menu_arg = photo_->developing() ? "" : "filmphoto"; // (a development's photo: photo_save without it)
             try {
                 menus_->start_project("photo_save");
                 photo_saving_ = true;
@@ -4878,6 +5052,7 @@ private:
         static const std::pair<const char*, const char*> kModes[] = {
             {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
             {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
+            {"photo_drive", "GTMODE_EVENT_RACE"}, // (the race's +0xD68 13: ✔ a photo of the original's photo drive)
         };
         m.first = "NOTHING";
         for (const auto& [sequence, mode] : kModes)
@@ -5494,6 +5669,7 @@ private:
     std::unique_ptr<RacePhotoPause> photo_; // the photo pause (Select in the Replay Theater and the photo drive)
     bool photo_saving_ = false;             // its photo's page (photo_save) up
     bool photo_drive_replayed_ = false;     // the photo drive's run has gone on into its replay
+    std::optional<photo::film::Film> film_; // a film being developed (the sequence photo_develop)
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
     std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race
     std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu
