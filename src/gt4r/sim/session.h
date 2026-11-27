@@ -11,6 +11,7 @@
 #include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/collide_prologue.h"
 #include "gt4r/sim/feel_prologue.h"
+#include "gt4r/sim/phases_prologue.h"
 #include "gt4r/sim/convert.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
@@ -427,6 +428,7 @@ private:
     gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
+    prologue::StepTables prologue_step_; // (phases 4 and 22's tables: phases_prologue.h)
     std::vector<prologue::Collision::Contact> prologue_contacts_;
     std::vector<Spec> specs_;
     std::vector<Equipment> equipment_; // (each entry's)

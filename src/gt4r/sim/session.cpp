@@ -161,7 +161,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw), course_query_ = std::make_unique<ex::CourseQuery>(*road_->gtrw);
         // (the rule block's class grips and wear: a single race's wear on; a lesson's conductor has it off, and no row of the disc has any)
         if (prologue_) prologue::race_inputs(race_, *prologue_), prologue::race_rules(race_, *prologue_, options ? options->rules.data() : nullptr, true),
-                       prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
+                       prologue_aids_ = prologue::aid_tables(program), prologue_step_ = prologue::step_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
                        prologue_slide_ = prologue::slide_tables(program), prologue_force_ = prologue::force_tables(program, prologue_->controls);
     }
     // What the aids read of the race: the course's category (0x34C998: dirt 1, snow 2), no speed caps, the lap.
@@ -949,10 +949,13 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
                 c.hold = hold;
             }
         } else {
-            if (prologue_) rules::save_previous(c, prologue_cars_[i].layout); // phase 1 (0x3B2480: Gran Turismo 4's 0x343ED0)
-            else ex::save_previous(c);
-            ex::prep(c, race_.prep);
-            if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
+            if (prologue_) { // phases 1 and 4 (0x3B2480: Gran Turismo 4's 0x343ED0; 0x3BF608: Prologue's)
+                rules::save_previous(c, prologue_cars_[i].layout);
+                prologue::prep(c, prologue_cars_[i], prologue_feel_[i], prologue_step_, race_.prep.start_count, race_.prep.wear);
+            } else {
+                ex::save_previous(c);
+                ex::prep(c, race_.prep);
+            }
         }
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
@@ -1139,6 +1142,10 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
             rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
+        } else if (prologue_) { // phases 20 .. 22 (0x3BBBB8, 0x3BBD80 with the single race's conductor, 0x3C26F0)
+            prologue::tire_wear(c, prologue_cars_[i], race_.prep.wear);
+            prologue::wear_flags(c, prologue_cars_[i], race_.prep.wear, {});
+            prologue::flaps(c, prologue_cars_[i], prologue_step_, rng_);
         } else {
             ex::tire_wear(c, race_.prep.wear);
             ex::wear_flags(c, race_.prep.wear, {});
