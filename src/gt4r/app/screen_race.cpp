@@ -4354,6 +4354,7 @@ private:
             // The photo's page (photo_save with "filmphoto": START saves it, Square goes back to the camera).
             try {
                 send_menu_keys(*menus_, m);
+                if (painter_) painter_->pointer(app, *menus_); // (taps on the page)
                 menus_->update();
             } catch (const std::exception& e) {
                 menus_->note(std::string("stopped: ") + e.what());
@@ -4944,6 +4945,7 @@ private:
     void update_quick(App& app, const MenuInput& m, double dt) {
         try {
             send_menu_keys(*menus_, m);
+            if (painter_) painter_->pointer(app, *menus_); // (taps and drags on the pages, as on the menus' own screen)
             menus_->set_pad(menu_runtime_pad(app.menu_pad())); // (the pad as the pages read it: the Analyzer's sticks)
             menus_->update();
         } catch (const std::exception& e) {
