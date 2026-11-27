@@ -3051,7 +3051,8 @@ public:
         // in the Replay Theater and the photo drive (PhotoPause, RaceBasic::vf149 0x38B0E0 with the race's +0xE404).
         if (race_->viewing() && !paused_ && !results_shown()) {
             if (m.pressed(PadButton::Select) && !race_->replay_done() && photo_pause_here() && !replay_paused_) return open_photo(app);
-            if (m.pressed(PadButton::Select) && !race_->replay_done()) {
+            // (SimplePause::vf4 0x3C3A90: Select or cancel ends it)
+            if ((m.pressed(PadButton::Select) || (replay_paused_ && m.pressed(PadButton::Triangle))) && !race_->replay_done()) {
                 replay_paused_ = !replay_paused_;
                 race_->pause_sound(replay_paused_);
             }

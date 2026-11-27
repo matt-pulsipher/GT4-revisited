@@ -94,7 +94,8 @@ void RacePhotoPause::update(const MenuInput& m, const gt3r::PadState& pad, doubl
     if (state_ != State::Finder) return;
     race::photo::PadButtons b;
     b.l1 = m.held(PadButton::L1), b.l2 = m.held(PadButton::L2), b.r1 = m.held(PadButton::R1), b.r2 = m.held(PadButton::R2);
-    b.up = m.held(PadButton::Up), b.down = m.held(PadButton::Down);
+    // (the direction buttons themselves: the menus' keys count the left stick as them, which turns the camera here)
+    b.up = pad.down(PadButton::Up), b.down = pad.down(PadButton::Down);
     b.circle = m.pressed(PadButton::Circle), b.triangle = m.pressed(PadButton::Triangle), b.square = m.pressed(PadButton::Square), b.cross = m.pressed(PadButton::Cross);
     // The sticks as the race input reads their bytes (0x43BAC8), down positive.
     auto stick = [&](gt3r::PadAxis a) {
@@ -106,7 +107,7 @@ void RacePhotoPause::update(const MenuInput& m, const gt3r::PadState& pad, doubl
     const PadButton dirs[2][2] = {{PadButton::Up, PadButton::Down}, {PadButton::Left, PadButton::Right}};
     int repeat[2] = {};
     for (int a = 0; a < 2; ++a) {
-        const int d = m.held(dirs[a][1]) ? 1 : m.held(dirs[a][0]) ? -1 : 0;
+        const int d = pad.down(dirs[a][1]) ? 1 : pad.down(dirs[a][0]) ? -1 : 0;
         if (d == 0) repeat_dir_[a] = 0;
         else if (d != repeat_dir_[a]) repeat_dir_[a] = d, repeat_time_[a] = 0, repeat[a] = d;
         else if ((repeat_time_[a] += dt) >= 0.4) repeat_time_[a] -= 0.1, repeat[a] = d;
