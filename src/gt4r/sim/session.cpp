@@ -312,7 +312,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                 if (line->kind >= 2 && line->kind <= 4 && entries[i].control == 0) c.driver_kind = 1, c.shift_lockout = 12;
                 if (line->speed > 0) {
                     c.ai.mode = !line->open_throttle || line->open_throttle(c.f3e4) ? 0 : 1;
-                    prologue::moving_start(c, gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
+                    prologue::moving_start(c, prologue_cars_[i], gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
                 }
                 prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
                 prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)
@@ -321,7 +321,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             }
             if (!(entries[i].start_speed > 0)) continue;
             if (prologue_) {
-                prologue::moving_start(cars_[i], gt3r::ee::int_to_f(s32(std::lround(entries[i].start_speed * 3.6f))) * F::raw(0x3E8E38E3)); // (the rule's km/h)
+                prologue::moving_start(cars_[i], prologue_cars_[i], gt3r::ee::int_to_f(s32(std::lround(entries[i].start_speed * 3.6f))) * F::raw(0x3E8E38E3)); // (the rule's km/h)
                 if (entries[i].control == 0) cars_[i].driver_kind = 1;
                 publish(i);
                 continue;
@@ -625,16 +625,18 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
             wheel.ground = wheel.ground0 = ground + wheel.hub.z;
         }
     }
-    for (int w = 0; w < 4; ++w) {
-        ex::Wheel& wheel = c.w[size_t(w)];
-        const size_t a = size_t(w >> 1);
-        wheel.smoke_count = 0;
-        wheel.load = wheel.peak_force = (a ? c.p.xe58 : c.p.xe54) * kHalf + c.p.susp[a].preload;
-        wheel.susp = c.p.susp[a].x_static;
-        wheel.steer = ex::wheel_steer_angle(c.p, w, k0);
-        wheel.camber = ex::wheel_camber(c.p, w, k0, k0);
-        wheel.half_track = ex::hub_half_track(c.behaviour, c.p, w, k0);
-    }
+    if (own) prologue::pose_wheels(c, prologue_cars_[i], *prologue_); // (0x3C89D8's wheels, over the layout)
+    else
+        for (int w = 0; w < 4; ++w) {
+            ex::Wheel& wheel = c.w[size_t(w)];
+            const size_t a = size_t(w >> 1);
+            wheel.smoke_count = 0;
+            wheel.load = wheel.peak_force = (a ? c.p.xe58 : c.p.xe54) * kHalf + c.p.susp[a].preload;
+            wheel.susp = c.p.susp[a].x_static;
+            wheel.steer = ex::wheel_steer_angle(c.p, w, k0);
+            wheel.camber = ex::wheel_camber(c.p, w, k0, k0);
+            wheel.half_track = ex::hub_half_track(c.behaviour, c.p, w, k0);
+        }
     if (!own) c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
     if (gt4_rules_) rules::ground_frame(c, layouts_[i]);
     else if (own) prologue::ground_frame(c);
@@ -648,7 +650,8 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
     rules::view_start(c, gx_[i].feel.view); // (0x3455F0)
-    ex::standing_start(c);
+    if (own) prologue::standing_start(c, prologue_cars_[i]); // (0x3C8E10)
+    else ex::standing_start(c);
     if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
         for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
     else if (prologue_) prologue::tyres_start(c, prologue_cars_[i], race_.prep.wear); // (0x3C8878)
@@ -660,7 +663,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     c.x16d1 = 1;
     c.dist_total = k0;
     if (own) { // (0x3B41E8, 0x3C8E10: the view's lags, the torque's share and the steering force's byte at rest)
-        c.lag_heading = c.lag_pitch = k0, c.x420 = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
+        c.lag_heading = c.lag_pitch = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
         c.f3e4 = course_query_->progress(c.pos.x, c.pos.z, -c.pos.y, c.road_seg);
         prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
         prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)

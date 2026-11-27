@@ -135,6 +135,8 @@ DriveTables drive_tables_bytes(const Program& program); // (without the hybrid's
 
 // 0x34EB00: a turbo stage's boost at rpm n.
 F turbo_boost(const EngineBlock& e, gt3r::s16 n, int stage);
+// 0x34ECF0: 1 plus the stages' boosts at rpm n0 / n1, at most 1 + the cap.
+F boost_capped(const EngineBlock& e, gt3r::s16 n0, gt3r::s16 n1);
 // 0x350DA0: the speed of the axles the engine drives (by the driveline's layout: 0, 4 .. 7 the rear, 1,
 // 2 and 9 the front, 3 and 10 their mean, 8 the rear's plus the split times the difference).
 F driven_axle_speed(const ex::Car& c, const DrivelineBlock& d);

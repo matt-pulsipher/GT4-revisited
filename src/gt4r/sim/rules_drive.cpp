@@ -354,6 +354,8 @@ void change_gear(ex::Car& c, int g) {
 
 } // namespace
 
+F boost_capped(const EngineBlock& e, s16 n0, s16 n1) { return boost(e, n0, n1); }
+
 s32 up_shift_rpm(const ex::Car& c, const DriveExtra& x) { return up_speed(c, x); }
 s32 down_shift_rpm(const ex::Car& c, const DriveExtra& x, int g) { return down_speed(c, x, x.d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]); }
 

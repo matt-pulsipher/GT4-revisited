@@ -647,26 +647,6 @@ int gear_for_speed(const ex::Car& c, F v) {
     return n;
 }
 
-void moving_start(ex::Car& c, F v) {
-    ex::moving_start(c, v); // (the engine's but for the gear)
-    const int g = prologue::gear_for_speed(c, v);
-    if (g == int(c.gear)) return;
-    c.gear = u8(g);
-    const F rpm_to_w = F::raw(0x3DD6774E);
-    const F idle = gt3r::ee::int_to_f(c.p.e.idle) * rpm_to_w, limit = gt3r::ee::int_to_f(c.p.e.rev_limit) * rpm_to_w;
-    F w = v * c.p.d.gear_speed[size_t(g)];
-    if (w < idle) w = idle;
-    else if (limit < w) w = limit;
-    c.omega = w;
-    c.rpm = gt3r::s16(gt3r::ee::to_int((c.omega * F::raw(0x42700000)) / F::raw(0x40C90FDA)));
-    if (!(c.p.e.boost_max == F())) {
-        if (F() < c.p.e.turbo_peak[1]) c.turbo_lag[1] = c.rpm;
-        c.turbo_lag[0] = c.rpm;
-        c.intake = ex::boost(c.p.e, c.rpm, c.rpm);
-        c.turbo_pitch = u16(c.rpm);
-    }
-}
-
 u16 mileage(F fuel, F distance) {
     if (distance < F::raw(0x3A83126F)) return 0;
     const F liters = fuel / F::raw(0x44390000); // (740 g a liter)
