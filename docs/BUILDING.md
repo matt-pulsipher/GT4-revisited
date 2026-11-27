@@ -13,6 +13,7 @@ This page has the platform details.
 | Linux arm64 (Ubuntu 24.04) | Clang 18 | builds; all tests pass on both discs (x86_64 with Clang ❓ not built) |
 | Windows x64 | MSVC 2022 | builds, no-disc tests pass; package starts; see [Windows](#windows) |
 | Android arm64-v8a + x86_64 | NDK 27 Clang (Gradle) | the APK builds, debug and signed release; see [android/README.md](../android/README.md) |
+| Meta Quest (Android arm64-v8a, `-Pquest`) | NDK 27 Clang (Gradle), SDL's development branch | the APK builds, debug and signed release; not run on a headset; see [docs/VR.md](VR.md) |
 
 ## Linux
 
@@ -155,6 +156,7 @@ x86_64 and arm64 (GCC 13, Ubuntu 24.04):
 |---|---|---|---|
 | Windows x64, native | MSVC 2022 14.44 (Visual Studio 17 2022 generator) | ✅ builds, no-disc tests pass | GitHub Actions `windows-2022`: `gt4r`, `gt4tool`, `gt4r_tests` build; the tests without a disc give the same result as macOS test by test (205 run, 305 skipped, none failing) |
 | Windows x64, release package | MSVC 2022, SDL3.dll, ANGLE | ✅ packaged, starts | `gt4r-windows-x64.zip` (11.7 MB: `gt4r.exe`, `gt4tool.exe`, `SDL3.dll`, `libEGL.dll`, `libGLESv2.dll`, `LICENSE-ANGLE.txt`, the notices and docs); started from the archive with no disc on the runner, it draws the disc-choice page through ANGLE on Direct3D 11's software adapter (Microsoft Basic Render Driver) |
+| Windows x64, PC VR package | MSVC 2022, `-DGT3R_XR=ON` (SDL's development branch), SDL3.dll, ANGLE, `openxr_loader.dll` | ❓ not built yet | `gt4r-windows-x64-vr.zip`, job `package` of a release run; the workflow checks the loader is in it and starts it as the flat package (no OpenXR runtime on the runner: the window). On a Mac the same option configures and the macOS build compiles ([VR.md](VR.md)) |
 | Windows x64, with the discs | MSVC 2022 | ❓ not run | the disc tests, a race and the 3D renderer on a real GPU (Vulkan) need a Windows PC with the discs |
 | Windows x64, cross | MinGW-w64 GCC 15 (from macOS) | ✅ builds, all tests pass under Wine | CrossOver's Wine: every test with both discs passes; a race's exact car records (`gt4tool state-hash`, Tsukuba, 6 cars, 60 s) are bit for bit the macOS ones, and the online cars' digests (`gt4tool car-digests`, 722 cars) the same |
 
@@ -284,10 +286,11 @@ which removes its saves). Make the key once, on your own computer:
 4. Delete the `gt4r-release.jks` you made in step 1 from that folder once it is in the password
    manager.
 
-Without both secrets the Android job (`package-android`) fails with a message naming them, and
+Without both secrets the Android jobs (`package-android`, `package-quest`) fail with a message naming them, and
 the release run has no APK and no `SHA256SUMS`: a release never carries an unsigned or debug APK.
-Add the secrets, then re-run the failed job (Re-run failed jobs); job `release` follows it. The job checks the
-APK before it uploads it: signed (`apksigner verify`), not debuggable, and its version the tag's.
+Add the secrets, then re-run the failed jobs (Re-run failed jobs); job `release` follows them. Each job checks its
+APK before it uploads it: signed (`apksigner verify`), not debuggable, and its version the tag's; the Quest APK also
+the headset's build (head tracking required, arm64 only, the OpenXR loader in).
 The key's certificate fingerprint (SHA-256) is in the job's log; it is the same in every release.
 
 ### Each release
@@ -297,11 +300,12 @@ The key's certificate fingerprint (SHA-256) is in the job's log; it is the same 
    100). Push the version's tag from the commit to release: `git tag v0.1.0 && git push origin v0.1.0`.
 2. The tag's run (Actions, workflow `build`): job `draft` creates a draft release `v0.1.0`
    (title "GT4 Revisited v0.1.0"; its notes are GitHub's generated ones, only a "Full Changelog"
-   link when no pull requests were merged since the last release); the three `package` jobs build
-   and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz` and `gt4r-windows-x64.zip` to it,
-   job `package-android` builds, signs and uploads `gt4r-android.apk`; job `release` adds
-   `SHA256SUMS` of those files.
-3. On the Releases page, open the draft, check its five files, write the notes, then publish.
+   link when no pull requests were merged since the last release); the four `package` jobs build
+   and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz`, `gt4r-windows-x64.zip` and the PC VR
+   package `gt4r-windows-x64-vr.zip` to it, job `package-android` builds, signs and uploads
+   `gt4r-android.apk`, job `package-quest` the Meta Quest app `gt4r-quest.apk` (the same key); job
+   `release` adds `SHA256SUMS` of those files.
+3. On the Releases page, open the draft, check its seven files, write the notes, then publish.
 
 The files keep the same names in every release, so
 `https://github.com/<owner>/<repository>/releases/latest/download/gt4r-macos-arm64.zip` (and the
@@ -330,8 +334,10 @@ gh release delete v0.1.0-citest --yes     # afterwards: the test draft
 ```
 
 Without `release_tag`, a manual run builds the packages as workflow artifacts (Actions storage)
-and makes no release. A manual run for Android alone: `-f platforms=android`.
+and makes no release. A manual run for Android alone (the phone and Quest APKs): `-f platforms=android`; `-f
+platforms=windows` builds the Windows and PC VR packages.
 
-❓ The private repository has no Actions minutes: job `package-android` has not run on GitHub yet.
-It runs first on the release tag after the repository is made public. Its steps were checked on a
-Mac: `assembleRelease` with a throwaway key, `apksigner verify` and the APK's checks.
+❓ The private repository has no Actions minutes: jobs `package-android` and `package-quest` and the
+PC VR package have not run on GitHub yet. They run first on the release tag after the repository is made public. The
+APK jobs' steps were checked on a Mac: `assembleRelease` (and `assembleRelease -Pquest`) with a throwaway key,
+`apksigner verify` and the APKs' checks.

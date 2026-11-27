@@ -29,7 +29,7 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 
 Discs: Gran Turismo 4 US (SCUS-97328, v1.01), Europe (SCES-51719, v1.00) and Japan (SCPS-17001, v1.05), and Gran
 Turismo 4 Prologue (Japan, SCPS-15055).
-Download: macOS (Apple Silicon), Windows, Linux and Android.
+Download: macOS (Apple Silicon), Windows, Linux, Android, Meta Quest and PC VR (Windows).
 
 ## Known problems
 
