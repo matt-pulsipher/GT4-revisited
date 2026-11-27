@@ -744,10 +744,12 @@ void RaceHud::Impl::draw_words(const HudState& s) {
     }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48", s.split ? 75 : 100), race::place_x(*p, true), float(p->y), kCentered, kTextGray, s.message_opacity, s.message);
-    // The A-spec points (members 0x267C and 0x27CC).
+    // The A-spec points (members 0x267C and 0x27CC): at their rows where the tables have them (Japan's), else 320, 264 and 304.
     if (s.points_opacity > 0) {
-        draw_text(font("hb_24", 100, 1), 320, 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
-        draw_text(font("hb_24", 130, 1), 320, 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
+        const DisplayPlace* title = cur->find(element::kPointsTitle);
+        const DisplayPlace* line = cur->find(element::kPointsLine);
+        draw_text(font("hb_24", 100, 1), title ? race::place_x(*title, true) : 320, title ? float(title->y) : 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
+        draw_text(font("hb_24", 130, 1), line ? race::place_x(*line, true) : 320, line ? float(line->y) : 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
     }
 }
 

@@ -50,6 +50,9 @@ constexpr u32 kPositionWord = 0x1668, kPosition = 0x1398, kLapWord = 0x1684, kLa
 constexpr u32 kLapTime = 0x15F8, kBestWord = 0x16A0, kBestTime = 0x14A8, kLastWord = 0x16BC, kLastTime = 0x1588;
 constexpr u32 kEventLine = 0x17BC, kMessage = 0x252C, kReplaySign = 0x2A6C, kReplayMode = 0x2BBC;
 constexpr u32 kTotalTime = 0x1438; // display mode 1: the race's total time (under the word at kBestWord)
+// The A-spec points' two lines (RaceDisplay::vf43 0x39C570): rows of their own only in Japan's single-race tables (320, 264 and
+// 320, 304: where the other releases' program puts them too).
+constexpr u32 kPointsTitle = 0x267C, kPointsLine = 0x27CC;
 } // namespace element
 
 struct DisplayLayout {

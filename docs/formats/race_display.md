@@ -119,6 +119,7 @@ Read from `~/gt4re-out/program/core.bin`. "Member" is the element's offset in `R
 | 0x1588 | `RaceTimeDisplay` | The last lap's time (0x14A8 with 0x6A08F0: the best) | 550, 110 | 82, 15 | 14, 0 |
 | 0x17BC | `RaceEventDisplay` | Timed lines: the lap time at the line, gaps, information | 320, 139 | 580, 0 | 2, 2 |
 | 0x252C | `RaceMessageDisplay` | The big middle message (countdown, FINISH...) | 320, 224 | 0, 0 | 2, 2 |
+| 0x267C, 0x27CC | `RaceMessageDisplay` | The A-spec points' two lines (`RaceDisplay::vf43` 0x39C570: `AspecRaceFormat1` in `hb_24#1`, `AspecRaceFormat2` in `hb_24#1*130,130`, 0x800086E6). Rows of their own only in Japan's single-race tables (its members 4 lower: 0x2678, 0x27C8; its vf42 0x396020); the US and European tables have none, and the lines stand at the same places | 320, 264; 320, 304 | 0, 0 | 2, 2 |
 | 0x2A6C | `RaceMessageDisplay` | Replays: the "REPLAY" picture (`JP/replay`) | 32, 34 | 400, 107 | 4, 0 |
 | 0x2BBC | `RaceReplayModeDisplay` | Replays: the mode plate (`replay_plate`) and its text | 20, 22 | 132, 20 | 4, 0 |
 | 0x23DC, 0x291C | `RaceMessageDisplay` | A line of text, `hn_20R#1*90,90`, color 0x80C8C8C8: 0x23DC a name from the viewed car's entry (🔎 the car's name), 5 s with 0.25 s fades when the display is set up for a car; 0x291C a line the race sets. The panel layout moves 0x23DC (below) | 40, 441 | 350, 21 | 4, 1 |
