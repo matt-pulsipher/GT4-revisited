@@ -47,14 +47,14 @@ sample spacing).
 The race is put in its replay (0x387EF0 mode 2, or 3 with +0xCC4 1) and run again picture by picture (the sequence's vcall
 +0x38) until the longer of the two recorders has played all its frames (0x346510: its length; +0x40 the frame: the
 progress, +0x2AC / +0x2B0), the cars of entries 0 (A) and 1 (B; with B empty, entry 0 again) sampled after each picture
-(0x11E450). The sample spacing: the course's length (0x395400) / 32,767, at least 0.5 m.
+(0x11E450). The sample spacing: the course's length (0x395400) / 16,383, at least 0.5 m.
 
 A sampler (0x11E400, 0x11E450): the car's distance = its distance in the lap (+0x5A8) + (laps − 1) × the course's
 length (0x343B48); a sample every spacing metres, the speed (+0x6C8, m/s), throttle (0x344698) and brake (0x3446A0)
 averaged over the sample's metres (0x11E348: the values between the two pictures taken at the metres they cover), and two
 values 0x344798 / 0x344828 at the sample's point (0x11E310). A sample: u16 = speed × 40 (bits 3 .. 15) | gear (+0x624 & 7),
-u8 throttle × 255, u8 brake × 255, s16, s16. At most 0x4000 samples a track; the fastest speed kept (+0x2C). At the
-end each track's speed, throttle and brake filtered [1 2 1] / 4 (0x11E8F0).
+u8 throttle × 255, u8 brake × 255, s16, s16. At most 0x4000 samples a track; the fastest speed kept (+0x2C). (A [1 2 1] / 4
+filter of the samples follows the sampler at 0x11E8F0; nothing calls it.)
 
 Then: each track's count the smaller of the two (A's and B's the same), +0x2F8 the smaller start distance, +0x2FC
 +0x2F8 + the shorter length ((count − 1) × spacing, 0x11DBB0); the speed graph's top +0x30C = min(800, the fastest of

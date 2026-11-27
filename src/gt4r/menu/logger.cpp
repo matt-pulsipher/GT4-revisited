@@ -104,7 +104,7 @@ void Logger::analyze_start() {
         has[size_t(t)] = source && source->info[size_t(t)].has;
         ms[size_t(t)] = source ? source->info[size_t(t)].ms : -1;
     }
-    // The spacing: the course's length / 32767, at least 0.5 m (0x395400).
+    // The spacing: the course's length / 16383, at least 0.5 m (0x395400).
     const float len = source ? source->course_length : 0;
     spacing = std::max(len / f32(0x467FFC00), 0.5f);
     for (int t = 0; t < 2; ++t) {

@@ -1019,7 +1019,7 @@ Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ 
 `disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
 kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
 
-❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace` (the Analyzer's course map too), `EyetoyFace`, `VirtualFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).
 
 #### The slide show (`SlideShowFace`; `app/menu_slides.h`, `menu/jpeg.*`)
@@ -1307,6 +1307,7 @@ engine's Gran Turismo 3 code or on a judgment:
 | The loading page | `app/menu_loading.h` | the black and the capture modes; their holds judged | LoadingPS2's other modes (0x104B68) |
 | The slide show | `app/menu_slides.h` | its timing and places from the program; the card's list or the disc's; our JPEG decoder | — |
 | The photo pages' faces | `app/screen_photo.cpp`, `app/photo_faces.h` | [photo.md](photo.md) "What runs where" | |
+| The Analyzer's graph (LoggerFace) | `app/logger_face.h`, `menu/logger.cpp` | the program's picture drawn straight onto the page ([logger.md](logger.md)); ❓ its three copies of the face's buffer (the second and third a line up and down at 1/3 and 1/4) are not drawn | 0x120CF0's buffer and blend |
 | The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)
