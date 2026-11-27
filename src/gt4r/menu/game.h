@@ -241,7 +241,13 @@ struct GameState {
 
     // MOption's attributes by name. `option_defaults` fills them as a new game has them.
     std::map<std::string, OptionValue> options;
+    // Japan's program only (SCPS-17001): the units follow a language the player picks, `language_for_unit` (Option +0x10, a
+    // u32 language), and a new game's is this one (the console's language); empty on the other releases, which keep the
+    // three units themselves.
+    std::string unit_language;
     void option_defaults(const std::string& region);
+    // Japan's units by a language's name (0x46A868 with Japan's cases 0x46A760; unit_velocity, unit_power, unit_torque).
+    void units_by_language(const std::string& language);
     s32 option_int(const std::string& name, s32 fallback = 0) const;
     std::string option_text(const std::string& name) const;
     // The units the player chose: what a value in the game's own unit is multiplied by, and
@@ -427,6 +433,13 @@ struct GameState {
 GameState::Unit velocity_unit_of(const std::string& option);
 GameState::Unit power_unit_of(const std::string& option);
 GameState::Unit torque_unit_of(const std::string& option);
+// The languages by number (0x6AE3F8: JP US GB FR DE IT ES PT KR CN TW DB); -1 for another name.
+int language_number(const std::string& name);
+const char* language_name(int number); // "" for another number
+// Japan's units for a language's number (0x46A868: its table of languages to cases, a language not in it case 1;
+// the cases 0x46A760): the numbers of unit_velocity (KMPH MPH), unit_power (PS HP BHP CH KW CV PF) and unit_torque
+// (KGFM FTLB NM) as the options keep them.
+std::array<u8, 3> japan_units(u32 language);
 
 // The car a race takes from the garage (RaceRequest::garage_slot): the sheet in use of its
 // record, the program's car equipment record as it is (docs/formats/save.md "The car

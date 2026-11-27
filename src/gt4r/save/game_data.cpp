@@ -318,6 +318,10 @@ Bytes write_game(const GameState& s, const Codes& codes) {
                 else b[option(o.at)] = u8(i);
             }
     }
+    // Japan's language_for_unit (its Option +0x10, a u32) kept in this layout's Option +0x13, which the US and European
+    // programs leave as nothing (their three unit bytes end at +0x12); to_layout moves it to Japan's place.
+    if (!s.unit_language.empty())
+        if (const int l = menu::language_number(s.option_text("language_for_unit")); l >= 0) b[option(0x13)] = u8(l);
     {
         const std::string zone = s.option_text("game_zone");
         u32 z = 0;
@@ -373,6 +377,8 @@ Bytes to_layout(ByteSpan p, Layout l) {
     // Japan's block from +0x11A4 to its end: zeros, as the program writes it (no field: save.md "Japan's game data").
     std::memset(b.data() + option(0x1180), 0, kGameZone + kJapanShift - option(0x1180));
     for (const auto& m : kJapanMoved) std::memcpy(b.data() + option(m[1]), p.data() + option(m[0]), m[2]);
+    // Option +0x10: Japan's language_for_unit, a u32 (from this layout's +0x13), where the others keep three unit bytes.
+    put32(b, option(0x10), p[option(0x13)]);
     put32(b, kOptionHead, kJapanOptionBlock);
     fill_header(b);
     return b;
@@ -391,6 +397,12 @@ std::optional<Bytes> from_layout(ByteSpan p, Layout l) {
     std::memcpy(b.data() + kGameZone, p.data() + kGameZone + kJapanShift, kPayloadSize - kGameZone);
     std::memset(b.data() + option(0x1180), 0, kGameZone - option(0x1180));
     for (const auto& m : kJapanMoved) std::memcpy(b.data() + option(m[0]), p.data() + option(m[1]), m[2]);
+    // Japan's language_for_unit: the three unit bytes by it (0x46A868), the language at +0x13 (❓ a word above 255 kept in
+    // its low byte).
+    const u32 language = get32(p, option(0x10));
+    const std::array<u8, 3> units = menu::japan_units(language);
+    std::memcpy(b.data() + option(0x10), units.data(), 3);
+    b[option(0x13)] = u8(language);
     put32(b, kOptionHead, 0x11C0);
     fill_header(b);
     return b;
@@ -499,6 +511,11 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     for (const NamedOption& o : kNamedOptions) {
         const u32 v = o.bytes == 4 ? get32(p, option(o.at)) : p[option(o.at)];
         if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);
+    }
+    if (!s.unit_language.empty()) {
+        // (Japan's: the language at +0x13, the units by it as the program's load applies them, 0x42F0E8)
+        if (const char* l = menu::language_name(p[option(0x13)]); *l) s.options["language_for_unit"] = std::string(l);
+        s.units_by_language(s.option_text("language_for_unit"));
     }
     s.major_menu_project = get_text(p, kContext, 0x20), s.major_menu_page = get_text(p, kContext + 0x20, 0x20);
     std::memcpy(s.logger_display.data(), p.data() + kLogger, 5);

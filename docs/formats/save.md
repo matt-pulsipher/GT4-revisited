@@ -446,8 +446,10 @@ Option's (all 50 are other objects' or globals', none in the Option's code or th
 always writes zeros there, as ours does. Japan's Option +0x10 is a u32, `language_for_unit` (the language
 whose units the game shows: the reset sets it to the console's language, MOption's accessor 0x17E6F0 by
 name through 0x4870B8 / 0x487128, the option's apply 0x42F0E8 sets the units from it with 0x46A868 and
-Japan's own unit cases 0x46A760; US and Europe keep three unit bytes there, 0x4361D0); ❓ ours writes the
-three unit bytes there too: equal for the default (0 = JP and km/h, PS, kgf.m), not after a change of units. The data file is 0x3A0C0 bytes
+Japan's own unit cases 0x46A760; US and Europe keep three unit bytes there, 0x4361D0). Ours carries it in
+this layout's Option +0x13 (no field of the US and European programs, whose unit bytes end at +0x12) and
+writes it as Japan's word; read back, the three unit bytes are Japan's units for it (✔ test
+`save_japan_language_for_unit`). The data file is 0x3A0C0 bytes
 in both. `save::Layout` (game_data.h): the state is read and written in the US layout and turned
 into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
 the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The

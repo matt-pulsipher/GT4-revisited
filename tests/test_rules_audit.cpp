@@ -149,3 +149,37 @@ TEST(disc_menu_japan_car_natives) {
     std::printf("  fresh oil %g m, past the old oil %g m\n", double(fresh), double(vm.attribute(car, "oil").as_float()));
     CHECK(vm.attribute(car, "oil").as_float() == 5000000.0f && m("getOilLifeRate").as_float() == 1.0f);
 }
+
+// Japan's language_for_unit (MOption's accessor 0x17E6F0; the option's apply 0x42F0E8 sets the units by it through 0x46A868
+// and Japan's cases 0x46A760): on Japan's disc a new game's is the console's language and its units, British English gives
+// km/h with BHP once applied; the US and European programs have no such option (a stub) and keep their own units.
+TEST(disc_menu_japan_language_for_unit) {
+    int discs = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        Flow f(*d, "JP");
+        if (!f.boot_to_title()) continue;
+        menu::GameState& g = f.rt->game();
+        script::Vm& vm = f.rt->vm();
+        const Value option = vm.attribute(vm.lookup("main::game"), "option");
+        if (!option.p) continue;
+        const bool japan = d->info().serial.rfind("SCPS_170.01", 0) == 0;
+        const std::string before = vm.attribute(option, "language_for_unit").to_string(), velocity = g.option_text("unit_velocity");
+        std::printf("  %s: language_for_unit %s, units %s %s %s\n", d->info().serial.c_str(), before.c_str(), velocity.c_str(), g.option_text("unit_power").c_str(),
+                    g.option_text("unit_torque").c_str());
+        if (japan) {
+            CHECK(before == "JP" && g.unit_language == "JP" && velocity == "KMPH" && g.option_text("unit_power") == "PS");
+            if (const auto m = vm.member(option, "language_for_unit")) m->set(vm, Value::string("GB"));
+            call(vm, vm.attribute(option, "apply"), {});
+            CHECK(g.option_text("language_for_unit") == "GB" && g.option_text("unit_velocity") == "KMPH" && g.option_text("unit_power") == "BHP" &&
+                  g.option_text("unit_torque") == "KGFM");
+            if (const auto m = vm.member(option, "language_for_unit")) m->set(vm, Value::string("US"));
+            call(vm, vm.attribute(option, "apply"), {});
+            CHECK(g.option_text("unit_velocity") == "MPH" && g.option_text("unit_power") == "HP" && g.option_text("unit_torque") == "FTLB");
+            ++discs;
+        } else if (d->info().serial.rfind("SCUS", 0) == 0 || d->info().serial.rfind("SCES", 0) == 0) {
+            CHECK(g.unit_language.empty() && !g.options.count("language_for_unit") && before.find("stub") != std::string::npos);
+            ++discs;
+        }
+    }
+    if (!discs) SKIP("needs a Gran Turismo 4 disc in GT4R_DISC");
+}
