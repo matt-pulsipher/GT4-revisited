@@ -193,6 +193,8 @@ Code: `race::frame_place`, `race::text_start` (race_display.h), race_hud's `draw
   (the modelview) identity. A two-player half (RaceSplitDisplayBase::vf9 0x3A29A0): stacked (no wide flag) (0, 640, 230, -10)
   for the upper half and (0, 640, 240, 0) for the lower, the frame 640 x 224; side by side (the wide flag) (-106.66666, 320,
   480, 0), the frame 320 x 448 (the renderer's +0x30 / +0x34; the one-view display's 640 x 448, the display + 0xB0 / + 0xB4).
+  A license test's display (RaceLicenseDisplay::vf9 0x3BD150) calls RaceDisplay::vf9 first and keeps its vf3; a replay's is
+  RaceDisplay itself: the same projection. Prologue's display: prologue.md part 11 (another routine, 0x40C0D8).
 - **The place** (0x44DCC0, through 0x44DDF8 for floats, 0x44DD98 for whole numbers): 0x49E3E0 leaves modelview x projection
   in VU0's vf24 .. vf27 (0x49E480, microcode 0x858, when the state changed); the place (x, y, z, 1) goes through it on VU0
   (each product and sum rounded toward zero; w stays 1, the clamp by vf22 does nothing), then on the FPU x = (ndc x + 1) x W x
