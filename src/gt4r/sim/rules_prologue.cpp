@@ -104,6 +104,7 @@ Tables tables(const Program& program) {
         for (u32 a = 0; a < 2; ++a) t.ride.share[a] = b(3 + a) / hundred;
         t.ride.drop = b(5) * milli, t.ride.v0 = b(6) * kmh, t.ride.v1 = b(7) * kmh;
     }
+    for (u32 r = 0; r < 3; ++r) t.lean_gain[r] = F::raw(program.w(PrologueProgram::kSpecialBodies + 0x78 * r + 0x30));
     t.hybrid = rules::hybrid_tables(program, 0x504560, 0x5045B0, 0x504638, 0x504648);
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
@@ -681,8 +682,31 @@ F offset_aim(const ex::Car& c, const CarPart& x, const rules::SteerTables& g, in
 
 } // namespace
 
+F wheel_angle(const ex::Car& c, const CarPart& x, const Tables& t, int w) {
+    const rules::WheelLayout& l = x.layout;
+    const size_t i = size_t(w);
+    const bool steered = w < l.count && gt3r::s8(l.fore_aft[i]) > 0;
+    if (l.kind == 1) {
+        if (!steered) return F();
+        const F gain = gt3r::ee::cos(t.lean_gain[x.special_row < 3 ? x.special_row : 0]);
+        const F lean = gt3r::ee::cos(c.roll - c.ground_roll);
+        return c.steer_cmd * (gain * (F::raw(0x40400000) - (lean + lean)));
+    }
+    const F delta = c.steer_cmd;
+    F a = F();
+    const u8 side = l.side[i];
+    if (steered) {
+        a = delta;
+        if (side < 2) a = a * c.p.steer_ratio[F() <= delta ? side : 1u - side];
+    }
+    const F toe = c.p.toe[w < l.count ? l.axle[i] & 1u : 0];
+    if (side == 0) a = a - toe;
+    else if (side == 1) a = a + toe;
+    return a;
+}
+
 void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
-    ex::wheel_steer(c);
+    for (int w = 0; w < x.layout.count && w < 4; ++w) c.w[size_t(w)].steer = wheel_angle(c, x, t, w);
     const rules::SteerTables& g = t.steer;
     if (g.mode == 0) return;
     const rules::WheelLayout& l = x.layout;
@@ -709,6 +733,7 @@ void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
             if (lim < o) x.tires.steer_offset[i] = lim, x.offset_rate[i] = F();
             else if (o < -lim) x.tires.steer_offset[i] = -lim, x.offset_rate[i] = F();
         }
+        c.t[i].steer_sin = x.offset_rate[i], c.t[i].steer_cos = x.tires.steer_offset[i]; // (the drive block's +0x18 / +0x1C)
     }
 }
 
