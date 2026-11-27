@@ -1708,15 +1708,22 @@ void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel
     m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 
-// The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,
-// slot 1 by slot 3's list, the cars). ❓ Its lens and depth are the shared engine's mirror's (the
-// in-car view's angle zoomed 1.3 times, 120 m), not read from this program.
-void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half, float zoom) {
+// The rear-view mirror (docs/formats/course.md "The race view's frame", step 9: the mirror's fog, its sky,
+// slot 1 by slot 3's list, the cars). Its lens and depth are the program's (RacePS2Base::vf120 0x341E50: the view's lens
+// zoomed `zoom`, the far plane 120 m, 60 m in a split half; docs/formats/camera.md "The mirror in the program").
+void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half, float zoom,
+                              float lines) {
     Impl& m = *impl_;
     if (!app_.gpu() || rect.w <= 0 || rect.h <= 0) return;
     Impl::ViewState& v = m.views[half <= 0 ? 0 : 1];
     if (!v.mirror) v.mirror = std::make_unique<render::View3D>(*app_.gpu());
     const float kDepth = half >= 0 ? 60 : 120;
+    const float t = std::tan(pose.fovy() * 0.5f) / zoom;
+    // The cars' levels of detail by the program's rule with the size factor recomputed for the mirror's projection (0x341E50
+    // calls 0x456918 after setting it: one unit's height at depth 1 in its `lines` x 10 / 7; 121.38 in the one view's).
+    race::CarVisual::LodView lod_view;
+    lod_view.forward = RVec{pose.view.at(2, 0), pose.view.at(2, 1), pose.view.at(2, 2)}; // (looking back)
+    lod_view.k = (lines * 0.5f) * (10.0f / 7.0f) / std::max(t, 1e-3f);
     m.mirror_items.clear();
     course_->add_items(m.mirror_items, pose.eye, half >= 0 ? race::CourseScene::View::HalfMirror : race::CourseScene::View::Mirror);
     const size_t n = std::min(cars.size(), car_visuals_.size());
@@ -1725,21 +1732,20 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         const race::CarLight* light = i < m.lights.size() ? &m.lights[i] : nullptr;
         car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i], light);
         const size_t first = m.mirror_items.size();
-        m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
-        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f, nullptr, true, m.motion(i));
+        m.add_drivers(m.mirror_items, i, cars[i], pose.eye, &lod_view);
+        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f, &lod_view, true, m.motion(i));
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
     }
     if (ghost_state_ && !car_visuals_.empty()) {
         const size_t first = m.mirror_items.size();
-        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f);
+        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f, &lod_view);
         for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;
-    o.draw_distance = kDepth;
-    o.far_clip = 0;
+    o.far_clip = kDepth; // (the program's far plane: the screen's depth, as the race view's)
     o.post_grade = grade_;
     const gt3r::race::SunParams& env = course_->env();
     if (env.has_env) {
@@ -1751,7 +1757,6 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     race::draw_at_picture_scale(o, course_->color_scale());
     race::light_at_picture_scale(m.mirror_items, 0, course_->color_scale());
     if (v.view && v.env_ready) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true;
-    const float t = std::tan(pose.fovy() * 0.5f) / zoom;
     const render::Mat4 proj = render::perspective(2.0f * std::atan(t), rect.w / rect.h, 0.1f, kDepth);
     const render::Mat4 view = render::scale({1, 1, -1}) * pose.view;
     SDL_SetRenderDrawColor(ui.renderer(), 0, 0, 0, 255);

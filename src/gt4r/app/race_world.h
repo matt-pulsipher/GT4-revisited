@@ -328,8 +328,10 @@ public:
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half = -1);
     // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
     // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep (a split screen's half 60);
-    // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2).
-    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f);
+    // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2); `lines`: its height in the original's 640 x 448
+    // frame (58 in the race's one view, race + 0xE2EC), for the cars' level of detail.
+    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f,
+                       float lines = 58);
     // A VR headset's frame (app/race_vr.h): the scene collected once from `head` (its eye between the eyes, its lens the eyes'
     // height), then drawn for each eye into its canvas (a render target, `w` x `h`) from its own place and off-centre lens. The
     // reflections are looked up from `reflection_view`, the race camera's view, so turning the head does not turn them.
