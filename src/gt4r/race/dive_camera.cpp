@@ -1,5 +1,7 @@
 #include "gt4r/race/dive_camera.h"
 
+#include "gt4r/race/picture_settings.h"
+
 #include "gt4r/sim/program_tables.h"
 
 #include <algorithm>
@@ -616,9 +618,10 @@ void DiveDirector::color(bool cut) {
 
 render::DrawOptions::PostGrade DiveDirector::grade(const render::DrawOptions::PostGrade& plain) const {
     if (!color_on_) return plain;
-    render::DrawOptions::PostGrade g;
-    g.on = true, g.black = color_now_[3], g.white = std::max(color_now_[4], 0.05f), g.saturation = color_now_[5];
-    for (size_t i = 0; i < 3; ++i) g.curve[i] = 2 * std::pow(0.5f, 1 / std::max(color_now_[i], 0.05f)) - 0.5f;
+    // The camera manager's own record, at most 220 a level (0x33F6D4).
+    const float gamma[3] = {color_now_[0], color_now_[1], color_now_[2]};
+    render::DrawOptions::PostGrade g = correction_grade(gamma, color_now_[3], color_now_[4], color_now_[5], 220);
+    g.on = true;
     return g;
 }
 

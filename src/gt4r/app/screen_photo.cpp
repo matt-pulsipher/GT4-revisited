@@ -17,6 +17,7 @@
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/runtime_internal.h"
+#include "gt4r/race/picture_settings.h"
 #include "input/input_manager.h"
 #include "race/occluder.h"
 #include "render/gpu_model.h"
@@ -307,11 +308,9 @@ private:
         lens.full_detail = false;
         world_->set_lens(lens);
         const photo::Correction c = s.correction();
-        gt3r::render::DrawOptions::PostGrade g;
+        // (0x3C7BD0: the correction's levels at most 255.)
+        gt3r::render::DrawOptions::PostGrade g = race::correction_grade(c.gamma, c.black, c.white, c.saturation, 255);
         g.on = !c.plain();
-        g.black = c.black, g.white = c.white, g.saturation = c.saturation;
-        // (The grade's curve is a quadratic: the gamma's value at the middle.)
-        for (int i = 0; i < 3; ++i) g.curve[i] = std::clamp(2 * std::pow(0.5f, 1.0f / std::max(c.gamma[i], 1e-3f)) - 0.5f, 0.0f, 1.0f);
         world_->set_grade(g);
         world_->render(*ui_, dst, cars_, pose(s), 0, -1);
         world_->set_lens(std::nullopt);

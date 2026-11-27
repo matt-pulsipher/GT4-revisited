@@ -21,14 +21,53 @@ PictureSettings::Correction PictureSettings::correction() const {
 
 gt3r::render::DrawOptions::PostGrade PictureSettings::grade() const {
     const Correction c = correction();
+    return correction_grade(c.gamma, 0, c.contrast, c.saturation, 255);
+}
+
+std::array<std::array<u8, 3>, 256> correction_levels(const float gamma[3], float black, float white, float most) {
+    std::array<std::array<u8, 3>, 256> out{};
+    const float inv = white == black ? 0.0f : 1.0f / (white - black);
+    float e[3];
+    for (int c = 0; c < 3; ++c) e[c] = 1.0f / std::max(gamma[c], 0.0f);
+    most = std::clamp(most, 0.0f, 255.0f);
+    for (int i = 0; i < 256; ++i) {
+        const float x = float(i) * (1.0f / 255.0f);
+        if (!(black < x)) continue; // (0, 0, 0)
+        const float ln_t = std::log(std::min((x - black) * inv, 1.0f));
+        for (int c = 0; c < 3; ++c)
+            out[size_t(i)][size_t(c)] = u8(int(std::clamp(std::exp(e[c] * ln_t) * 255.0f, 0.0f, most)));
+    }
+    return out;
+}
+
+namespace {
+// The grade's own tables where the shared engine takes them (DrawOptions::PostGrade::own_table).
+template <class Grade> bool set_levels(Grade& g, const std::array<std::array<u8, 3>, 256>& levels) {
+    if constexpr (requires { g.own_table; g.table; }) {
+        g.own_table = true;
+        for (size_t i = 0; i < 256; ++i)
+            for (size_t c = 0; c < 3; ++c) g.table[i][c] = levels[i][c];
+        return true;
+    } else {
+        return false;
+    }
+}
+} // namespace
+
+gt3r::render::DrawOptions::PostGrade correction_grade(const float gamma[3], float black, float white, float saturation, float most) {
     gt3r::render::DrawOptions::PostGrade g;
-    g.black = 0;
-    g.white = std::max(c.contrast, 0.05f);
-    // out = t^(1 / gamma), as the pass's curve through the same middle.
-    for (int i = 0; i < 3; ++i) g.curve[i] = 2 * std::pow(0.5f, 1 / std::max(c.gamma[i], 0.05f)) - 0.5f;
-    g.saturation = c.saturation;
-    g.on = std::fabs(g.white - 1) > 1e-4f || std::fabs(g.saturation - 1) > 1e-4f;
-    for (float k : g.curve) g.on |= std::fabs(k - 0.5f) > 1e-4f;
+    // (0x3EFD08: nothing to do when every gamma, the white level and the saturation are 1 and the black level 0; `most` under
+    // 255 still holds the levels down.)
+    g.on = black != 0 || white != 1 || saturation != 1 || most < 255;
+    for (int c = 0; c < 3; ++c) g.on |= gamma[c] != 1;
+    g.saturation = std::clamp(saturation, -1.0f, 1.0f);
+    g.black = black;
+    g.white = white;
+    if (!set_levels(g, correction_levels(gamma, black, white, most))) {
+        // An engine without own tables: its curve through the gammas' middle.
+        g.white = std::max(white, black + 0.05f);
+        for (int i = 0; i < 3; ++i) g.curve[i] = std::clamp(2 * std::pow(0.5f, 1 / std::max(gamma[i], 0.05f)) - 0.5f, 0.0f, 1.0f);
+    }
     return g;
 }
 

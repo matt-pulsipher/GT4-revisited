@@ -4,6 +4,7 @@
 
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/display_mode_prologue.h"
+#include "gt4r/race/picture_settings.h"
 
 using gt3r::race::HudMode;
 using gt3r::race::HudPlay;
@@ -53,4 +54,25 @@ TEST(disc_sheen_exponent_is_this_games) {
         CHECK(sheen > 0);
         CHECK(lit_low > 0); // (the lit shapes' low shininess is left alone)
     }
+}
+
+// The correction's levels (0x4A8CB8): t^(1 / gamma) over the levels, held to `most`; the racing views' default brightness +3.
+TEST(race_correction_levels) {
+    const float plain[3] = {1, 1, 1};
+    const auto id = race::correction_levels(plain, 0, 1, 255);
+    // (i x (1 / 255 in float) x 255 truncates to i or one under it, as the program's does)
+    for (int i = 0; i < 256; ++i) CHECK((id[size_t(i)][0] == i || id[size_t(i)][0] == i - 1) && id[size_t(i)][2] == id[size_t(i)][0]);
+    const race::PictureSettings settings; // (brightness +3: a gamma of 2^0.3)
+    const race::PictureSettings::Correction c = settings.correction();
+    const auto l = race::correction_levels(c.gamma, 0, c.contrast, 255);
+    CHECK(l[0][0] == 0 && l[255][1] == 255);
+    CHECK(l[128][1] == 145); // 255 x (128 / 255)^(1 / 1.2311)
+    // A Dive camera's colors stop at 220, a course's at 235.
+    CHECK(race::correction_levels(plain, 0, 1, 220)[255][0] == 220);
+    // The black level: nothing at or under it; the white level: everything over it full.
+    const auto lw = race::correction_levels(plain, 0.25f, 0.5f, 255);
+    CHECK(lw[63][0] == 0 && lw[64][0] < 5 && lw[128][0] == 255);
+    // The grade: off for the plain correction, the saturation held to 1.
+    CHECK(!race::correction_grade(plain, 0, 1, 1, 255).on);
+    CHECK(race::correction_grade(plain, 0, 1, 1.5f, 255).saturation == 1.0f);
 }
