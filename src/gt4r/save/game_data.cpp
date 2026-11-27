@@ -1,5 +1,7 @@
 #include "gt4r/save/game_data.h"
 
+#include "base/log.h"
+
 #include "gt4r/menu/game_settings.h"
 
 #include "gt4r/save/codec.h"
@@ -224,6 +226,11 @@ Bytes write_game(const GameState& s, const Codes& codes) {
             continue;
         }
         const GarageEntry& e = s.garage[i];
+        if (e.missing()) { // (a car the database lacks: its place as it was read)
+            put64(b, o, e.missing_code), put64(b, o + 8, e.kept_flags), put32(b, o + 0x10, e.kept_day), put32(b, o + 0x14, e.odometer);
+            put64(b, o + 0x18, e.kept_rank);
+            continue;
+        }
         put64(b, o, codes.code(0, e.car));
         u64 flags = e.kept_flags & ~(u64(0x7FFFFFF) | (u64(0x1FFF) << 32));
         flags |= u64(e.used) | u64(e.record.has_value()) << 1 | u64(e.paint & 0x7F) << 2 | u64(e.power & 0x3FFFF) << 9 | u64(e.weight & 0x1FFF) << 32;
@@ -232,11 +239,16 @@ Bytes write_game(const GameState& s, const Codes& codes) {
         put32(b, o + 0x14, e.odometer);
         put64(b, o + 0x18, (e.kept_rank & ~u64(0x3FF)) | u64(e.ride_rank & 0x3FF));
     }
-    put32(b, kGarageTail, u32(s.riding_car)), put32(b, kGarageTail + 4, s.garage_key);
+    // The car driven, the database lacking it: still driven while no other is.
+    const int riding_car = s.riding_car < 0 && s.riding_missing >= 0 && size_t(s.riding_missing) < s.garage.size() &&
+                                   s.garage[size_t(s.riding_missing)].missing()
+                               ? s.riding_missing
+                               : s.riding_car;
+    put32(b, kGarageTail, u32(riding_car)), put32(b, kGarageTail + 4, s.garage_key);
     for (size_t i = 0; i < 4; ++i) put32(b, kGarageTail + 8 + 4 * i, u32(s.garage_kept[i]));
     put32(b, kGarageTail + 0x18, s.garage_serial);
-    const bool riding = s.riding_car >= 0 && size_t(s.riding_car) < s.garage.size() && s.garage[size_t(s.riding_car)].record;
-    put_record(b, kRidingRecord, riding ? *s.garage[size_t(s.riding_car)].record : CarRecord());
+    const bool riding = riding_car >= 0 && size_t(riding_car) < s.garage.size() && s.garage[size_t(riding_car)].record;
+    put_record(b, kRidingRecord, riding ? *s.garage[size_t(riding_car)].record : CarRecord());
     // The records.
     for (size_t i = 0; i < s.race_units.size(); ++i) put32(b, kRaceUnits + 4 * i, s.race_units[i]);
     auto put_block = [&](size_t o, const Bytes& v, size_t n) {
@@ -436,6 +448,7 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
         GarageEntry& e = s.garage[i];
         const u64 flags = get64(p, o + 8);
         e.car = codes.label(get64(p, o));
+        e.missing_code = ~u64(0);
         e.used = flags & 1, e.paint = int((flags >> 2) & 0x7F), e.power = u32((flags >> 9) & 0x3FFFF), e.weight = u32((flags >> 32) & 0x1FFF);
         e.kept_flags = flags;
         const u32 day = get32(p, o + 0x10);
@@ -449,7 +462,15 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
                 std::memcpy(e.record->bytes.data(), p.data() + kRidingRecord, CarRecord::kSize);
             } else if (records_wanted) records_wanted->push_back(int(i));
         }
+        if (e.car.empty() && get64(p, o) != ~u64(0)) { // a car the database lacks (a removed mod's): kept, vacant to the pages
+            e.missing_code = get64(p, o), e.used = false;
+            LOG_WARN("Saved game: the garage's car %zu (code %016llX) is not a car of this game (a mod's that is not loaded?): kept in the save, not shown",
+                     i, static_cast<unsigned long long>(e.missing_code));
+        }
     }
+    s.riding_missing = -1;
+    if (s.riding_car >= 0 && size_t(s.riding_car) < s.garage.size() && s.garage[size_t(s.riding_car)].missing())
+        s.riding_missing = s.riding_car, s.riding_car = -1;
     for (size_t i = 0; i < s.race_units.size(); ++i) s.race_units[i] = get32(p, kRaceUnits + 4 * i);
     s.course_record.assign(p.begin() + kCourseRecord, p.begin() + kCourseRecord + menu::kCourseUnit * menu::kCourseUnits);
     s.machine_record.assign(p.begin() + kMachineRecord, p.begin() + kMachineRecord + menu::kCourseUnit * menu::kMachineUnits);

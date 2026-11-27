@@ -3,6 +3,7 @@
 #include "gt4r/formats/db/mod_cars.h"
 
 #include "base/file.h"
+#include "formats/model/gltf.h"
 #include "formats/png_reader.h"
 
 #include <algorithm>
@@ -25,11 +26,10 @@ std::string lower_ext(const std::string& p) {
     return e;
 }
 
-// The files of a car file a package carries, as written (paths from the mod's folder): its pictures. (Its bodies of its own,
-// [model], are not drawn by this game yet: a package neither carries nor takes them.)
+// The files of a car file a package carries, as written (paths from the mod's folder): its pictures and its bodies of its own.
 std::vector<std::string> named_files(const db::ModCarDef& d) {
     std::vector<std::string> out;
-    for (const std::string* s : {&d.thumb, &d.picture, &d.logo})
+    for (const std::string* s : {&d.thumb, &d.picture, &d.logo, &d.model_file, &d.model_menu, &d.model_race, &d.model_time[0], &d.model_time[1], &d.model_time[2]})
         if (!s->empty() && std::find(out.begin(), out.end(), *s) == out.end()) out.push_back(*s);
     return out;
 }
@@ -68,8 +68,11 @@ std::optional<Bytes> build_package(db::SpecDb& db, const std::string& label, std
         fail(error, label + " is not a mod car");
         return std::nullopt;
     }
-    std::string root = d->file.substr(0, d->file.find_last_of('/') + 1);
-    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    if (!d->records.empty()) { // (its rows and models are a disc's: they stay with the player who owns it)
+        fail(error, label + " is a car exported from a disc: it is not sent");
+        return std::nullopt;
+    }
+    const std::string root = d->folder();
     gt3r::game::ModPackage p;
     p.label = label;
     const std::optional<Bytes> ini = gt3r::read_host_file(d->file);
@@ -108,6 +111,7 @@ bool validate_package(const gt3r::game::ModPackage& p, db::SpecDb& db, const std
     const std::optional<db::ModCarDef> d = definition(p, error);
     if (!d) return false;
     if (d->label != p.label) return fail(error, "its car file names " + d->label);
+    if (!d->records.empty()) return fail(error, "it is a car exported from a disc");
     const db::Labels* cars = db.labels("GENERIC_CAR");
     if (!cars || !cars->id(d->donor) || db.mod_cars().def(d->donor)) return fail(error, "its donor " + d->donor + " is not a car of this disc");
     // Values a car can have (a file is written by hand; these bound what the race is given).
@@ -149,6 +153,15 @@ bool validate_package(const gt3r::game::ModPackage& p, db::SpecDb& db, const std
             if (!size || size->first == 0 || size->second == 0 || size->first > 2048 || size->second > 2048) return fail(error, f.path + " is not a picture of at most 2048 a side");
             try {
                 gt3r::decode_png(f.data, 2048);
+            } catch (const std::exception& ex) {
+                return fail(error, f.path + ": " + ex.what());
+            }
+        } else if (e == "glb") {
+            // A body: one the loader reads whole, its pictures at most 2048 a side.
+            try {
+                gt3r::GlbOptions o;
+                o.max_texture_dim = 2048;
+                if (gt3r::load_glb(f.data, o).meshes.empty()) return fail(error, f.path + " has nothing to draw");
             } catch (const std::exception& ex) {
                 return fail(error, f.path + ": " + ex.what());
             }

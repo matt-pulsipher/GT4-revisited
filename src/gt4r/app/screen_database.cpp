@@ -5,6 +5,9 @@
 // the wheel or a finger's drag scrolls the list or the details.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/mod_car_pictures.h"
+#include "gt4r/formats/db/car_export.h"
+#include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/app/page.h"
 #include "gt4r/menu/car_database.h"
 #include "gt4r/menu/project.h"
@@ -28,7 +31,7 @@ using gt3r::PointerInput;
 using gt3r::UiRect;
 using menu::CarDatabase;
 
-// The car's picture of the disc (piece/car_pict/<label>.img), the last one drawn kept.
+// The car's picture of the disc (piece/car_pict/<label>.img; a mod car's own or its body car's), the last one drawn kept.
 class CarPicture {
 public:
     ~CarPicture() {
@@ -50,25 +53,31 @@ private:
         label_ = label;
         if (texture_) SDL_DestroyTexture(texture_);
         texture_ = nullptr;
-        try {
-            const std::optional<Bytes> data = app.vfs()->read("piece/car_pict/" + label + ".img");
-            if (!data || !gt3r::Tex1::is_tex1(*data)) return;
-            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
-            if (set.textures.empty()) return;
-            gt3r::GsMemory gs;
-            set.upload(*data, gs);
-            const gt3r::Tex1::Image img = set.decode(gs, 0);
-            texture_ = SDL_CreateTexture(app.renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
-            if (!texture_) return;
-            SDL_UpdateTexture(texture_, nullptr, img.rgba.data(), int(img.width) * 4);
-            SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_BLEND);
-        } catch (const std::exception&) {
-            // (no picture)
-        }
+        auto decode = [&app](const std::string& path) -> std::optional<gt3r::Tex1::Image> {
+            try {
+                const std::optional<Bytes> data = app.vfs()->read(path);
+                if (!data || !gt3r::Tex1::is_tex1(*data)) return std::nullopt;
+                const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                if (set.textures.empty()) return std::nullopt;
+                gt3r::GsMemory gs;
+                set.upload(*data, gs);
+                return set.decode(gs, 0);
+            } catch (const std::exception&) {
+                return std::nullopt; // (no picture)
+            }
+        };
+        const std::string path = "piece/car_pict/" + label + ".img";
+        std::optional<gt3r::Tex1::Image> img = decode(path);
+        if (!img) img = mod_car_picture(app, path, decode); // a mod car's: the mod's picture, else its body car's
+        if (!img || !img->width || !img->height) return;
+        texture_ = SDL_CreateTexture(app.renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img->width), int(img->height));
+        if (!texture_) return;
+        SDL_UpdateTexture(texture_, nullptr, img->rgba.data(), int(img->width) * 4);
+        SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_BLEND);
     }
 };
 
-enum Hit { kCarRow = 1, kTab, kSort, kPanel, kList };
+enum Hit { kCarRow = 1, kTab, kSort, kPanel, kList, kExport };
 
 class DatabaseScreen : public Screen {
 public:
@@ -127,6 +136,7 @@ public:
         if (m.pressed(PadButton::Triangle)) return app.pop();
         if (m.pressed(PadButton::Cross)) in_panel_ = true;
         if (m.pressed(PadButton::Square)) next_sort();
+        if (m.pressed(PadButton::Start) && can_export(app)) export_car(app);
         const int n = int(order_.size());
         int step = m.vertical();
         if (m.pressed(PadButton::R1)) step = 10;
@@ -138,7 +148,7 @@ public:
     void render(App& app, Ui& ui) override {
         hits_.clear();
         const std::string hint = cdb_ ? std::to_string(order_.size()) + " cars" + (cdb_->power_unit().empty() ? std::string() : ", " + cdb_->power_unit() + " and " + cdb_->torque_unit()) : std::string();
-        page_header(app, ui, "CAR DATABASE", hint);
+        page_header(app, ui, "CAR DATABASE", status_.empty() ? hint : status_); // (an export's outcome, until another car is chosen)
         if (!cdb_) {
             ui.text_center(150, error_.empty() ? "Reading the car database..." : error_, error_.empty() ? colors::kDim : colors::kBad);
             ui.footer("{Triangle}: back");
@@ -149,10 +159,12 @@ public:
             ui.footer("{Triangle}: back");
             return;
         }
+        export_shown_ = can_export(app);
         render_list(ui);
         render_panel(app, ui);
         ui.footer(in_panel_ ? "{Up/Down}: scroll  {Left/Right}: tab  {Triangle}: back to the list"
-                            : "{Up/Down}: car  {L1}/{R1}: 10 cars  {Left/Right}: tab  {Cross}: scroll the details  {Square}: order  {Triangle}: back");
+                            : std::string("{Up/Down}: car  {L1}/{R1}: 10 cars  {Left/Right}: tab  {Cross}: scroll the details  {Square}: order") +
+                                  (can_export(app) ? "  {Start}: export" : "") + "  {Triangle}: back");
     }
 
 private:
@@ -228,7 +240,7 @@ private:
         choose(at, true);
     }
     void choose(int i, bool keep_in_view) {
-        if (i != sel_) panel_top_ = 0;
+        if (i != sel_) panel_top_ = 0, status_.clear();
         sel_ = std::clamp(i, 0, std::max(0, int(order_.size()) - 1));
         if (keep_in_view) {
             const int shown = shown_rows();
@@ -284,12 +296,42 @@ private:
             case kCarRow: choose(h->arg, false), in_panel_ = false; break;
             case kTab: tab_ = h->arg, panel_top_ = 0; break;
             case kSort: next_sort(); break;
+            case kExport:
+                if (can_export(app)) export_car(app);
+                break;
             default: break;
             }
         }
         return false;
     }
     float panel_drag_top_ = 0;
+
+    // Whether the car shown can be exported as a mod (a disc car of a Gran Turismo 4 disc).
+    bool can_export(App& app) {
+        if (prologue_ || !cdb_ || order_.empty() || !app.disc()) return false;
+        db::SpecDb* sdb = app.db();
+        return sdb && !sdb->prologue() && !sdb->mod_cars().def(car_at(sel_).label);
+    }
+    // The car shown written whole as a mod (formats/db/car_export.h), mods/cars_<disc>/, for the player's other discs: off on
+    // this one (which has the car).
+    void export_car(App& app) {
+        db::SpecDb* sdb = app.db();
+        const Disc* disc = app.disc();
+        if (!sdb || !disc) return;
+        const std::string key = disc->info().key, mod = db::export_mod_id(key);
+        const std::string source = !disc->info().description.empty() ? disc->info().description : disc->info().serial;
+        gt3r::Vfs* vfs = app.vfs();
+        std::string why;
+        const std::optional<db::CarExport> ex = db::export_car(*sdb, [vfs](const std::string& path) { return vfs->read(path); }, car_at(sel_).label,
+                                                               app.mods_dir() + "/" + mod, key, source, &why);
+        status_ = ex ? "Exported to mods/" + mod + " (for your other discs)" : "Not exported: " + why;
+        if (!ex) return;
+        LOG_INFO("Car database: %s exported to %s (%zu files)", car_at(sel_).label.c_str(), mod.c_str(), ex->files.size());
+        app.rescan_mods();
+        app.set_mod_enabled(mod, false);
+    }
+    std::string status_;
+    bool export_shown_ = false;
 
     void render_list(Ui& ui) {
         // The order, as a button.
@@ -298,6 +340,11 @@ private:
         float mx = 0, my = 0;
         ui.button(b, label, false, false);
         hits_.add(b, kSort);
+        if (export_shown_) { // (a disc car: export it as a mod)
+            const UiRect e{b.x + b.w + 6, 23, std::max(60.0f, ui.tab_width("Export")), 15};
+            ui.button(e, "Export", false, false);
+            hits_.add(e, kExport);
+        }
         (void)mx, (void)my;
         const int n = int(order_.size()), shown = shown_rows();
         hits_.add({kListX, kListY, kListW, float(shown) * kRowH}, kList);

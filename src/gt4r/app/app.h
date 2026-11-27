@@ -146,6 +146,8 @@ public:
     // The mods folder read again; a mod switched on or off for this disc.
     void rescan_mods();
     void set_mod_enabled(const std::string& id, bool on);
+    // Counts those: the running menus add the mods' cars installed since they last looked (menu::refresh_mod_cars).
+    u32 mods_generation() const { return mods_generation_; }
 
     // What the mouse did since the last frame (UI units), for the page on top.
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
@@ -320,6 +322,7 @@ private:
     std::string measured_key_;               // the disc's pieces given to music_ to measure
     void forget_disc_music();
     bool db_tried_ = false;
+    u32 mods_generation_ = 0;
     gt3r::IniDocument config_;
     std::string data_dir_, config_path_;
     MenuInput menu_;

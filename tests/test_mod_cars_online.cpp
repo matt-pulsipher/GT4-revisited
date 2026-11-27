@@ -67,6 +67,7 @@ Bytes picture(u32 w, u32 h);
 
 } // namespace
 
+#include "formats/model/gltf_export.h"
 #include "formats/png_writer.h"
 
 namespace {
@@ -114,6 +115,25 @@ TEST(mod_car_package) {
     CHECK(!net::validate_package(with_ini("[car]\nlabel = gt4r_net_coupe_26\nname = N\ndonor = no_car\n"), *other, "gt4r_net_coupe_26", &why));
     CHECK(!net::validate_package(with_ini("[car]\nlabel = gt4r_net_coupe_26\nname = N\ndonor = nsx_r_02\n[body]\nweight_kg = 99999\n"), *other, "gt4r_net_coupe_26", &why));
     CHECK(net::validate_package(with_ini("[car]\nlabel = gt4r_net_coupe_26\nname = N\ndonor = nsx_r_02\n"), *other, "gt4r_net_coupe_26", &why));
+    // A body of its own: carried when its file is one the loader reads.
+    {
+        gt3r::scene::Model tri;
+        gt3r::scene::Mesh mesh;
+        for (int i = 0; i < 3; ++i) {
+            gt3r::scene::Vertex v;
+            v.pos[0] = float(i == 1), v.pos[1] = float(i == 2), v.normal[2] = 1;
+            mesh.vertices.push_back(v), mesh.indices.push_back(u32(i));
+        }
+        gt3r::scene::Primitive prim;
+        prim.index_count = 3;
+        mesh.primitives.push_back(prim);
+        tri.meshes.push_back(mesh);
+        gt3r::game::ModPackage r = with_ini("[car]\nlabel = gt4r_net_coupe_26\nname = N\ndonor = nsx_r_02\n[model]\nfile = models/body.glb\n");
+        r.files.push_back({"models/body.glb", gt3r::export_glb(tri)});
+        CHECK(net::validate_package(r, *other, "gt4r_net_coupe_26", &why));
+        r.files.back().data.resize(40); // (not a whole file)
+        CHECK(!net::validate_package(r, *other, "gt4r_net_coupe_26", &why) && why.find("body.glb") != std::string::npos);
+    }
 
     // Through the lobby: the second machine fetches, checks and installs it; its database read again builds the same car.
     const sim::Program program = sim::Program::load(*disc);

@@ -412,6 +412,7 @@ void App::rescan_mods() {
     use_texture_packs();
     sound_.reset(); // (its banks are read again, as the database is)
     db_.reset(), db_tried_ = false;
+    ++mods_generation_;
 }
 
 void App::set_mod_enabled(const std::string& id, bool on) {
@@ -423,6 +424,7 @@ void App::set_mod_enabled(const std::string& id, bool on) {
     use_texture_packs();
     sound_.reset(); // (its banks are read again, as the database is)
     db_.reset(), db_tried_ = false;
+    ++mods_generation_;
 }
 
 void App::push_dropped_mod(const std::string& path) {

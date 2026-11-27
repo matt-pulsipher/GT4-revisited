@@ -212,6 +212,7 @@ price = 31500                ; credits (the donor's when left out)
 category = tuning            ; normal | racing | tuning | concept
 donor = impreza_wrx_sti_00   ; needed: every part the file leaves out is the donor's (gt4tool car <disc> lists the labels)
 model = rx8_03               ; optional: another car of the disc whose body and paints it has (else the donor's)
+fit_body = yes               ; that body stretched to the dimensions below (no: drawn as it is)
 [body]
 weight_kg = 1180             ; also front_weight_pct, length_mm, width_mm, height_mm, wheelbase_mm,
 front_track_mm = 1500        ;   rear_track_mm, ride_height_mm, cd, frontal_area_m2;
@@ -230,19 +231,40 @@ grip_pct = 105               ; its tires as sold
 [dealer]
 for_sale = yes               ; at its maker's dealer in Gran Turismo mode
 thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's; logo = the name's artwork (PNG)
+[model]
+file = models/my_coupe.glb   ; a body of its own (binary glTF, as GT3 Revisited's MODDING.md "Car models" says); also
+                             ;   menu = (the dealers' and showrooms'), race =, day =, eve =, night = (a race's by the time
+                             ;   of day), each falling back to the others; lower_mm = moves it down
+[paints]                     ; a body of its own's colors, in the menus' order: name = #RRGGBB
+Carmine Red = #9B1B24
+[opponent]
+races = am_sunday_*          ; Gran Turismo mode's races whose opponents it may be drawn among (gt4tool ai <disc> events
+                             ;   lists the labels; * at the end: every race whose label starts so), as sold
 [raw.CHASSIS]                ; bytes of the car's own rows of BRAKE, SUSPENSION, CHASSIS, RACINGMODIFY, DRIVETRAIN,
 0x1D = 120                   ;   GEAR, ENGINE, FRONTTIRE or REARTIRE (docs/formats/database.md): 0x30:u16 = 1000
 ```
 
 The car is made of the donor's rows of the game's own database (docs/formats/database.md "Mod cars"), so it races,
-is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model and pictures, or
-the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
+is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model stretched to its
+length, wheelbase, width and height (the wheel arches over its wheels), or with a body of its own in that model's place
+(the body car's wheels, lamps, shadow, driver and camera places; glTF's metres, +Y up, the car facing +Z, the origin on
+the ground at the wheelbase's middle; materials by name as GT3 Revisited reads them, the paint ones in the [paints]
+color chosen), and with its body car's pictures or the mod's. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
 there). The Mods page lists each mod's cars, and why one is not in the game; `gt4tool modcar <disc> <mods folder>
 [disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
-gives: removing the mod leaves a garage place for a car the game no longer has. In a Multi-LAN Race a player who lacks
+gives: with its mod removed (or switched off) the garage leaves the car out and the save keeps it as it was, the car driven
+too (no car is driven meanwhile); with the mod back the car is there again. A mod installed while the game runs (the Mods
+page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod removed while the game runs
+leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
-their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
-an electric drive (a file with `type = electric` is not loaded), mods' makers (`makers/`).
+their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. The Car database's *Export* (Start) writes the car shown whole as a mod, `mods/cars_<disc>/`, for your other discs (it is
+off on the disc it came from): its rows of the database in a records file, its models and pictures. A disc that has the
+car makes it from its own; one that lacks it (the European disc's Vauxhalls on the American disc) takes the rows from
+the file, the rows it has under the same names its own. The exported files are your disc's: keep them for your own use;
+online, an exported car is never sent. Not yet: mods' makers (`makers/`), another rim for a body of its own
+(`[model] wheel`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
+the Priuses', the Insight's and the DN-X's, each work beside one; a car made from one of them keeps it), and a drive of
+ours would behave as no car of the game does; one gear and a curve of your own come closest.
 
 **Your music.** MP3, FLAC, WAV and Ogg Vorbis files in the music folder (by default `music/` in the data folder, any
 depth; on Android the Files app shows it as *GT4 Revisited > music*) play as race songs. Settings > Audio > *Race songs*:
@@ -481,6 +503,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   step makes of it (0x349FD0). The original rumble's level and the wheel's force are the game's; the Modern
   rumble, the triggers and the Modern wheel force are the shared engine's, fed from the game's step
   (`docs/specs/input.md`).
+- Mod cars are our addition (`formats/db/mod_cars.*`, `car_export.*`, `race/mod_car_body.*`): their rows are made of the
+  game's own rows of the donor (or an exported car's), and they race, sell and draw through the game's code; a body of a
+  mod's own is read by the shared engine's glTF loader and stretched bodies by its `fit_body`, both drawn by our GT4 car
+  path with the course's reflection factors; no GT3 value enters (an electric drive is refused for that reason).
 - Settings, Mods, Controls and the mouse are the app's own (`src/gt4r/settings`, `app_settings.cpp`, `page.*`,
   `screen_settings.cpp`, `screen_controls.cpp`) over the shared engine's parts: the GPU device's options, dynamic
   resolution, the gamma pass, the output devices, the log file and crash notes, the disc list, the mods' archives,

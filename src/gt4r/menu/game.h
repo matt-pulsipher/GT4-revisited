@@ -194,6 +194,10 @@ struct GarageEntry {
     u32 kept_day = 0;  // the day word's top byte, as loaded
     u64 kept_rank = 0; // the rank word's other bits, as loaded
     std::optional<CarRecord> record; // the full record: a car that has been driven
+    // A car the database lacks (a mod car whose mod was removed): its code as saved. The place is vacant to the pages (`used`
+    // off) and is written back as it was read while it stays so; the car is there again when its mod is.
+    u64 missing_code = ~u64(0);
+    bool missing() const { return missing_code != ~u64(0) && !used && car.empty(); }
 };
 
 // A day of the calendar's diary (16 bytes; save.md "The calendar"): what was done that day.
@@ -286,6 +290,7 @@ struct GameState {
     // The garage: its list, the car driven, the key and serial that tie the saved files.
     std::vector<GarageEntry> garage;
     int riding_car = -1; // the list's place; -1: none
+    int riding_missing = -1; // the place of the car driven when the database lacks it (GarageEntry::missing): riding_car -1 then
     bool riding_fresh = false; // the car driven was changed to one never driven (its record made as sold)
     u32 garage_key = 0, garage_serial = 0;
     std::array<s32, 4> garage_kept{}; // the four words after the key (not named)

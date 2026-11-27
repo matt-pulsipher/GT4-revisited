@@ -115,9 +115,17 @@ public:
     // table, label list or pool is read and added to each as it is. `makers` (menu::ProgramTables::makers) match a car's
     // maker; set them before anything is read.
     void set_makers(std::map<int, std::string> makers) { makers_ = std::move(makers); }
+    const std::map<int, std::string>& makers() const { return makers_; }
     const ModCars& mod_cars();
+    // The mods' cars the reader lists now that are not in yet (a mod installed since they were worked out), added to every table
+    // read and to come; the labels added. The ones in stay as they are (a removed mod's car stays until the database is made
+    // again), and so do the tables, label lists and pools already handed out (rows are added to them).
+    std::vector<std::string> add_mod_cars();
     // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
     std::optional<Bytes> car_file(u64 code);
+    // A race's pool of opponents (specdb/<set>/RACES/<35, the RACE row>), with the mod cars that join it; none without one.
+    // Gran Turismo 4's tables (Prologue's files are named otherwise: specdb_prologue.h).
+    std::optional<Bytes> race_file(u32 race_row);
     // A mod car's alone, once the mods' cars are worked out (any table read); none for a disc car.
     std::optional<Bytes> mod_car_file(u64 code) const;
 

@@ -430,11 +430,12 @@ as sent (on every machine alike).
 
 `net/mod_car_package.*`, `app/online_mod_cars.cpp`. A mod car (docs/formats/database.md "Mod cars") travels as any car,
 with its package's SHA-256, size and donor after the rest of the record (`u8 'P'`, the hash, u32 the size, the donor; a
-record without them ends before). The package is the car's file and the pictures it names, in the shared engine's
+record without them ends before). The package is the car's file, the pictures and bodies (`.glb`) it names, in the shared engine's
 package layout, offered to the session; a machine that lacks the car and has its donor asks the owner for it (the shared
 session's package transfer, through the host: nothing is added to its protocol). The package is checked (one car file of
-the label named, its donor a car of this disc, values a car can have, its other files exactly the PNG pictures it names, at
-most 2048 a side), installed as `mods/dl-<the hash's first 12 digits>/` with the pictures encoded again by our encoder,
+the label named, its donor a car of this disc, values a car can have, its other files exactly the PNG pictures, at
+most 2048 a side, and bodies it names, each body one the glTF loader reads whole with pictures of at most 2048 a side),
+installed as `mods/dl-<the hash's first 12 digits>/` with the pictures (the bodies' too) encoded again by our encoder,
 and the database read again; the car is then checked as any other (its digest the owner's). Until then the panel says
 its files are on their way, or why they were refused.
 

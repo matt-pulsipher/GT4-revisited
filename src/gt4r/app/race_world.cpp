@@ -30,6 +30,7 @@
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
 #include "gt4r/race/light_model.h"
+#include "gt4r/race/mod_car_body.h"
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/road_reflection.h"
 #include "gt4r/race/sections.h"
@@ -203,7 +204,11 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         // The car's lamp level (RaceBase::vf38 0x3882F8, through RaceCarModel::vf43): the course's night flag, but the pace car
         // (the program's name for it, 0x68D018) always lit: its glows and lit lenses in a daytime race too.
         const int lamp_level = night_ || entry->label == kPaceCar ? 1 : 0;
-        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing + "#" + std::to_string(lamp_level);
+        // A mod car's body (race/mod_car_body.h): stretched, or one of its own (the time of day's: night or day).
+        std::shared_ptr<const race::ModCarBody> mod_body;
+        if (std::optional<race::ModCarBody> b = race::mod_car_body(*app.db(), entry->label, false, night_ ? 2 : 0, e.paint))
+            mod_body = std::make_shared<const race::ModCarBody>(std::move(*b));
+        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing + "#" + std::to_string(lamp_level) + (mod_body ? "#" + mod_body->key() : std::string());
         if (const auto [at, fresh] = job_of.try_emplace(key, jobs.size()); fresh) {
             jobs.push_back(std::make_unique<CarJob>());
             CarJob& job = *jobs.back();
@@ -216,7 +221,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = lamp_level;
-            if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1;
+            if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1, o.mod_body = mod_body;
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
             o.driver = setup.drivers;

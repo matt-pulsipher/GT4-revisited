@@ -285,6 +285,12 @@ private:
         std::unique_ptr<gt3r::Tex1::Image>& slot = mod_pack_images_[key];
         if (std::optional<gt3r::Tex1::Image> own = mod_car_picture(*app_, path, [this](const std::string& other) -> std::optional<gt3r::Tex1::Image> {
                 const gt3r::Tex1::Image* i = project_->image(page_, other);
+                if (!i) { // (a body car of another maker: not in this page's packs; the disc's picture of it)
+                    std::string disc = other;
+                    while (!disc.empty() && disc[0] == '/') disc.erase(0, 1);
+                    if (disc.rfind("image/", 0) == 0) disc.erase(0, 6);
+                    if (disc.size() > 4 && disc.compare(disc.size() - 4, 4, ".png") == 0) i = disk_image(disc.substr(0, disc.size() - 4) + ".img");
+                }
                 return i ? std::optional<gt3r::Tex1::Image>(*i) : std::nullopt;
             }))
             slot = std::make_unique<gt3r::Tex1::Image>(std::move(*own));

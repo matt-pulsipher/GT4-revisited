@@ -10,6 +10,7 @@
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/driver_figure.h"
+#include "gt4r/race/mod_car_body.h"
 #include "gt4r/race/simulation.h"
 #include "race/lamp_glows.h"
 #include "gt4r/formats/model/model_script.h"
@@ -49,6 +50,8 @@ public:
         bool driver = false; // draw the driver
         // A Gran Turismo 3 car file's brake parts (Prologue's cars): the disc's race/brake.bin. Empty: none drawn.
         ByteSpan brake_parts;
+        // A mod car's body (mod_car_body.h): the model's stretched, or one of its own in its place. Null: the file's.
+        std::shared_ptr<const ModCarBody> mod_body;
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.

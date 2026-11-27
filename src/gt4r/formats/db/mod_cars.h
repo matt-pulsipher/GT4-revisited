@@ -23,11 +23,16 @@ namespace gt4r::db {
 // One car file. Unset values keep the donor's.
 struct ModCarDef {
     std::string label, name, maker, donor, body; // body: another disc car whose body and paints the car takes ([car] model)
+    // An exported disc car's (car_export.h): its rows' file (from the car file's folder) and its models' name; `imported` once
+    // they are what the car is made of (this disc lacks the donor).
+    std::string records, model_name;
+    bool imported = false;
     std::string mod, file;                       // the mod's id, the file's path (the loader's)
     std::optional<u16> year;
     std::optional<u32> price;
     std::optional<u8> category; // GENERIC_CAR +0x11: 0 normal, 1 racing, 2 tuning, 3 concept
     bool for_sale = true;       // [dealer] for_sale
+    bool fit_body = true;       // [car] fit_body: the borrowed body stretched to the car's dimensions
 
     // [body]
     std::optional<u16> weight_kg, length_mm, width_mm, height_mm, wheelbase_mm, front_track_mm, rear_track_mm, ride_height_mm;
@@ -61,10 +66,18 @@ struct ModCarDef {
     std::array<std::string, 3> model_time; // day, eve, night
     std::string wheel;
     float model_lower_mm = 0;
-    std::vector<std::pair<std::string, std::array<u8, 3>>> paints;
+    std::vector<std::pair<std::string, std::array<u8, 3>>> paints; // [paints] name = #RRGGBB, in order (a body of its own)
+    // The mod's folder (the one cars/ is in), with its slash: the files the car names are under it.
+    std::string folder() const;
+    // The body of its own for the menus (`menu`) or a race at a time of day (0 day, 1 evening, 2 night): its host path, "" none.
+    std::string model_path(bool menu, int time_of_day) const;
 
     // [dealer]
     std::string description, picture, thumb, logo;
+
+    // [opponent] races: Gran Turismo mode's races whose pools of opponents it joins, as sold (labels of RACE; "am_sunday_*" any
+    // that starts so)
+    std::vector<std::string> opponent_races;
 
     // [raw.<TABLE>] bytes of the car's own rows of a table (its clones of the donor's).
     struct Poke {
@@ -103,6 +116,11 @@ public:
     static ModCars build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers);
     // The same from definitions already read (tests, tools).
     static ModCars build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers);
+    // The cars of `list` that `before` has not read (files it has no status for, labels it has not loaded), made on a database
+    // `before` extends already: its rows' ids are kept clear of, and merge() then adds them to it.
+    static ModCars build_more(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars& before);
+    // `more` (build_more's, on this one) added: its cars, rows, labels and strings after these.
+    void merge(ModCars&& more);
 
     bool empty() const { return statuses_.empty(); }
     const std::vector<ModCarStatus>& statuses() const { return statuses_; }
@@ -116,6 +134,8 @@ public:
     void extend(const std::string& pool, Strings& s) const;
     // A mod car's CARS/<code> file (the parts that fit it); none for any other code.
     std::optional<Bytes> car_file(u64 code) const;
+    // A race's pool of opponents with the cars that join it ([opponent] races); none for a race none joins.
+    std::optional<Bytes> race_file(u32 race_row) const;
 
     // A mod car's picture the menus ask for by its label, "piece/<folder>/<label>.img" of the disc or
     // "image/piece/<folder>/<label>.png" of a page's pack (a leading slash or none): the strip's
@@ -128,10 +148,14 @@ public:
     std::optional<Picture> picture(std::string_view path) const;
 
 private:
+    static ModCars build_defs(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers, const ModCars* before);
+    static ModCars build_list(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars* before);
     struct PaintGroup {
         u32 from = 0, to = 0;              // the donor's (or body car's) paint group and the car's
         float scale_box[4] = {1, 1, 1, 1}; // VARIATION +0x10 height, +0x14 width, +0x18 ahead, +0x1C behind
         std::optional<float> frontal_area; // +0x20, m2 (else the donor's x the width and height scales)
+        std::vector<std::array<u8, 3>> rgb; // [paints]: a row each in place of the body car's
+        std::map<std::string, std::vector<u32>> names; // their names' texts by VARIATION<language> table
     };
     struct Names {
         u32 car_id = 0;
@@ -146,6 +170,7 @@ private:
     std::vector<PaintGroup> paint_groups_;                                         // VARIATION<language>
     std::vector<Names> names_;                                                     // CAR_NAME_<language>, CAR_VARIATION_<language>
     std::map<u64, Bytes> car_files_;
+    std::map<u32, Bytes> race_files_; // by RACE row
     friend struct ModCarBuilder;
 };
 

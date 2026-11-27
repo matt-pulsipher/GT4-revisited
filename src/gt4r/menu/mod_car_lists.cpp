@@ -7,6 +7,8 @@
 #include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/menu/game_internal.h"
 
+#include <algorithm>
+
 namespace gt4r::menu {
 
 using script::Kind;
@@ -43,10 +45,30 @@ void add_to(GameNatives& n, const std::shared_ptr<Module>& lists, bool for_sale_
 
 void add_mod_cars_to_lists(GameNatives& n, const std::shared_ptr<Module>& into) {
     if (!into) return;
+    std::vector<std::weak_ptr<Module>>& kept = n.db().car_lists;
+    if (std::none_of(kept.begin(), kept.end(), [&](const std::weak_ptr<Module>& m) { return m.lock() == into; })) kept.push_back(into);
     // Gran Turismo mode's dealers (the cars for sale), Arcade's makers' pages (every car).
     for (const auto& [name, for_sale_only] : {std::pair<const char*, bool>{"NewCarData", true}, {"CarData", false}})
         if (const std::shared_ptr<script::Variable> data = into->find(name))
             if (const std::shared_ptr<Module> lists = data->value.as<Module>()) add_to(n, lists, for_sale_only);
+}
+
+std::vector<std::string> refresh_mod_cars(Runtime& rt) {
+    const std::shared_ptr<GameNatives> n = natives_of(rt);
+    if (!n) return {};
+    Database& d = n->db();
+    if (!d.db) return {};
+    std::vector<std::string> added = d.db->add_mod_cars();
+    if (added.empty()) return added;
+    d.cars = d.db->cars();
+    d.by_label.clear();
+    for (size_t i = 0; i < d.cars.size(); ++i) d.by_label[d.cars[i].label] = i;
+    for (const std::string& l : added) d.specs.erase(l), d.stock_figures_.erase(l); // (asked for before: none then)
+    std::vector<std::weak_ptr<Module>> lists = d.car_lists;
+    for (const std::weak_ptr<Module>& m : lists)
+        if (const std::shared_ptr<Module> into = m.lock()) add_mod_cars_to_lists(*n, into);
+    rt.note("mod cars added: " + std::to_string(added.size()));
+    return added;
 }
 
 } // namespace gt4r::menu

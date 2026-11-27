@@ -1,5 +1,6 @@
 #include "gt4r/formats/db/mod_cars.h"
 
+#include "gt4r/formats/db/car_export.h"
 #include "gt4r/formats/db/car_parts.h"
 
 #include "base/config.h"
@@ -110,6 +111,24 @@ std::optional<u32> table_id_of(std::string_view name) {
 
 } // namespace
 
+std::string ModCarDef::folder() const {
+    std::string root = file.substr(0, file.find_last_of('/') + 1);
+    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    return root;
+}
+
+std::string ModCarDef::model_path(bool menu, int time_of_day) const {
+    // The menus: menu, else file, else the race's; a race: its time of day's, else race, else file, else another time's, else
+    // menu.
+    std::vector<const std::string*> order;
+    const int t = std::clamp(time_of_day, 0, 2);
+    if (menu) order = {&model_menu, &model_file, &model_race, &model_time[0], &model_time[1], &model_time[2]};
+    else order = {&model_time[size_t(t)], &model_race, &model_file, &model_time[0], &model_time[1], &model_time[2], &model_menu};
+    for (const std::string* p : order)
+        if (!p->empty()) return (*p)[0] == '/' || p->find("..") != std::string::npos ? std::string() : folder() + *p; // (inside the mod)
+    return {};
+}
+
 std::optional<ModCarDef::TireSize> parse_tire_size(std::string_view s) {
     // "255/35R21", "255/35 R21", "255/35ZR21", "205/60R15.5"
     std::string t;
@@ -181,6 +200,8 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
                 else if (key == "maker") d.maker = v;
                 else if (key == "donor") d.donor = v;
                 else if (key == "model") d.body = v;
+                else if (key == "records") d.records = v;
+                else if (key == "model_name") d.model_name = v;
                 else if (key == "year") set_u16(d.year);
                 else if (key == "price") {
                     if (const auto n = num()) d.price = u32(std::clamp(*n, 0.0, 4.0e9));
@@ -192,8 +213,10 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
                     else if (c == "concept") d.category = 3;
                     else if (c == "rally") warn("[car] category: this game has no rally category; the donor's is kept");
                     else return fail("[car] category is normal, racing, tuning or concept, not '" + v + "'");
-                } else if (key == "fit_body" || key == "driver_side") {
-                    // (the body's: read with [model])
+                } else if (key == "fit_body") {
+                    d.fit_body = yes(v);
+                } else if (key == "driver_side") {
+                    // (the other game's VR seat: this game's cockpits say)
                 } else known = false;
             } else if (sn == "body") {
                 if (key == "weight_kg") set_u16(d.weight_kg);
@@ -298,6 +321,10 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
                 else if (key == "logo") d.logo = v;
                 else if (key == "picture_paint") {
                 } else known = false;
+            } else if (sn == "opponent") {
+                if (key == "races")
+                    for (const std::string& w : words(v)) d.opponent_races.push_back(to_lower(w));
+                else known = false;
             } else if (sn == "reference" || sn == "arcade" || sn == "sound") {
                 // ([reference]: figures for the checking tool; [arcade], [sound]: the other game's)
             } else {
@@ -306,6 +333,13 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
             if (!known) warn("[" + sec.name + "] unknown key '" + key_raw + "'");
         }
     }
+    if (!d.paints.empty() && d.model_file.empty() && d.model_menu.empty() && d.model_race.empty() && d.model_time[0].empty() &&
+        d.model_time[1].empty() && d.model_time[2].empty()) {
+        warn("[paints]: only a body of the mod's own ([model]) takes them; the body car's paints are kept");
+        d.paints.clear();
+    }
+    if (d.paints.size() > 64) return fail("[paints]: at most 64");
+    if (!d.wheel.empty()) warn("[model] wheel: not in this game yet; the body car's wheels are kept");
     if (!valid_label(d.label)) return fail("[car] label is 1 to 40 characters of a-z, 0-9 and _");
     if (d.name.empty()) return fail("[car] name is needed");
     if (d.donor.empty()) return fail("[car] donor is needed (a car of the disc its other parts are taken from)");
@@ -380,6 +414,8 @@ struct ModCarBuilder {
     }
 
     bool add(const ModCarDef& d, ModCarStatus& st);
+    // An exported car this disc lacks: its rows from its records file (car_export.h).
+    bool import(const ModCarDef& d, ModCarStatus& st);
 };
 
 namespace {
@@ -400,12 +436,17 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     if (!car_labels || !cars) return fail("the disc's car table is not read");
     if (car_labels->id(d.label)) return fail("'" + d.label + "' is a car of the disc already");
     const std::optional<u32> donor_id = car_labels->id(d.donor);
+    if (!donor_id && !d.records.empty()) return import(d, st);
     if (!donor_id) return fail("the donor '" + d.donor + "' is not a car of this disc");
     const ByteSpan donor_row = cars->row(*donor_id);
     if (donor_row.size() < 0x18) return fail("the donor's car row is not read");
     std::optional<u32> body_id = donor_id;
     if (!d.body.empty() && !(body_id = car_labels->id(d.body))) return fail("[car] model '" + d.body + "' is not a car of this disc");
-    if (d.electric) return fail("an electric drive is not in this game yet");
+    // Gran Turismo 4's program has no drive without an engine: its motors (the Priuses' hybrid box, the Insight's assist motor,
+    // the DN-X's motors) each work beside one, and a drive of our own would bring behavior the game does not have.
+    if (d.electric)
+        return fail("[powertrain] type = electric: this game has no electric drive (a hybrid donor keeps its own motor; one gear "
+                    "and a curve of your own come closest)");
 
     // The rows the car names: its sets and the parts that fit it.
     struct Set {
@@ -774,7 +815,8 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         return donor_set;
     };
 
-    // GENERIC_CAR (+0x00 its set, +0x08 price, +0x0C year, +0x0E country, +0x0F maker, +0x11 category, +0x12 flags: bit 0 not for sale).
+    // GENERIC_CAR (+0x00 its set, +0x08 price, +0x0C year, +0x0E country, +0x0F maker, +0x10 brand (the tuner table's), +0x11 category,
+// +0x12 flags: bit 0 not for sale).
     const u32 car_id = new_id(d.label, "GENERIC_CAR", 0);
     Bytes car(donor_row.begin(), donor_row.end());
     put32(car, 0, set_ids[0]);
@@ -793,11 +835,20 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         }
         if (number) {
             put8(car, 0x0F, u32(*number));
-            for (size_t i = 0; i < cars->size(); ++i) // the country of the maker's cars
+            // The country of the maker's cars, and the brand (+0x10, the tuner: the dealers' and the pages' maker name) most of
+            // them have (Nissan's own, not Nismo's).
+            std::map<u32, int> brands;
+            bool country = false;
+            for (size_t i = 0; i < cars->size(); ++i)
                 if (const ByteSpan r = cars->row_at(i); r.size() >= 0x18 && r[0x0F] == u32(*number)) {
-                    put8(car, 0x0E, r[0x0E]);
-                    break;
+                    if (!country) put8(car, 0x0E, r[0x0E]), country = true;
+                    ++brands[r[0x10]];
                 }
+            u32 brand = get8(car, 0x10);
+            int most = 0;
+            for (const auto& [b, n] : brands)
+                if (n > most) brand = b, most = n;
+            put8(car, 0x10, brand);
         } else if (!makers.empty()) {
             st.warnings.push_back("[car] maker '" + d.maker + "' is not a maker of this game: the donor's is kept");
         }
@@ -817,6 +868,7 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     // The names (CAR_NAME_<language>: four string numbers of <language>_StrDB, +0x00 the name, +0x08 the short one) and the
     // paints (CAR_VARIATION_<language>: {u32 the car's rows of VARIATION<language>, u32 42}).
     const u32 group = new_id(d.label, "VARIATION", 0);
+    std::map<std::string, std::vector<u32>> paint_names; // [paints]' names in each VARIATION<language>'s pool
     const std::string group_label = label_of("VARIATIONamerican", body_group);
     for (const std::string& t : db.table_names()) {
         if (t.rfind("CAR_NAME_", 0) == 0) {
@@ -833,9 +885,12 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
             out.labels_[t].emplace_back(d.label, car_id);
         } else if (t.rfind("VARIATION", 0) == 0 && !group_label.empty()) {
             out.labels_[t].emplace_back(group_label, group); // (the same label: the model's files are named by it)
+            for (const auto& [name, rgb] : d.paints) paint_names[t].push_back(pool_index(t.substr(9) + "_StrDB", name));
         }
     }
     ModCars::PaintGroup pg;
+    for (const auto& [name, rgb] : d.paints) pg.rgb.push_back(rgb);
+    pg.names = std::move(paint_names);
     pg.from = body_group, pg.to = group;
     const float scale_len = d_len ? float(len) / float(d_len) : 1;
     pg.scale_box[0] = d_height ? float(height) / float(d_height) : 1;
@@ -867,6 +922,37 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         out.labels_["ARCADEINFO_NORMAL"].emplace_back(d.label, id);
         out.rows_["ARCADEINFO_NORMAL"].emplace_back(id, std::move(row));
     }
+    // [opponent] races: an ENEMY_CARS row of the car as sold (no settings of its own, as the pools' cars), added to the end of
+    // each race's pool (RACES/<35, row>: u32 count, u32 0, then {u32 row, u32 table 38, s64 paint + 1, -1 the race's choice}).
+    if (!d.opponent_races.empty()) {
+        const Labels* races = db.labels("RACE");
+        if (!races) return fail("[opponent] races: the disc's races are not read");
+        const u32 enemy = new_id(d.label, "ENEMY_CARS", 8);
+        Bytes row(24, 0xFF);
+        put32(row, 0, car_id), put32(row, 4, 0), put32(row, 8, set_ids[0]), put32(row, 12, kDefaultParts);
+        out.rows_["ENEMY_CARS"].emplace_back(enemy, std::move(row));
+        out.labels_["ENEMY_CARS"].emplace_back("gt4mod_" + d.label, enemy);
+        size_t joined = 0;
+        for (const auto& [label, race] : races->entries) {
+            const bool match = std::any_of(d.opponent_races.begin(), d.opponent_races.end(), [&](const std::string& w) {
+                return !w.empty() && w.back() == '*' ? label.compare(0, w.size() - 1, w, 0, w.size() - 1) == 0 : label == w;
+            });
+            if (!match) continue;
+            Bytes f;
+            if (const auto it = out.race_files_.find(race); it != out.race_files_.end()) f = it->second;
+            else if (const std::optional<Bytes> file = db.race_file(race)) f = *file;
+            if (f.size() < 8) continue; // (a race without a pool: a license test's, a mission's)
+            const u32 n = get32(f, 0);
+            f.resize(8 + 16 * size_t(n));
+            Bytes entry(16, 0xFF);
+            put32(entry, 0, enemy), put32(entry, 4, kEnemyCars);
+            f.insert(f.end(), entry.begin(), entry.end());
+            put32(f, 0, n + 1);
+            out.race_files_[race] = std::move(f);
+            ++joined;
+        }
+        if (!joined) st.warnings.push_back("[opponent] races: no race of this disc with a pool of opponents matches");
+    }
     if (const std::optional<u32> t = id_of("TUNER_LIST", d.donor)) {
         const ByteSpan r = disc_row("TUNER_LIST", *t);
         const u32 id = new_id(d.label, "TUNER_LIST", 0);
@@ -876,7 +962,181 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     return true;
 }
 
-ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers) {
+namespace {
+
+// A table's name by the id rows name it with (the parts 0 .. 33, the event tables), as car_export.cpp names them.
+std::string named_table(u32 t) {
+    if (const char* n = part_table_name(t)) return n;
+    switch (t) {
+    case 35: return "RACE";
+    case 36: return "DEFAULT_PARTS";
+    case 37: return "DEFAULT_PARAM";
+    case 38: return "ENEMY_CARS";
+    default: return {};
+    }
+}
+// The tables kept per language, and their prefixes.
+std::string language_prefix(const std::string& t) {
+    for (const char* p : {"CAR_NAME_", "CAR_VARIATION_", "VARIATION"})
+        if (t.rfind(p, 0) == 0) return p;
+    return {};
+}
+
+} // namespace
+
+bool ModCarBuilder::import(const ModCarDef& d, ModCarStatus& st) {
+    auto fail = [&](const std::string& m) {
+        st.error = m;
+        return false;
+    };
+    if (d.records.find("..") != std::string::npos || d.records[0] == '/') return fail("[car] records: a file beside the car file");
+    const std::string dir = d.file.substr(0, d.file.find_last_of('/') + 1);
+    const std::optional<Bytes> file = gt3r::read_host_file(dir + d.records);
+    if (!file) return fail("the donor '" + d.donor + "' is not a car of this disc, and its records file " + d.records + " is not read");
+    std::string why;
+    const std::optional<CarRecords> rec = CarRecords::parse(*file, &why);
+    if (!rec) return fail(d.records + ": " + why);
+    const std::string model = d.model_name.empty() ? d.label : d.model_name;
+
+    // Which of the file's tables stands for each of this disc's per-language tables: the same language, else American, else
+    // the first it has.
+    std::set<std::string> have;
+    for (const CarRecords::Row& r : rec->rows) have.insert(r.table);
+    auto source_of = [&](const std::string& target) -> std::string {
+        const std::string p = language_prefix(target);
+        if (have.count(target)) return target;
+        if (have.count(p + "american")) return p + "american";
+        for (const std::string& t : have)
+            if (language_prefix(t) == p) return t;
+        return {};
+    };
+
+    // The rows' ids here: the car's and its paint group's new; a row whose label this disc has in that table, the disc's; a
+    // RACE row by its label; every other new.
+    const u32 car_id = new_id(d.label, "GENERIC_CAR", 0);
+    const u32 group = new_id(d.label, "VARIATION", 0);
+    std::map<std::pair<std::string, u32>, u32> ids;
+    std::set<std::pair<std::string, u32>> shared;
+    std::map<std::string, u32> counts;
+    for (const CarRecords::Row& r : rec->rows) {
+        const std::pair<std::string, u32> key{r.table, r.id};
+        if (ids.count(key)) continue;
+        const std::string p = language_prefix(r.table);
+        if (r.table == "GENERIC_CAR" && r.id == rec->car_id) ids[key] = car_id;
+        else if (p == "CAR_NAME_" || p == "CAR_VARIATION_") ids[key] = car_id;
+        else if (p == "VARIATION") ids[key] = group;
+        else if (r.table == "RACE") {
+            const std::optional<u32> id = r.label.empty() ? std::nullopt : id_of("RACE", r.label);
+            ids[key] = id ? *id : 0xFFFFFFFFu;
+            shared.insert(key);
+        } else if (const std::optional<u32> id = r.label.empty() || r.table == "ARCADEINFO_NORMAL" || r.table == "TUNER_LIST" ? std::nullopt : id_of(r.table, r.label)) {
+            ids[key] = *id;
+            shared.insert(key);
+        } else {
+            ids[key] = new_id(d.label, r.table, counts[r.table]++);
+        }
+    }
+    auto map_id = [&](const std::string& table, u32 id) -> u32 {
+        if (id == 0xFFFFFFFFu) return id;
+        const auto it = ids.find({table, id});
+        return it == ids.end() ? id : it->second;
+    };
+    auto map_text = [&](const std::string& from_pool, u32 index, const std::string& to_pool) -> u32 {
+        const std::string* t = rec->text(from_pool, index);
+        return pool_index(to_pool, t ? *t : std::string());
+    };
+    auto relabel_row = [&](const std::string& l) {
+        const size_t at = l.find(rec->car);
+        return at == std::string::npos ? l + "_" + d.label : l.substr(0, at) + d.label + l.substr(at + rec->car.size());
+    };
+
+    // The rows, their references made to the ids here.
+    auto add_row = [&](const std::string& table, const CarRecords::Row& r, u32 id, const std::string& lang_from, const std::string& lang_to) {
+        Bytes b = r.bytes;
+        const std::string p = language_prefix(table);
+        if (table == "GENERIC_CAR") {
+            put32(b, 0, map_id("DEFAULT_PARTS", get32(b, 0)));
+            if (d.price) put32(b, 0x08, *d.price);
+            if (d.year) put16(b, 0x0C, *d.year);
+            if (d.category) put8(b, 0x11, (get8(b, 0x11) / 100) * 100 + *d.category);
+            put8(b, 0x12, d.for_sale ? get8(b, 0x12) & ~1u : get8(b, 0x12) | 1u);
+            if (!d.maker.empty()) // (the maker by its name: the programs' numbers may differ)
+                for (const auto& [n, name] : makers)
+                    if (to_lower(name) == to_lower(d.maker) || [&] {
+                            std::string a = to_lower(name), w = to_lower(d.maker);
+                            std::erase_if(a, [](char c) { return c == ' ' || c == '-' || c == '_' || c == '.'; });
+                            std::erase_if(w, [](char c) { return c == ' ' || c == '-' || c == '_' || c == '.'; });
+                            return a == w;
+                        }())
+                        put8(b, 0x0F, u32(n));
+        } else if (table == "DEFAULT_PARTS") {
+            for (size_t k = 0; k < 26 && 8 * k + 8 <= b.size(); ++k) put32(b, 8 * k, map_id(named_table(get32(b, 8 * k + 4)), get32(b, 8 * k)));
+        } else if (table == "FRONTTIRE" || table == "REARTIRE") {
+            put32(b, 0, map_id("TIRESIZE", get32(b, 0)));
+            for (size_t k = 0; k < 3; ++k) {
+                put32(b, 8 + 8 * k, map_id(named_table(get32(b, 12 + 8 * k)), get32(b, 8 + 8 * k)));
+                put32(b, 0x20 + 8 * k, map_id(named_table(get32(b, 0x24 + 8 * k)), get32(b, 0x20 + 8 * k)));
+            }
+        } else if (table == "ENGINE") {
+            for (size_t k = 0; k < 6; ++k) put32(b, 4 * k, map_text("UnistrDB", get32(b, 4 * k), "UnistrDB"));
+        } else if (table == "ENEMY_CARS") {
+            put32(b, 0, car_id), put32(b, 8, map_id("DEFAULT_PARTS", get32(b, 8)));
+            if (get32(b, 0x14) == 37) put32(b, 0x10, map_id("DEFAULT_PARAM", get32(b, 0x10)));
+        } else if (table == "ARCADEINFO_NORMAL") {
+            for (size_t e = 0; e < 8 && 8 * e + 8 <= b.size(); ++e) put32(b, 8 * e, map_id(named_table(get32(b, 8 * e + 4)), get32(b, 8 * e)));
+        } else if (p == "CAR_NAME_") {
+            for (size_t k = 0; k < 4; ++k) {
+                const std::string* t = rec->text(lang_from + "_StrDB", get32(b, 4 * k));
+                put32(b, 4 * k, pool_index(lang_to + "_StrDB", !d.name.empty() && k == 0 ? d.name : t ? *t : d.name));
+            }
+        } else if (p == "CAR_VARIATION_") {
+            put32(b, 0, group);
+        } else if (p == "VARIATION") {
+            put32(b, 0x0C, map_text(lang_from + "_StrDB", get32(b, 0x0C), lang_to + "_StrDB"));
+        }
+        std::string label = r.label;
+        if (table == "GENERIC_CAR" || table == "ARCADEINFO_NORMAL" || table == "TUNER_LIST" || p == "CAR_NAME_" || p == "CAR_VARIATION_") label = d.label;
+        else if (p == "VARIATION") label = model + label.substr(std::min(label.size(), label.rfind('_') == std::string::npos ? label.size() : label.rfind('_')));
+        else if (!label.empty()) label = relabel_row(label);
+        out.rows_[table].emplace_back(id, std::move(b));
+        bool labelled = false;
+        for (const auto& [l, i] : out.labels_[table]) labelled = labelled || i == id;
+        if (!label.empty() && !labelled) out.labels_[table].emplace_back(label, id);
+    };
+    for (const CarRecords::Row& r : rec->rows) {
+        if (r.bytes.empty() || shared.count({r.table, r.id})) continue;
+        if (!language_prefix(r.table).empty()) continue; // (below, per language of this disc)
+        if (!db.table(r.table)) continue;                // (a table this disc does not have)
+        add_row(r.table, r, ids[{r.table, r.id}], "", "");
+    }
+    for (const std::string& t : db.table_names()) {
+        const std::string p = language_prefix(t);
+        if (p.empty()) continue;
+        const std::string from = source_of(t);
+        if (from.empty()) continue;
+        const std::string lang_from = from.substr(p.size()), lang_to = t.substr(p.size());
+        for (const CarRecords::Row& r : rec->rows)
+            if (r.table == from && !r.bytes.empty()) add_row(t, r, ids[{r.table, r.id}], lang_from, lang_to);
+    }
+    // The parts that fit it.
+    if (rec->car_file.size() >= 8) {
+        Bytes f = rec->car_file;
+        u64 n = 0;
+        std::memcpy(&n, f.data(), 8);
+        for (u64 i = 0; i < n && 8 + (i + 1) * 16 <= f.size(); ++i) {
+            const u32 t = get32(f, 12 + 16 * i);
+            put32(f, 8 + 16 * i, map_id(named_table(t), get32(f, 8 + 16 * i)));
+        }
+        out.car_files_[u64(car_id)] = std::move(f);
+    }
+    if (!out.rows_.count("GENERIC_CAR") || std::none_of(out.rows_["GENERIC_CAR"].begin(), out.rows_["GENERIC_CAR"].end(), [&](const auto& r) { return r.first == car_id; }))
+        return fail(d.records + ": no car row");
+    st.warnings.push_back("made from its records (this disc has no " + d.donor + ")");
+    return true;
+}
+
+// The cars of a list's files, read; `before`'s files and loaded labels passed over.
+ModCars ModCars::build_list(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars* before) {
     std::vector<ModCarDef> defs;
     std::vector<ModCarStatus> bad;
     std::map<std::string, std::vector<std::string>> warnings; // by file
@@ -890,6 +1150,7 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
         if (tab == std::string_view::npos) continue;
         const std::string mod(line.substr(0, tab)), file(line.substr(tab + 1));
         if (file.find("/cars/") == std::string::npos) continue; // (a maker's or an event's)
+        if (before && std::any_of(before->statuses().begin(), before->statuses().end(), [&](const ModCarStatus& s) { return s.file == file; })) continue;
         ModCarStatus st;
         st.mod = mod, st.file = file;
         const std::optional<Bytes> text = gt3r::read_host_file(file);
@@ -904,9 +1165,15 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
             continue;
         }
         d->mod = mod, d->file = file;
+        if (before && before->def(d->label)) {
+            st.label = d->label, st.name = d->name, st.donor = d->donor;
+            st.error = "a car of that label is in the game already (the menus read the mods' cars again when they start)";
+            bad.push_back(std::move(st));
+            continue;
+        }
         defs.push_back(std::move(*d));
     }
-    ModCars m = build(db, std::move(defs), makers);
+    ModCars m = build_defs(db, std::move(defs), makers, before);
     for (ModCarStatus& s : m.statuses_) {
         const std::vector<std::string>& w = warnings[s.file];
         s.warnings.insert(s.warnings.begin(), w.begin(), w.end());
@@ -915,9 +1182,45 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
     return m;
 }
 
-ModCars ModCars::build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers) {
+ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers) { return build_list(db, list, makers, nullptr); }
+
+ModCars ModCars::build_more(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars& before) {
+    return build_list(db, list, makers, &before);
+}
+
+ModCars ModCars::build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers) { return build_defs(db, std::move(defs), makers, nullptr); }
+
+void ModCars::merge(ModCars&& more) {
+    statuses_.insert(statuses_.end(), more.statuses_.begin(), more.statuses_.end());
+    for (auto& [l, d] : more.defs_) defs_[l] = std::move(d);
+    for (auto& [t, rows] : more.rows_) rows_[t].insert(rows_[t].end(), rows.begin(), rows.end());
+    for (auto& [t, labels] : more.labels_) labels_[t].insert(labels_[t].end(), labels.begin(), labels.end());
+    for (auto& [pool, strings] : more.strings_) {
+        const auto size = more.pool_sizes_.find(pool);
+        if (size == more.pool_sizes_.end()) continue;
+        const auto mine = pool_sizes_.find(pool);
+        if (mine == pool_sizes_.end()) {
+            pool_sizes_[pool] = size->second, strings_[pool] = strings;
+            continue;
+        }
+        // (`more` read the pool with these strings in it: its own start after them)
+        std::vector<std::string>& have = strings_[pool];
+        if (size->second == mine->second + have.size()) have.insert(have.end(), strings.begin(), strings.end());
+    }
+    for (const auto& [pool, size] : more.pool_sizes_) pool_sizes_.emplace(pool, size);
+    paint_groups_.insert(paint_groups_.end(), more.paint_groups_.begin(), more.paint_groups_.end());
+    names_.insert(names_.end(), more.names_.begin(), more.names_.end());
+    for (auto& [code, f] : more.car_files_) car_files_[code] = std::move(f);
+    for (auto& [race, f] : more.race_files_) race_files_[race] = std::move(f); // (made on these)
+}
+
+
+ModCars ModCars::build_defs(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers, const ModCars* before) {
     ModCars out;
     ModCarBuilder b{db, out, makers, {}};
+    if (before) // (the ids its cars took)
+        for (const auto& [table, rows] : before->rows_)
+            for (const auto& [id, bytes] : rows) b.used[table].insert(id);
     // A later file's car of a label replaces an earlier one's.
     std::map<std::string, size_t> last;
     for (size_t i = 0; i < defs.size(); ++i) last[defs[i].label] = i;
@@ -933,7 +1236,10 @@ ModCars ModCars::build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<i
         // A car that fails leaves nothing behind.
         ModCars before = out;
         std::map<std::string, std::set<u32>> used = b.used;
-        if (b.add(d, st)) out.defs_[d.label] = d;
+        if (b.add(d, st)) {
+            out.defs_[d.label] = d;
+            if (!d.records.empty() && !db.labels("GENERIC_CAR")->id(d.donor)) out.defs_[d.label].imported = true;
+        }
         else {
             std::vector<ModCarStatus> statuses = std::move(out.statuses_);
             out = std::move(before), b.used = std::move(used);
@@ -963,11 +1269,21 @@ void ModCars::extend(const std::string& table, Table& t) const {
         for (const PaintGroup& g : paint_groups_) {
             size_t first = 0;
             const size_t n = t.rows(g.from, first);
-            for (size_t i = 0; i < n; ++i) {
-                const ByteSpan r = t.row_at(first + i);
+            // [paints]: a row each (the body car's first as the pattern: +0x04 the paint's number + 1, +0x0C its name, +0x24 its
+            // color, one color), else the body car's rows.
+            const auto names = g.names.find(table);
+            const size_t count = !g.rgb.empty() && n ? g.rgb.size() : n;
+            for (size_t i = 0; i < count; ++i) {
+                const ByteSpan r = t.row_at(first + (g.rgb.empty() ? i : 0));
                 Bytes b(r.begin(), r.end());
                 for (int k = 0; k < 4; ++k) putf(b, 0x10 + 4 * size_t(k), std::round(getf(b, 0x10 + 4 * size_t(k)) * g.scale_box[k]));
                 if (g.frontal_area) putf(b, 0x20, *g.frontal_area);
+                if (!g.rgb.empty()) {
+                    put32(b, 0x04, u32(i + 1));
+                    if (names != g.names.end() && i < names->second.size()) put32(b, 0x0C, names->second[i]);
+                    for (size_t k = 0x24; k < 0x34 && k < b.size(); ++k) b[k] = 0;
+                    put8(b, 0x24, g.rgb[i][0]), put8(b, 0x25, g.rgb[i][1]), put8(b, 0x26, g.rgb[i][2]), put8(b, 0x27, 1);
+                }
                 add.emplace_back(g.to, std::move(b));
             }
         }
@@ -998,10 +1314,9 @@ std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
     const ModCarDef* d = def(label);
     if (!d) return std::nullopt;
     // The mod's files are named from its folder (the one cars/ is in).
-    std::string root = d->file.substr(0, d->file.find_last_of('/') + 1);
-    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    const std::string root = d->folder();
     auto own = [&](const std::string& p) { return p.empty() ? std::string() : p[0] == '/' ? p : root + p; };
-    const std::string body = d->body.empty() ? d->donor : d->body;
+    const std::string body = d->imported ? d->label : d->body.empty() ? d->donor : d->body; // (an imported car's own: files/piece/...)
     const std::string stand_in = (pack ? "image/piece/" : "piece/") + folder + "/" + body + std::string(ext);
     Picture out;
     if (folder == "car_mini") out.disc = stand_in, out.png = own(d->thumb);
@@ -1009,6 +1324,12 @@ std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
     else if (folder == "car_logo" || folder == "car_logo2") out.png = own(d->logo);
     else return std::nullopt;
     return out;
+}
+
+std::optional<Bytes> ModCars::race_file(u32 race_row) const {
+    const auto it = race_files_.find(race_row);
+    if (it == race_files_.end()) return std::nullopt;
+    return it->second;
 }
 
 std::optional<Bytes> ModCars::car_file(u64 code) const {
