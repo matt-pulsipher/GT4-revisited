@@ -4,6 +4,7 @@
 // section's own), or on a driving line before or past the start line (a rolling start, a license test that starts moving).
 // docs/formats/race_flow.md "The start".
 
+#include "base/ee_float.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/ai/course_lines.h"
@@ -88,5 +89,9 @@ struct MachineTestCourse {
     std::vector<float> splits;
 };
 MachineTestCourse machine_test_course(const sim::Program& program, int kind);
+// The top speed test's line on the display (0x35E7C0, RaceDisplaySpeedEvent 0x3A36E0 / 0x3A3778, 0x3A12A0, 0x3B0230) for a top
+// speed `v` (m/s): in km/h or mph x 10, truncated to 0 .. 9,999, read back x 0.1; written as three digits, a point and the
+// tenth with the unit joined ("199.0mph", "085.3km/h"); at or under 0 the four digits are 0x7F.
+std::string machine_speed_line(gt3r::ee::F v, bool mph);
 
 } // namespace gt4r::race

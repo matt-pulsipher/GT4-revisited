@@ -7,8 +7,11 @@
 
 #include "gt4r/menu/game_internal.h"
 
+#include "base/log.h"
+
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/save/best_lap_card.h"
 #include "gt4r/save/card_icon.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/replay_particulars.h"
@@ -141,7 +144,6 @@ ReplayRow rebuilt_row(GameNatives& n, const std::string& path, const Bytes& byte
         row.title = f.title, row.course = f.course, row.time_ms = f.time_ms, row.bspec = f.bspec;
         if (!f.cars.empty()) row.car = f.cars[0].label;
         if (!f.mode.empty()) row.mode = f.mode, row.submode = f.submode, row.license = license_mode(f.mode);
-        row.best_lap = f.best_lap();
         row.icon = keep_picture(n.state(), "replay:" + path, f.picture);
     } catch (const std::exception&) {
         row.valid = false;
@@ -156,6 +158,7 @@ ReplayRow own_row(GameNatives& n, const std::string& path, const Bytes& bytes) {
     ReplayRow row;
     const std::filesystem::path folder = std::filesystem::path(path).parent_path();
     const bool alone = std::filesystem::path(path).filename() != folder.filename();
+    row.best_lap = !alone && save::is_best_lap_folder(folder.filename().string());
     int kb = int((bytes.size() + 1023) / 1024), files = 1;
     if (!alone) {
         for (const char* other : {"icon.sys", "icon0.ico", "thumbnail"}) {
@@ -189,24 +192,24 @@ ReplayRow own_row(GameNatives& n, const std::string& path, const Bytes& bytes) {
 
 } // namespace
 
-// The card manager's files by its mode: the best lap modes list the best lap replays alone, Load Best Lap Replay those of the
-// race's course and car (the sequence hands the manager the car's and the course's codes, 0x11CF30; ❓ the manager's own
-// filter is not read); the others every replay.
+// The card manager's files by its mode: the best lap modes list the best lap replays alone (a card's folder <product>B...:
+// FileGT4ReplayBest), Load Best Lap Replay those of the race's course and car (the sequence gives the manager the car's and
+// the course's codes, 0x11CF30; ❓ the manager's own filter is not read); the others every replay.
 std::vector<std::string> replays_for(GameNatives& n, const std::string& mode) {
     std::vector<std::string> all = saved_replays(n.rt.data_dir());
     if (mode != "MODE_SAVE_BESTLAP_REPLAY" && mode != "MODE_LOAD_BESTLAP_REPLAY") return all;
     std::vector<std::string> out;
-    const RaceRequest& q = n.state().race;
+    const GameState& g = n.state();
+    const std::string& course = g.ghost_course.empty() ? g.race.course : g.ghost_course;
+    const std::string& car = g.ghost_car.empty() ? g.race.car : g.ghost_car;
     for (const std::string& path : all) {
-        const Bytes b = read_file(path);
-        if (!race::ReplayFile::is_replay(b)) continue;
-        try {
-            const race::ReplayFile f = race::ReplayFile::decode(b);
-            if (!f.best_lap()) continue;
-            if (mode == "MODE_LOAD_BESTLAP_REPLAY" && (f.course != q.course || f.cars.empty() || f.cars[0].label != q.car)) continue;
-            out.push_back(path);
-        } catch (const std::exception&) {
+        const std::filesystem::path folder = std::filesystem::path(path).parent_path();
+        if (std::filesystem::path(path).filename() != folder.filename() || !save::is_best_lap_folder(folder.filename().string())) continue;
+        if (mode == "MODE_LOAD_BESTLAP_REPLAY") {
+            const std::optional<save::ReplayParticulars> p = save::decode_particulars(read_file(folder / "thumbnail"));
+            if (!p || p->course_label != course || n.db().label(p->car) != car) continue;
         }
+        out.push_back(path);
     }
     return out;
 }

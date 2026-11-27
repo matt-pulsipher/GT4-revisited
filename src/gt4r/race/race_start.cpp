@@ -137,4 +137,20 @@ int planned_back(const StartRace& r, const PlannedStart& p, float v) {
     return p.start.kind == 6 && lap * F::raw(0x3F000000) < F(v) ? 1 : 0;
 }
 
+std::string machine_speed_line(gt3r::ee::F v, bool mph) {
+    using gt3r::ee::F;
+    F u = v * F::raw(0x40666666); // (x 3.6)
+    if (mph) u = u * F::raw(0x3F1F136A);
+    const s32 tenths = std::clamp(gt3r::ee::to_int(u * F::raw(0x41200000)), 0, 9999);
+    const F shown = gt3r::ee::int_to_f(tenths) * F::raw(0x3DCCCCCC);
+    std::string t;
+    if (shown <= F::raw(0) || shown == F::raw(0x7FFFFFFF)) {
+        t = "\x7F\x7F\x7F.\x7F";
+    } else {
+        const s32 n = gt3r::ee::to_int(gt3r::ee::min(gt3r::ee::max(shown, F::raw(0)), F::raw(0x4479F999)) * F::raw(0x41200000) + F::raw(0x3F000000));
+        t = {char('0' + n / 1000), char('0' + n % 1000 / 100), char('0' + n % 100 / 10), '.', char('0' + n % 10)};
+    }
+    return t + (mph ? "mph" : "km/h");
+}
+
 } // namespace gt4r::race
