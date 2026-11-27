@@ -216,15 +216,46 @@ no fade). The rows appear one frame after the panel.
   1 - 0.06 x contrast, a saturation (saturation + 10) / 10; used by 0x33F2E8, the race's last picture pass. The records
   are the options' `MOption` `race_color_correction` and `replay_color_correction` (the Picture Quality page's Racing
   Views and TV Live Relay Views: `[brightness, contrast, saturation, balance]`). **A new game's racing views
-  have brightness +3** (the original's options page and pause after a new game), the replays' 0.
+  have brightness +3** (the option's reset 0x4363A0 stores 3 at Option +0x1184 and zeros in the rest of both records; the
+  original's options page and pause after a new game), the replays' 0. The race's mode picks the record (0x33F738): mode 0
+  (the player driving) the racing views', any other (the B-spec race, the replays) the replays'.
+  The numbers (0x3EFDF0): b = brightness / 10, k = contrast x 3 / 5, saturation (saturation + 10) / 10, T = balance x 2000 / 10
+  + 5500; 0x3EFC10: white 1 - k x 0.1 (the constant 0x3DCCCCCC, a step under the nearest 0.1), the gain 1 when b is 0, else
+  the program's pow(2, b) (0x57D6C0: exp(b log 2) with its own logf 0x57D5A8 and expf 0x57D488, below; 2^0.5 comes out
+  0x3FB504EF, four steps under the nearest float), red x (1 - d) and blue x (d + 1) with d = (T - 5500) x 0x3E4CCCCC / 2000.
+  ✔ `gt4r_diff <disc> grade`: the program's 0x3EFDF0 in the interpreter against ours on 3,993 records (every brightness,
+  contrast and balance, saturation -5 / 0 / +5): every number bit for bit.
   **The pass** (0x4A7D90): per channel a table of 256 levels (0x4A8CB8: 0 at or under the black level, else trunc(255
   t^(1 / gamma)) held to a most of 255 for these settings and the photos, 235 for a course's own grade, 220 for the Dive
-  camera's colors; t = min((x - black) / (white - black), 1), x = i / 255; the program's log and exp are short series), put
+  camera's colors; t = min((x - black) / (white - black), 1), x = i x 0x3B808080 (a step under the nearest 1 / 255);
+  1 / gamma is 1 / max(gamma, 0), the inverse 0 when black equals white; the entries are stored with bits 3 and 4 of the
+  level swapped, the CLUT's storage order, so the GS reads level i's entry), put
   through the frame's channels as color tables, then the saturation mix over 0.30 / 0.59 / 0.11 in 128ths with the
   saturation held to -1 .. 1 (more than 1 is 1: the settings' +1 .. +5 change nothing), the shared engine's mix. Which record
   (0x33F680): the camera manager's own colors, else `Env0`'s (bit 7), else these (when not plain, 0x3EFD08).
-  Here (`race/picture_settings.*` `correction_levels`, `correction_grade`) they are the 3D view's grade, its tables our own
-  (the engine's `PostGrade::own_table`). (It was taken for a gain and a stretch about the middle before: wrong.)
+  The levels' log (0x4A8AD0) and exp (0x4A8BB0) are short series on the FPU's accumulator: log x = e ln 2 + N(m) / D(m)
+  for x = m 2^e (m the mantissa 1 .. 2), D = 30 + 750 m + 3000 m^2 + 3000 m^3 + 750 m^4 + 30 m^5, N = -137 - 1625 m -
+  2000 m^2 + 2000 m^3 + 1625 m^4 + 137 m^5 (N times the reciprocal of D); exp x = 2^k (r + r^2 / 2 + r^3 / 6 + ... + r^8 /
+  40320 + 1) with k = trunc(x / ln 2), r = x - k ln 2, the constants 1/6 0x3E2AAAAA, 1/24 0x3D2AAAAA, 1/120 0x3C088888,
+  1/720 0x3AB60B60, 1/5040 0x39500D00, 1/40320 0x37D00D00, 0 under 2^-127. The pow's logf and expf are the same functions
+  with their terms added one by one instead of on the accumulator. So a gamma of 1 gives 28 levels one under (35, 36, 37,
+  44, ..., 250), brightness +3's levels every 16th are 0 26 47 65 82 99 115 130 145 160 174 188 202 216 229 242 255.
+  Here (`race/picture_settings.*` `correction`, `screen_correction`, `correction_levels`, `correction_grade`) they are the
+  3D view's grade, its tables our own (the engine's `PostGrade::own_table`), in the EE's arithmetic (`base/ee_float.h`) in
+  the program's order. ✔ `gt4r_diff <disc> grade`: 0x4A8CB8 in the interpreter against ours on 1,353 tables of the
+  screen settings and 300 made-up corrections (any gammas, black and white levels, most 220 / 235 / 255): every level the
+  program's. A new table costs ~110 µs here (Apple M4 Pro); the last four are kept.
+  ✔ **Against the original** (PCSX2, Clubman Stage Route 5's tunnel at night, the race paused on its Screen Settings page
+  and the brightness moved from +3 to 0 on the same frozen frame): the original's levels at 0 map to its levels at +3 by
+  exactly this table (the median at every level), so the screen setting is this one stage. Ours from the original's own
+  eye (`eye=`, `picture=` of `GT4R_RACE`) with the picture's scale on (the engine's #497/#498), per channel mean R/G/B
+  outside the display and the car: at +3 55.1/36.5/22.8 against the original's 55.5/35.7/21.8, at 0 41.3/24.8/14.1
+  against 41.8/24.3/13.4 (without the picture's scale 57.6/38.9/25.1 and 43.4/26.6/15.6; with the engine's earlier GT3
+  curve in place of the table, at the same place in the reference's state: 53.6/34.6/21.2 against 59.9/39.8/25.0, now
+  57.3/39.2/25.4). By day ours stays a little lighter before the correction: Tsukuba (`03-race` state before the first
+  corner) 118.2/130.7/142.5 against 115.2/127.3/139.0, Grand Canyon 121.6/119.2/117.8 against 118.8/116.7/116.0 (🔎 the
+  scene's daylight, not this pass). (It was taken for a gain and a stretch
+  about the middle before, then computed in host floats, a level under the program's at places: wrong.)
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
 

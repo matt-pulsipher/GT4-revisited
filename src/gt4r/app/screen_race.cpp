@@ -8,7 +8,7 @@
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `limit` a time limit in seconds (no laps then), `penalty` an arcade race's penalty option (0 none, 1 the speed limit, 2 the pit lane) over its row, `auto_after` the step from which the computer drives the player's car, `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
-// `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
+// `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `picture=b:c:s:w` the screen settings (a new game's 3:0:0:0); `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras (`photo=1`: Select there opens the photo pause); `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -244,6 +244,13 @@ Setup setup_from_env() {
             for (std::string_view n : gt3r::split(v, ':'))
                 if (i < e.size()) e[i++] = float(std::atof(std::string(n).c_str()));
             if (i == 6 || i == 9) s.eye = e;
+        } else if (k == "picture") {
+            // `picture=b:c:s:w`: the screen settings of the racing views and the replays (brightness, contrast, saturation, balance)
+            std::array<int, 4> p{};
+            size_t i = 0;
+            for (std::string_view n : gt3r::split(v, ':'))
+                if (i < p.size()) p[i++] = std::clamp(std::atoi(std::string(n).c_str()), -5, 5);
+            picture_settings(false).v = picture_settings(true).v = p;
         } else if (k == "bspec") s.bspec = v != "0";
         else if (k == "pit") s.pit = v != "0";
         else if (k == "mt") s.player.automatic = v == "0";

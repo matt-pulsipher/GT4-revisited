@@ -550,6 +550,22 @@ TEST(race_picture_settings) {
     g = q.grade();
     CHECK(g.own_table && g.black == 0 && std::fabs(g.white - 0.7f) < 1e-5f && g.table == race::correction_levels(c.gamma, 0, c.contrast, 255));
     CHECK(g.table[100][0] < g.table[100][1] && g.table[100][1] < g.table[100][2] && g.table[179][1] == 255); // (white at 0.7 of 255)
+    // The program's numbers bit for bit (0x3EFDF0 in the interpreter: gt4r_diff grade): its pow gives 2^0.5 four steps under
+    // the nearest float, its white level 0.7 one over.
+    race::PictureSettings h;
+    h.v = {5, 5, 0, 0};
+    c = h.correction();
+    u32 gb, wb;
+    std::memcpy(&gb, &c.gamma[1], 4), std::memcpy(&wb, &c.contrast, 4);
+    CHECK(gb == 0x3FB504EFu && wb == 0x3F333334u);
+    // Brightness 0 with a balance: green through a gamma of 1, the plain levels' (as it is or one under).
+    q.v = {0, 0, 0, 5};
+    g = q.grade();
+    const float plain[3] = {1, 1, 1};
+    const auto id = race::correction_levels(plain, 0, 1, 255);
+    int same = 0;
+    for (size_t i = 0; i < 256; ++i) same += g.table[i][1] == id[i][1];
+    CHECK(g.on && same == 256 && g.table[35][1] == 34);
 }
 
 TEST(replay_camera_springs) {
