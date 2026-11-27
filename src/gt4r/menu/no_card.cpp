@@ -46,11 +46,11 @@ const Rule kRules[] = {
     {"ArcadeProject::TopRoot", "create new?2", 1},
     {"ArcadeProject::TopRoot", "no card", 1},
     {"ArcadeProject::TopRoot", "no gt4 game data create?", 1},
+    // (A film's and a photo's, "Film data / Photo data will now be created ... %dKB of free space is required", are shown as the
+    // original's before each write: Cancel or OK, the size the save's own count, 0x1CC9A8.)
     {"MemoryCard", "create_game_data_need_n_byte_confirm", 1},
     {"MemoryCard", "create_best_replay_need_n_byte_confirm", 1},
-    {"MemoryCard", "create_film_need_n_byte_confirm", 1},
     {"MemoryCard", "create_full_replay_need_n_byte_confirm", 1},
-    {"MemoryCard", "create_photo_need_n_byte_confirm", 1},
     {"MemoryCard", "create_replaylist_need_n_byte_confirm", 1},
     {"MemoryCard", "create_slideshow_need_n_byte_confirm", 1},
     {"MemoryCard", "format_slot_n_cofirm", 1},

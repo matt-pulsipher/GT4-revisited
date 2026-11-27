@@ -116,6 +116,8 @@ console's card and its dialogs instead, as the original shows them: `GT4R_MENU c
   it becomes the current one; `remove` takes nothing away; a game that cannot be read counts as none and is never written over.
 - The common `ConfirmDialog`'s `open` (the scripts reach it through `context.getCommonPage`) answers the texts a card would ask,
   found by the disc's own page and key (`kRules`), without opening the page; a real failure is told once with the save's folder.
+  A film's and a photo's "... will now be created ... %dKB of free space is required" (Info, Cancel / OK) are shown as the original's,
+  the size the save's own count. The pages pack a dialog to its message's measured size (the message's TextFace takes part).
 - Texts that only speak of a card are reworded (English: `reword_card_texts`).
 - The boot: CheckRoot's questions are answered. With no game (a first boot, an empty folder) its question whether to make the
   game's data is answered yes, as a player answers it with a blank card: the game's name entry (BootProject::EntryRoot), then

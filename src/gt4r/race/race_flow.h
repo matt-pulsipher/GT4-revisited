@@ -49,6 +49,9 @@ struct FlowSetup {
     std::vector<u8> marks;
     int test_kind = 0;
     bool mission = false;
+    // A single player's race that starts on the move by its event's row (the photo drive: 0x347618, no clock hold as K +0xF886 is
+    // cleared, vf27 0x3477C8): its clock from the first step and the first lap timed from it, as a mission's.
+    bool timed_from_start = false;
     bool no_lap = false; // a course without a lap (COURSE +0x12 = 1, K +0xCBDE)
     // The race's time limit (ms; 0 none): the event's minutes (RACE +0x18, the conductor's +0xF850) x 60,000 (0x34C140). Once a
     // crossing of the line is at or past it, the leader finishes there and the others at their next crossings (0x34C158, vf21).

@@ -286,6 +286,9 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
             if (row.empty() && !label.empty()) row = n->db().row("RACE", label);
         w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
     }
+    // The photo drive's fill (0x11B2D0): A-spec and B-spec both offered (+0x490, +0x494 = 1) whatever the course; its page's
+    // B-spec button (quick-freerun's Spectator) by it.
+    if (q.sequence == "photo_drive") w.set("IsASpec", 1), w.set("IsBSpec", 1);
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
     // A course visit's one day, put when the sequence ends (GameState::end_race_sequence).
     const int course_kind = q.sequence == "freerun" ? 1 : q.sequence == "practice" ? 3 : q.sequence == "photo_drive" ? 4 : q.sequence == "machinetest" ? 6 : 0;

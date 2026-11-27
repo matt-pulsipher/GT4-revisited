@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include <cmath>
+#include <cstring>
 
 using namespace gt4r;
 using namespace gt4r::photo::film;
@@ -127,4 +128,24 @@ TEST(film_on_the_card) {
         CHECK(back && Film::decode(*back).has_value());
     }
     std::filesystem::remove_all(dir);
+}
+
+// The last frame's cones and boards (GDGT, 0x3E5408) and particles (PTCL, 0x3C2990): 160 slots, a used one resting as "01 00",
+// a moving one with its kind, its angles as bytes of 128 / pi and its place; no emitters "00 00". (✔ The original's film at
+// Tsukuba: 18 resting, 189 bytes with the chunk's head.)
+TEST(film_gadgets_and_particles) {
+    std::vector<photo::film::GadgetSlot> slots(photo::film::kGadgetSlots);
+    for (size_t i = 0; i < 18; ++i) slots[i].used = true;
+    Bytes b = photo::film::gadgets_payload(slots);
+    CHECK(b.size() == 181 && b[0] == 0 && b[1] == 0xA0 && b[2] == 0 && b[3] == 1 && b[4] == 0 && b[37] == 1 && b[38] == 0 && b[39] == 0);
+    slots.assign(2, {});
+    slots[0].used = slots[0].moving = true, slots[0].kind = 3;
+    slots[0].angles = {3.14159274f, 0.5f, 6.28f}, slots[0].pos = {1, 2, 3};
+    b = photo::film::gadgets_payload(slots);
+    CHECK(b.size() == 3 + 2 + 1 + 3 + 12 + 1);
+    CHECK(b[5] == 3 && b[6] == 128 && b[7] == 20 && b[8] == 255); // (0.5 x 128 / pi = 20.37; 6.28 x 128 / pi = 255.87)
+    float y = 0;
+    std::memcpy(&y, &b[13], 4);
+    CHECK(y == 2.0f && b.back() == 0);
+    CHECK(photo::film::no_particles() == Bytes({0, 0}));
 }

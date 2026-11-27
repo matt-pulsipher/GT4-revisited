@@ -10,6 +10,7 @@
 
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -145,6 +146,21 @@ struct Film {
     Bytes encode() const;
     static std::optional<Film> decode(ByteSpan data);
 };
+
+// A frame's cones and boards (GDGT, 0x3E5408), by the rigid bodies' slots (RigidBodyManager: 160 of 0x60 bytes, 0x3E4CE0; the
+// course's bodies take them in order, 0x3E4E50): u8 0, u16 the slots; each a bool, the slot in use (0x3E4F60: on the manager's
+// list), and for one in use a bool, the body moving (0x3E31E0: fewer than three of its hull points' counts +0x58 at 2), and for
+// a moving one u8 its kind (+0x44), its three angles (+0x04 .. +0x0C) each as u8 of trunc(a x 128 / pi), its place (+0x10 .. +0x18).
+struct GadgetSlot {
+    bool used = false, moving = false;
+    u8 kind = 0;
+    std::array<float, 3> angles{}; // radians
+    Vec3 pos;
+};
+constexpr u16 kGadgetSlots = 160;
+Bytes gadgets_payload(std::span<const GadgetSlot> slots);
+// A frame's particle emitters (PTCL, 0x3C2990): u8 0, each emitter's kind + 1 and its own record, u8 0 at the end.
+Bytes no_particles();
 
 // The parameters of a car drawn from a state (the drawn body and wheels, course space), and back.
 Params params_of(const race::CarState& s, const race::CarState* before = nullptr);
