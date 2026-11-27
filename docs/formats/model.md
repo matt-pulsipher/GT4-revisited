@@ -627,11 +627,52 @@ every input bit for bit. (The program leaves two floats of `wrist_phase` unwritt
   bit. Not ported: the glances (states 0, 2 to 11: slow or stopped it looks aside, at random one way, at the car nearest for a
   while, at random moments a short look away, the LCG 0x900D309 of the step's seed).
 - Here the aim is our computer driver's (`sim::ai::Field`), 🔎 at the car's own height.
+- *the gear change* (0x411FB0 → 0x412018, `race/driver_gear.*`, `DriverState::gear_step`; the driver's figure, not a
+  co-driver's nor a head-and-shoulders board's, of a car whose lever layout is of kind 1 or 4). The layout is the car's
+  +0x1080 .. +0x108C, set at the race's set-up (DynamicsConductor::vf28 → 0x385410 → 0x446178) from the car's `GEAR` part:
+  +0x2C the kind, +0x2A (s8) the first gear's slot, +0x2B (s8) reverse's slot, +0x24 the forward gears. The lever's place
+  for a gear (0x411EB0): kind 1 a gate, slot s = the gear (at most the forward gears) + the first slot - 1, reverse its slot;
+  x = ((s - 1) / 2 - 1) / 2 for s over 0, (s / 2 - 2) / 2 else (integer halves toward 0), y 1 for odd s, -1 for even; kind 4
+  x 0, y 1 for reverse, -1 forward; other kinds 0, 0. The record: +0x1C the hand (0 on the wheel, 0.5 on the lever, 1 back),
+  +0x20 / +0x24 the lever, +0x28 / +0x2C the grip's turns, +0x30 the left foot; the filters +0x1C .. +0x2C their rates,
+  +0x6C the rest at the lever, +0x70 the lever's wait, +0x78 the wheel's hold-off; the ints +0x00 the gear the lever is in,
+  +0x04 the car's gear, +0x18 the phase. The phases: 0 on the wheel: a gear that the lever puts elsewhere (kinds 1 and 4)
+  → 2, a reach → 1; 1 / 2 (a hand past 0.5 mirrored) → 3 / 4; 3 / 4 the hand at the table 0x622A20 (0x4145C8) over twice
+  its place x 1 (a reach) or 2.5 (a shift) until 0.5 → 5 (no shift) or 6; 5 at the lever (the grip it would take, 0x411628
+  on a copy) → 6 when the gear changes; 6 the lever along the gate (0x411628: a sixth of a second's wait, then off the
+  gear's column to the middle row, across, and along the column; springs 60 with damping 3 when 0.75 or more from the
+  middle and 30 undamped across, at most 30 and 15 a second; the grip 0.7854 rad across the rows, 0.0349 rad across the
+  gate) → 7 there, the gear held; 7 the hand rests 0.5 s (the tuning object's +0x30) → 8 (mirrored under 0.5) → 9 back to
+  the wheel at the table x 0.5 .. 0.8 (0.0955 x the grip angle of the hand on the lever's side + 0.5) → 0 at 1. From 3
+  .. 9 a gear the hand has not put in → 2, a reach → 1; no shift and no reach at 3 .. 5 → 8. The grip: springs of 1,520,
+  damping 80, within 0.7854 and 0.0349 rad. The left foot (5 a second): 1 while the race's countdown holds a car stopped
+  (0x40D588: the seat's speed ahead under 0.5 km/h), else 5 x the hand over its first fifth, 1, and down again over its last.
+  The hand is the left when the lever is left of the seat (CarGeometry vf18 < vf2).
+  *The reach* (0x40CA58, lever kind 1 only): a want to shift soon, while the wheel has stood within 18 degrees for a while
+  (+0x78: 1 past it, less a quarter a second; 0x40D5C8) and not stopped in the countdown: with the shown engine speed r =
+  int(car +0x738) (0x350ED0: a spring of 1,000, damping 50, after the rpm F +0x4FA; 0x350EB0 at the start), the up-shift
+  U (0x36BEE0; 99,999 in reverse and top gear) and the gear's down-shift D (0x36BF28; -99,999 under second): an up-shift
+  near in first r > U - 1,000 with the throttle pedal over 0.2, in the others r > U - 300 over 0.7; a down-shift near: in
+  the gear 0x36BF68 gives at the lesser of the computer driver's two target speeds (D +0x24, +0x28) r < D - 1,000, else
+  on the throttle r < D, off both pedals r < D + 500, on the brake r < D + 1,000 (and that gear lower: more than one).
+  *The hands' hold on the rim* (0x4113B8 → 0x4104B8, record +0x80 / +0x84, 0 .. 1 at 5 a second): the hand on the lever's
+  side of the wheel (in the cockpits but kinds 0, 0x0F, 0x10, 0x11, 0x20) lets go while the phase is 1 .. 8.
+  ✔ `gt4r_diff <disc> gear <state>`: 13,147 calls of 0x411EB0, 0x40CA58 and 0x411628 on drawn inputs equal; `gt4r_diff
+  <disc> posture <states>` with `GT4R_POSTURE_GEAR=1` (the gear, engine speed and pedals driven; `GT4R_POSTURE_LAYOUT=
+  1,1,6,5` another layout put in): the Chaparral's and the Pescarolo's 1,440 steps in each of four layouts, every phase,
+  equal bit for bit, and the posture (its inputs and its 20 bones) on 204 records taken in the change. Of the race cars
+  only three have a moving driver and such a lever: `cthm0001` (the Caterham Seven Fire Blade, kind 1), `auni0001` and
+  `chap0002` (kind 4); the head-and-shoulders boards (most closed cars; 41 cars have a stock gearbox of kind 1) never run it. Seen: the
+  Caterham at Tsukuba shifting first to second, the left hand on the lever's knob at 0.5. Here the shown engine speed is
+  kept beside the driver (`RaceWorld`), the target speeds are our computer driver's (`Field::least_target`; none in a
+  replay); the hold-off by the countdown is our session's. Not here: lever kinds 3 .. 5 (0x412C78, 0x413FC8, 0x414130;
+  cockpit styles 3 .. 5, which only three kind-0 cars have), cockpit styles 1 and 2 (the lying and the MTR cars, whose
+  gearboxes are of kind 0).
 
 ✔ 1,920 steps of the Pescarolo, the Chaparral and their like in four states, the car shaken and turned and the follower swung
 from lock to lock
 (`gt4r_diff posture`): every field of these bit for bit. Not ported: the gaze's glances,
-the eyes, the gear change (0x411FB0 ...), the feet; the
+the eyes, the right foot; the
 other cockpit styles (motorcycles and lever cars) keep the rest. Here the follower is of the front wheels' mean angle (the
 same in a replay); the program's is of the steering command.
 

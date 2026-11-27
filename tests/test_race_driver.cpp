@@ -5,6 +5,8 @@
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
+#include "gt4r/formats/db/car_parts.h"
+#include "gt4r/sim/ai/run.h"
 
 #include <cmath>
 
@@ -156,4 +158,108 @@ TEST(driver_gaze) {
     for (int k = 0; k < 120; ++k) g.step(c, in, r);
     const float dx = r.at(0x58).host() - 0.3f, dz = r.at(0x60).host() - 0.2f;
     CHECK(near(rp::f(std::sqrt(dx * dx + dz * dz)), 2.5f, 0.01f) && near(rp::f(std::atan2(-dx, -dz)), 1.0471976f, 0.01f));
+}
+
+// The hand on the gear lever (driver_gear.h): gt4r_diff <disc> gear and posture (GT4R_POSTURE_GEAR) check it against the
+// program bit for bit; here what it does.
+TEST(driver_gear_change) {
+    namespace rp = race::posture;
+    const auto near = [](rp::F a, float b) { return std::fabs(a.host() - b) < 1e-6f; };
+    // A five-speed gate from slot 1, reverse at 6: first up left, second down left, ..., fifth up right, reverse down right.
+    const rp::GearLayout gate{1, 1, 6, 5};
+    rp::F x, y;
+    const float places[7][2] = {{0.5f, -1}, {-0.5f, 1}, {-0.5f, -1}, {0, 1}, {0, -1}, {0.5f, 1}, {0.5f, 1}};
+    for (int g = 0; g <= 6; ++g) {
+        rp::gate_place(gate, g, x, y);
+        CHECK(near(x, places[g][0]) && near(y, places[g][1]));
+    }
+    rp::gate_place({1, 1, -1, 5}, 0, x, y); // reverse left of first
+    CHECK(near(x, -1) && near(y, 1));
+    rp::gate_place({4, 0, 0, 3}, 0, x, y); // a selector: forward or not
+    CHECK(near(x, 0) && near(y, 1));
+    rp::gate_place({4, 0, 0, 3}, 2, x, y);
+    CHECK(near(y, -1));
+    rp::gate_place({0, 0, 0, 5}, 3, x, y);
+    CHECK(near(x, 0) && near(y, 0));
+    // The reach: near the up-shift on the throttle, near the down-shift off it.
+    rp::ShiftInputs si;
+    si.top = 5, si.gear = 3, si.up_rpm = 7000, si.down_rpm = 4000, si.suggested = 3;
+    si.rpm = 6800, si.throttle = rp::f(0.9f);
+    CHECK(rp::shift_reach(si).up && !rp::shift_reach(si).down);
+    si.rpm = 6600;
+    CHECK(!rp::shift_reach(si).any());
+    si.rpm = 4400, si.throttle = rp::f(0), si.brake = rp::f(0.5f), si.suggested = 2;
+    CHECK(rp::shift_reach(si).down && rp::shift_reach(si).far);
+    // A shift from second to third: the hand to the lever, across the gate's middle row and up, back to the wheel; the left
+    // foot down while it is off the wheel.
+    rp::Cockpit c;
+    c.kind = 1;
+    c.seat = {rp::f(0.35f), rp::f(0.2f), rp::f(0.1f)}, c.lever = {rp::f(0.05f), rp::f(0.15f), rp::f(-0.2f)};
+    rp::DriverState s;
+    s.reset(c, gate, 2);
+    CHECK(near(s.after.at(0x20), -0.5f) && near(s.after.at(0x24), -1));
+    rp::HandSpeeds speeds;
+    for (rp::F& v : speeds) v = rp::f(1);
+    rp::GearInput in;
+    in.layout = gate, in.gear = 3;
+    rp::DriverMotion m;
+    m.turn = rp::identity(), m.gear = &in;
+    const rp::F dt(1 / 60.0f);
+    int phases = 0, steps = 0;
+    float foot = 0, hand = 0;
+    for (; steps < 600; ++steps) {
+        s.step(c, rp::f(0), dt, speeds, &m);
+        phases |= 1 << s.phase;
+        foot = std::max(foot, s.after.at(0x30).host());
+        hand = std::max(hand, s.after.at(0x1C).host());
+        if (steps > 10 && s.phase == 0) break;
+    }
+    std::printf("    the shift took %d steps (phases %03X)\n", steps, phases);
+    CHECK(s.held_gear == 3 && s.phase == 0 && steps < 200);
+    CHECK((phases & 0x3D0) == 0x3D0); // 4, 6, 7, 8, 9 (2 goes on to 4 in its step)
+    CHECK(near(s.after.at(0x20), 0) && near(s.after.at(0x24), 1));
+    CHECK(foot > 0.99f && hand > 0.99f && near(s.after.at(0x1C), 0));
+    // A reach with no shift: to the lever and back, the gear as it was.
+    in.reach.up = true;
+    s.step(c, rp::f(0), dt, speeds, &m);
+    CHECK(s.phase == 1 || s.phase == 3);
+    in.reach.up = false;
+    for (int i = 0; i < 300 && s.phase != 0; ++i) s.step(c, rp::f(0), dt, speeds, &m);
+    CHECK(s.phase == 0 && s.held_gear == 3);
+}
+
+// Which cars move the lever: the open cars' figures (not the head-and-shoulders boards) with a gearbox of lever kind 1 or 4.
+TEST(driver_gear_layouts_disc) {
+    namespace rp = race::posture;
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        db::SpecDb db = sim::ai::open_specdb(*disc);
+        gt3r::Volume& vol = disc->volume();
+        int kinds[6] = {}, moving[6] = {};
+        std::string shown;
+        for (const db::CarEntry& car : db.cars()) {
+            const gt3r::Volume::Entry* e = vol.find("car/lod/" + car.model);
+            if (!e) continue;
+            const Bytes file = vol.read(*e);
+            if (!car::CarFile::is_car(file)) continue;
+            const std::string& name = car.model;
+            const std::optional<db::CarParts> parts = db::car_parts(db, car.label);
+            if (!parts) continue;
+            const rp::GearLayout g = rp::gear_layout(db::part_row(db, parts->part(db::PartTable::Gear)));
+            CHECK(g.kind >= 0 && g.kind <= 5);
+            ++kinds[std::min(g.kind, 5)];
+            const rp::Cockpit c = rp::read_posture_cockpit(file, false);
+            if (rp::figure_class(c.kind) == rp::FigureClass::Board || c.kind == 0) continue;
+            ++moving[std::min(g.kind, 5)];
+            if ((g.kind == 1 || g.kind == 4) && shown.size() < 400) shown += " " + name + "(" + std::to_string(g.kind) + ")";
+            if (g.kind == 1) CHECK(g.count >= 1 && g.count <= 7);
+        }
+        std::printf("    lever kinds 0..5: %d %d %d %d %d %d; of the moving drivers' cars %d %d %d %d %d %d:%s\n", kinds[0], kinds[1], kinds[2], kinds[3], kinds[4],
+                    kinds[5], moving[0], moving[1], moving[2], moving[3], moving[4], moving[5], shown.c_str());
+        CHECK(kinds[1] > 0 && moving[1] + moving[4] > 0);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 disc");
 }

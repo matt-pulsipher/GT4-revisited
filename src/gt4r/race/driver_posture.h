@@ -65,6 +65,7 @@ struct PostureInput {
 };
 PostureInput still_posture(const Cockpit& c);
 // `pos`, `angles` (pitch, yaw, roll) the car's place and turn; zeros: the figure in the car's own frame.
-PostureInput driving_posture(const Cockpit& c, const DriverRecord& r, V3 pos, V3 angles, bool co_driver);
+// `by_class`: false, every part moved whatever the figure (the program's posture called with its record flag clear).
+PostureInput driving_posture(const Cockpit& c, const DriverRecord& r, V3 pos, V3 angles, bool co_driver, bool by_class = true);
 
 } // namespace gt4r::race::posture

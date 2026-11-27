@@ -4,8 +4,9 @@ namespace gt4r::race::posture {
 
 namespace ee = gt3r::ee;
 
-void DriverState::reset(const Cockpit& c) {
+void DriverState::reset(const Cockpit& c, const GearLayout& layout, int gear) {
     DriverRecord r;
+    gate_place(layout, gear, r.at(0x20), r.at(0x24)); // (the lever at the gear's place)
     // Ahead of the seat (0x40DC08).
     r.at(0x58) = c.seat.x + f(0);
     r.at(0x5C) = c.seat.y + f(0);
@@ -52,6 +53,8 @@ void DriverState::reset(const Cockpit& c) {
     lean_neck_rate = nod_neck_rate = lean_rate = nod_rate = heave_rate = height = lean_left = nod_left = tilt = tilt_rate = head_rate = f(0);
     first = true;
     gaze = DriverGaze{};
+    hand_rate = lever_rate[0] = lever_rate[1] = grip_rate[0] = grip_rate[1] = rest = gate_wait = busy = forward = f(0);
+    held_gear = seen_gear = gear, phase = 0;
 }
 
 namespace {
@@ -92,9 +95,8 @@ F hump(F t) {
     const F u = clamped(t, f(0), f(1)) - f(0.5f), v = u + u;
     return (f(1) - (v * v)) * f(0.099999994f);
 }
-// 0x4145C8: the table between its eleven places, times the pace (0x40F670: 1.1 of the wheel's rate, 14.05 .. 28.1 rad/s).
-F hand_speed(F t, F rate, const HandSpeeds& table) {
-    const F pace = clamped(abs(rate) * f(1.0999999f), f(14.0499001f), f(28.0998001f));
+// 0x4145C8: the table between its eleven places, times the pace.
+F table_speed(F t, F pace, const HandSpeeds& table) {
     F share;
     if (t <= f(0)) share = table[0];
     else if (f(1) <= t) share = table[10];
@@ -105,6 +107,10 @@ F hand_speed(F t, F rate, const HandSpeeds& table) {
         share = (table[size_t(i)] * (f(1) - u)) + (table[size_t(i) + 1] * u);
     }
     return share * pace;
+}
+// A hand's pace on the rim (0x40F670): 1.1 of the wheel's rate, 14.05 .. 28.1 rad/s.
+F hand_speed(F t, F rate, const HandSpeeds& table) {
+    return table_speed(t, clamped(abs(rate) * f(1.0999999f), f(14.0499001f), f(28.0998001f)), table);
 }
 // 0x40F5C0: where a hand goes beside the other.
 F beside(int h, F other) {
@@ -263,6 +269,7 @@ void DriverState::body_step(const Cockpit& c, const DriverMotion& m, F dt) {
     const V3 rate = first ? m.velocity : V3{(at.x - seat.x) * rate_of, (at.y - seat.y) * rate_of, (at.z - seat.z) * rate_of};
     const V3 accel{(rate.x - seat_rate.x) * rate_of, (rate.y - seat_rate.y) * rate_of, (rate.z - seat_rate.z) * rate_of};
     const V3 a = rotate(back, accel);
+    forward = rotate(back, rate).z;
     if (first) heave_rate = zero, height = at.y;
     const F fast = f(31.4159241f), fast2 = f(986.960266f), stiff = f(89.9999924f), damp = f(20);
     const bool torso = figure_class(c.kind) == FigureClass::Torso;
@@ -359,6 +366,9 @@ void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speed
         }
         gaze.step(c, g, after);
     }
+    // The gear change (0x411FB0: the driver's, not a co-driver's).
+    if (motion && motion->gear && !motion->co_driver && (motion->gear->layout.kind == 1 || motion->gear->layout.kind == 4))
+        gear_step(c, *motion->gear, dt, speeds);
     // The hands.
     was[0] = state[0], was[1] = state[1];
     const F turned = rate * dt;
@@ -402,6 +412,170 @@ void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speed
         else e = e + step_most;
     }
     for (u32 h = 0; h < 2; ++h) after.at(0x8C + 4 * h) = max((after.at(0x38 + 4 * h) * f(1.57079625f)) - f(0.767944753f), f(0)) * f(0.174999997f);
+    // The wheel's turn holds the reach for the lever off (+0x78).
+    if (f(0) < busy) busy = busy - (dt * f(0.25f));
+    if (F::raw(0x3EA0D97A) < abs(angle)) busy = f(1);
+    // The hands' hold on the rim (0x4113B8, not a single-seater's torso nor a co-driver): the lever's hand (by the lever's side
+    // of the wheel, in the cockpits but kinds 0x0F, 0x10, 0x11, 0x20) lets go while the gear change runs.
+    if (figure_class(c.kind) != FigureClass::Torso && !(motion && motion->co_driver)) {
+        const bool lever_side = c.kind != 0 && c.kind != 0x0F && c.kind != 0x10 && c.kind != 0x11 && c.kind != 0x20;
+        const int lever_hand = c.lever.x < c.wheel.x ? 0 : 1;
+        for (int h = 0; h < 2; ++h)
+            after.at(0x80 + 4 * u32(h)) = rim_hold(lever_side && h == lever_hand ? phase : 0, state[h], after.at(0x1C), after.at(0xC0), after.at(0x80 + 4 * u32(h)), dt);
+    }
+}
+
+// 0x4104B8: a hand's hold on the rim (0 .. 1, 5 a second; the tuning object's +0x94) by its state on the rim and the gear
+// change's phase: let go while the phase runs (1 .. 8), back on with it 0; with the hand moving to the lever (the hand's place
+// over 0) a hand going round the rim keeps at least a quarter, one coming back takes hold, one going back to rest lets go
+// until the hand's place is 0.95.
+F DriverState::rim_hold(int phase, int state, F place, F other, F hold, F dt) {
+    const F zero = f(0), rate = f(5) * dt;
+    F t = state < 14 ? place : other;
+    for (bool again = true; again;) {
+        again = false;
+        if (zero < t) {
+            // (the program's table 0x6A4630 by state: 1 on the rim, 2 going round, 3 coming back, 4 going to rest)
+            static constexpr u8 kKind[36] = {1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4};
+            const int k = state >= 0 && state < 36 ? kKind[state] : 0;
+            if (k == 1) t = zero, again = true;
+            else if (k == 2) { if (f(0.25f) < hold) hold = hold - rate; }
+            else if (k == 3) { if (hold < f(1)) hold = hold + rate; }
+            else if (k == 4) {
+                if (t < F::raw(0x3F733333)) { if (zero < hold) hold = hold - rate; }
+                else t = zero, again = true;
+            }
+        } else if (phase == 0) {
+            if (hold < f(1)) hold = hold + rate;
+        } else if (0 < phase && phase < 9) {
+            if (zero < hold) hold = hold - rate;
+        }
+    }
+    if (hold < zero) return zero;
+    if (f(1) < hold) return f(1);
+    return hold;
+}
+
+// 0x412018: the hand from the wheel to the lever and back (+0x1C 0 .. 0.5 .. 1), the lever along its gate (+0x20 / +0x24),
+// the hand's grip on it (+0x28 / +0x2C) and the left foot on the clutch (+0x30).
+void DriverState::gear_step(const Cockpit& c, const GearInput& in, F dt, const HandSpeeds& speeds) {
+    const GearLayout& g = in.layout;
+    const F zero = f(0), one = f(1), half = f(0.5f);
+    const int gear = in.gear, held = held_gear;
+    const bool left = c.lever.x < c.seat.x; // the lever to the seat's left (CarGeometry vf18, vf2): the left hand's
+    const bool stopped = F::raw(0xBE0E38E3) < forward && forward < F::raw(0x3E0E38E3); // 0x40D588: under 0.5 km/h
+    seen_gear = gear;
+    bool reach = false;
+    if (in.reach.any() && !(zero < busy) && !(in.start_hold && stopped)) reach = g.kind == 1;
+    F& hand = after.at(0x1C);
+    F hand_push = zero, want_x = zero, want_y = zero;
+    const auto still = [&] { hand_push = zero, hand_rate = zero; };
+    const auto hand_back = [&] { // back to the wheel, at a pace by where the hand grips it
+        const F h = left ? after.at(0x48) : after.at(0x4C);
+        const F pace = min(max((F::raw(0x3DC391CE) * abs(h)) + F::raw(0x3EFFFFFE), half), F::raw(0x3F4CCCCC));
+        hand_rate = table_speed((hand + hand) - one, pace, speeds);
+        if (gear != held) phase = 2;
+        else if (reach) phase = 1;
+        else if (phase == 7) {
+            rest = rest + dt;
+            if (!(rest < half)) phase = 8;
+        } else if (phase == 9 && !(hand < one)) {
+            phase = 0;
+            hand_push = zero, hand_rate = zero, hand = zero;
+        }
+    };
+    int at = phase;
+    for (bool again = true; again;) {
+        again = false;
+        switch (at) {
+        case 0:
+            hand_push = zero, hand_rate = zero, hand = zero;
+            if (gear == held) {
+                if (reach) phase = 1;
+            } else {
+                F x0, y0, x1, y1;
+                gate_place(g, held, x0, y0);
+                gate_place(g, gear, x1, y1);
+                if ((g.kind == 1 || g.kind == 4) && !(x0 == x1 && y0 == y1)) phase = 2;
+            }
+            if (phase != 0) at = 1, again = true;
+            break;
+        case 1:
+        case 2:
+            if (half < hand) still(), hand = clamp(one - hand, zero, one);
+            else still();
+            phase = phase == 1 ? 3 : 4;
+            at = 3, again = true;
+            break;
+        case 3:
+        case 4:
+            if (gear == held && !reach) {
+                phase = 8;
+                break;
+            }
+            hand_rate = table_speed(hand + hand, phase == 3 ? one : f(2.5f), speeds);
+            if (hand < half) break;
+            still(), hand = half;
+            phase = gear == held ? 5 : 6;
+            break;
+        case 5: {
+            if (gear == held && !reach) {
+                phase = 8;
+                break;
+            }
+            F x = after.at(0x20), y = after.at(0x24), vx = zero, vy = zero, wait = zero; // (where the grip would go)
+            gate_hand(g, gear, dt, x, y, vx, vy, wait, want_x, want_y);
+            if (gear == held) break;
+            phase = 6;
+            at = 6, again = true;
+            break;
+        }
+        case 6:
+            if (gate_hand(g, gear, dt, after.at(0x20), after.at(0x24), lever_rate[0], lever_rate[1], gate_wait, want_x, want_y)) {
+                held_gear = gear;
+                phase = 7;
+                rest = zero;
+            }
+            break;
+        case 7:
+        case 9: hand_back(); break;
+        case 8:
+            if (hand < half) still(), hand = clamp(one - hand, zero, one);
+            else still();
+            phase = 9;
+            hand_back();
+            break;
+        default: break;
+        }
+    }
+    // The hand, the grip's two springs (1,520, damping 80), within 45 and 2 degrees.
+    hand_rate = hand_rate + (hand_push * dt);
+    hand = hand + (hand_rate * dt);
+    const F want[2] = {want_x, want_y}, most[2] = {F::raw(0x3F490FDA), F::raw(0x3D0EFA35)};
+    for (u32 k = 0; k < 2; ++k) {
+        F& grip = after.at(0x28 + 4 * k);
+        F push = zero + ((want[k] - grip) * f(1520));
+        push = push - (grip_rate[k] * f(80));
+        grip_rate[k] = grip_rate[k] + (push * dt);
+        grip = grip + (grip_rate[k] * dt);
+        if (most[k] < grip) grip_rate[k] = zero, grip = most[k];
+        else if (grip < -most[k]) grip_rate[k] = zero, grip = -most[k];
+    }
+    // The left foot: down on the clutch while the hand is on the lever (up over the hand's first and last fifths of its way),
+    // down while the countdown holds the car stopped; at 5 a second.
+    F foot = zero;
+    if (in.start_hold && stopped) foot = one;
+    else if (zero <= hand && hand <= F::raw(0x3E4CCCCC)) foot = hand * f(5);
+    else if (hand <= F::raw(0x3F4CCCCC)) foot = one;
+    else if (hand <= one) foot = one - ((hand - F::raw(0x3F4CCCCC)) * f(5));
+    F& left_foot = after.at(0x30);
+    if (left_foot < foot) {
+        left_foot = left_foot + (dt * f(5));
+        if (foot < left_foot) left_foot = foot;
+    } else if (foot < left_foot) {
+        left_foot = left_foot - (dt * f(5));
+        if (left_foot < foot) left_foot = foot;
+    }
 }
 
 } // namespace gt4r::race::posture
