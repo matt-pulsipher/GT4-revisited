@@ -33,6 +33,8 @@ struct PrologueLessonRule {
 };
 // 0x3E1C20's cases (the table 0x572CC0), by the test's number 1 .. 36.
 const std::array<PrologueLessonRule, 36>& prologue_lesson_rules();
+// The soft materials (0x3B4738: a word per material, 16 of them; Gran Turismo 4's 0x622430 has 24).
+constexpr u32 kPrologueSoft = 0x503E28, kPrologueSoftCount = 16;
 // The penalty's speed cap (km/h): the constant 0x3C5B48 loads.
 constexpr u8 kProloguePenaltyCap = 50;
 

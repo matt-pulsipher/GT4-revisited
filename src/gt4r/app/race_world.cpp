@@ -8,6 +8,7 @@
 
 #include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/program_tables_prologue.h"
 
 #include "base/log.h"
 #include "gt4r/audio/race_sound.h"
@@ -375,8 +376,10 @@ void RaceWorld::build_simulation() {
                 hand_speeds_.emplace();
                 for (u32 k = 0; k < 11; ++k) (*hand_speeds_)[k] = race::posture::F::raw(program.w(0x622A20 + 4 * k));
             }
-            // The materials off the course (0x622430, read by 0x3F4EA0).
-            for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
+            // The materials off the course (0x622430, read by 0x3F4EA0; Prologue's 0x503E28, by 0x3B4738).
+            for (u32 m = 0; m < soft_.size(); ++m)
+                soft_[m] = program.prologue_values() ? (m < sim::kPrologueSoftCount ? program.w(sim::kPrologueSoft + 4 * m) : 0)
+                                                     : program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
                 const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
