@@ -541,3 +541,67 @@ TEST(mod_car_body) {
             for (const std::string& w : s.warnings) warned = warned || w.find("[paints]") != std::string::npos;
     CHECK(warned);
 }
+
+// A mod switched off while the game runs: its car leaves the menus' database, its dealer's list and the pools it joined, the
+// garage keeps its place as a game loaded without the mod keeps it (the same save written), and it is back with its mod.
+TEST(mod_car_removed_later) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    const std::string with = write_car("gt4r_test_alfa_26.ini", "[car]\nlabel = gt4r_test_alfa_26\nname = Alfa Test `26\nmaker = Alfa Romeo\nprice = 23456\n"
+                                                                "donor = _147_20_twinspark_02\n[opponent]\nraces = am_sunday_0001\n");
+    auto list = std::make_shared<std::string>(with);
+    std::unique_ptr<menu::Runtime> rt = menus_with(*disc, list);
+    auto press = [&](std::initializer_list<menu::Key> keys) {
+        for (menu::Key k : keys) rt->key(k), rt->settle();
+    };
+    menu::GameState& game = rt->game();
+    game.card.has_game_data = true, game.username = "Player", game.money = 500000;
+    rt->boot();
+    rt->start_project(rt->first_project());
+    rt->settle();
+    if (rt->current_page() && rt->current_page()->name == "MovieRoot") press({menu::Key::Start});
+    CHECK(rt->finished() && rt->advance());
+    rt->settle();
+    press({menu::Key::Down, menu::Key::Accept});
+    CHECK(rt->finished() && rt->wanted_project() == "gtmode" && rt->advance());
+    rt->settle();
+    rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child("DealerItaly"));
+    press({menu::Key::Accept});
+    const auto carlist = [&] { return rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carlist").items(); };
+    CHECK(carlist() && carlist()->size() == 6);
+    menu::Database& d = menu::natives_of(*rt)->db();
+    CHECK(d.car("gt4r_test_alfa_26") != nullptr);
+    // The garage: the mod car, driven.
+    menu::GarageEntry e;
+    e.car = "gt4r_test_alfa_26", e.used = true, e.paint = 1, e.odometer = 1234, e.day = game.today, e.power = 15000, e.weight = 1300;
+    game.garage = {e};
+    game.riding_car = 0;
+    const save::Codes mod_codes = save::database_codes(*d.db);
+    const Bytes saved = save::write_game(game, mod_codes);
+    const db::RaceEvents events(*d.db, [&](const std::string& path) { return rt->reader()(path); });
+    const auto pool_size = [&] {
+        const std::optional<db::RaceEvent> s = events.event("am_sunday_0001");
+        return s ? events.pool(*s).size() : size_t(0);
+    };
+    const size_t with_pool = pool_size();
+
+    *list = "";
+    menu::refresh_mod_cars(*rt);
+    CHECK(d.car("gt4r_test_alfa_26") == nullptr && !d.db->labels("GENERIC_CAR")->id("gt4r_test_alfa_26"));
+    CHECK(std::none_of(d.cars.begin(), d.cars.end(), [](const db::CarEntry& c) { return c.label == "gt4r_test_alfa_26"; }));
+    CHECK(carlist() && carlist()->size() == 5 && rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carnum").i == 5);
+    CHECK(pool_size() + 1 == with_pool);
+    CHECK(game.garage.size() == 1 && game.garage[0].missing() && game.riding_car == -1 && game.riding_missing == 0);
+    const Bytes without = save::write_game(game, save::database_codes(*d.db));
+    CHECK(without == saved); // (as a game loaded without the mod writes it)
+
+    *list = with;
+    CHECK(menu::refresh_mod_cars(*rt) == std::vector<std::string>{"gt4r_test_alfa_26"});
+    CHECK(carlist() && carlist()->size() == 6 && pool_size() == with_pool);
+    CHECK(game.garage.size() == 1 && game.garage[0].car == "gt4r_test_alfa_26" && game.garage[0].used && game.riding_car == 0);
+    CHECK(save::write_game(game, save::database_codes(*d.db)) == saved);
+    bool clean = true;
+    for (const std::string& line : rt->log())
+        if (line.find("script error") != std::string::npos) clean = false, std::printf("  %s\n", line.c_str());
+    CHECK(clean);
+}

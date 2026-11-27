@@ -236,6 +236,11 @@ Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `sr
   `<key>_subtuner` none). Its pictures by path: `image/piece/tuner_logo2/<key>.png` (the country page's button),
   `piece/tuner_logo/<key>.img` and `piece/tuneshop_logo/<key>.img` (the dealer page's logo, its tune shop's: DealerData
   getSubTuner gives the dealer itself); `piece/tuner_screen/<key>.strb` (the page's top film) has none.
+- A mod switched off or removed while the game runs (`SpecDb::remove_mod_cars`, `ModCars::remove`): the cars of the files no
+  longer listed leave every table and label list (the rows each car added, its paint rows, its CARS/ file, its entries in
+  the pools it joined), the menus' lists (`<maker>_carlist`, `_carnum`; a mod maker's emptied list goes) and the garage's
+  places as a load without them makes them (`GarageEntry::missing`: the same save is written); the cars are made again
+  under the same ids when the mod is back (`refresh_mod_cars`), and the garage's places are cars again.
 - The database reads the file layer's list of the mods' car files (`mods/.cars`) when its first table, label list or pool
   is read, works the cars out from the disc's tables, and adds their rows to every table, list and pool from then on.
 - A car's rows have ids its label gives (FNV-1a over the label, the table and a number, in 0x40000000 .. 0x7FFFFFFF, above

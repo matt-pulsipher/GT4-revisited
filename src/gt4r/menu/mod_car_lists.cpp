@@ -17,6 +17,8 @@
 #include "gt4r/menu/game_internal.h"
 
 #include <algorithm>
+#include <map>
+#include <set>
 
 namespace gt4r::menu {
 
@@ -109,13 +111,89 @@ void add_mod_cars_to_lists(GameNatives& n, const std::shared_ptr<Module>& into) 
 
 void add_mod_makers_to_menus(GameNatives& n) { add_mod_makers_to_nations(n); }
 
+static void garage_without(GameState& s, const std::map<std::string, u64>& gone) {
+    for (size_t i = 0; i < s.garage.size(); ++i) {
+        GarageEntry& e = s.garage[i];
+        const auto it = gone.find(e.car);
+        if (e.car.empty() || it == gone.end()) continue;
+        // (its words as the save writes a car's, kept as a car the database lacks is: save/game_data.cpp)
+        e.kept_flags = (e.kept_flags & ~(u64(0x7FFFFFF) | (u64(0x1FFF) << 32))) | u64(e.used) | u64(e.record.has_value()) << 1 | u64(e.paint & 0x7F) << 2 |
+                       u64(e.power & 0x3FFFF) << 9 | u64(e.weight & 0x1FFF) << 32;
+        e.kept_day = (e.kept_day & 0xFF000000u) | ((e.day - GameState::kFirstDay) & 0xFFFFFF);
+        e.kept_rank = (e.kept_rank & ~u64(0x3FF)) | u64(e.ride_rank & 0x3FF);
+        e.missing_code = it->second, e.car.clear(), e.used = false;
+        if (s.riding_car == int(i)) s.riding_missing = int(i), s.riding_car = -1;
+    }
+    for (const auto& [label, code] : gone) s.available_cars.erase(label);
+}
+
+static void garage_with(GameState& s, Database& d) {
+    const db::Labels* cars = d.db->labels("GENERIC_CAR");
+    if (!cars) return;
+    for (size_t i = 0; i < s.garage.size(); ++i) {
+        GarageEntry& e = s.garage[i];
+        if (!e.missing() || (e.missing_code >> 32) != 0) continue;
+        const std::string* label = cars->label(u32(e.missing_code));
+        if (!label) continue;
+        e.car = *label, e.missing_code = ~u64(0);
+        e.used = e.kept_flags & 1, e.paint = int((e.kept_flags >> 2) & 0x7F), e.power = u32((e.kept_flags >> 9) & 0x3FFFF), e.weight = u32((e.kept_flags >> 32) & 0x1FFF);
+        e.day = GameState::kFirstDay + (e.kept_day & 0xFFFFFF), e.ride_rank = int(e.kept_rank & 0x3FF);
+        if (s.riding_car < 0 && s.riding_missing == int(i)) s.riding_car = int(i), s.riding_missing = -1;
+    }
+}
+
+// The labels out of the makers' lists of a script file (NewCarData's, CarData's), their counts down; a mod maker's list left
+// empty goes (its dealer leaves its country's page).
+static void remove_from_lists(Database& d, const std::shared_ptr<Module>& into, const std::set<std::string>& gone) {
+    for (const char* name : {"NewCarData", "CarData"}) {
+        const std::shared_ptr<script::Variable> data = into->find(name);
+        const std::shared_ptr<Module> lists = data ? data->value.as<Module>() : nullptr;
+        if (!lists) continue;
+        std::vector<std::string> emptied;
+        for (auto& [key, v] : lists->members) {
+            if (key.size() < 8 || key.compare(key.size() - 8, 8, "_carlist") != 0 || !v) continue;
+            std::vector<Value>* items = v->value.items();
+            if (!items) continue;
+            const size_t before = items->size();
+            std::erase_if(*items, [&](const Value& x) { return x.kind == Kind::String && gone.count(x.as_string()) > 0; });
+            if (items->size() == before) continue;
+            const std::string maker = key.substr(0, key.size() - 8);
+            if (const std::shared_ptr<script::Variable> count = lists->find(maker + "_carnum"); count && count->value.kind == Kind::Int)
+                count->value = Value::integer(s32(items->size()));
+            if (items->empty() && d.db->mod_makers().by_key(maker)) emptied.push_back(maker);
+        }
+        for (const std::string& m : emptied) lists->members.erase(m + "_carlist"), lists->members.erase(m + "_carnum");
+    }
+}
+
 std::vector<std::string> refresh_mod_cars(Runtime& rt) {
     const std::shared_ptr<GameNatives> n = natives_of(rt);
     if (!n) return {};
     Database& d = n->db();
     if (!d.db) return {};
+    // A mod switched off or removed: its cars out of the database, the makers' lists and the garage (kept in the save as a car
+    // the database lacks is when the game is loaded).
+    std::map<std::string, u64> codes;
+    if (const db::Labels* cars = d.db->labels("GENERIC_CAR"))
+        for (const std::string& label : d.db->mod_cars().labels())
+            if (const std::optional<u32> id = cars->id(label)) codes[label] = u64(*id);
+    if (const std::vector<std::string> removed = d.db->remove_mod_cars(); !removed.empty()) {
+        std::map<std::string, u64> gone;
+        for (const std::string& l : removed)
+            if (const auto it = codes.find(l); it != codes.end()) gone[l] = it->second;
+        const std::set<std::string> labels(removed.begin(), removed.end());
+        d.cars = d.db->cars();
+        d.by_label.clear();
+        for (size_t i = 0; i < d.cars.size(); ++i) d.by_label[d.cars[i].label] = i;
+        for (const std::string& l : removed) d.specs.erase(l), d.stock_figures_.erase(l);
+        for (const std::weak_ptr<Module>& m : std::vector<std::weak_ptr<Module>>(d.car_lists))
+            if (const std::shared_ptr<Module> into = m.lock()) remove_from_lists(d, into, labels);
+        garage_without(rt.game(), gone);
+        rt.note("mod cars taken out: " + std::to_string(removed.size()));
+    }
     std::vector<std::string> added = d.db->add_mod_cars();
     if (added.empty()) return added;
+    garage_with(rt.game(), d); // (a car of the garage the database lacked: there again)
     use_mod_makers(d); // (a mod's makers installed since)
     add_mod_makers_to_nations(*n);
     d.cars = d.db->cars();

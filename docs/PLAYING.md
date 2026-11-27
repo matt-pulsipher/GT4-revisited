@@ -255,8 +255,9 @@ there). The Mods page lists each mod's cars, and why one is not in the game; `gt
 [disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
 gives: with its mod removed (or switched off) the garage leaves the car out and the save keeps it as it was, the car driven
 too (no car is driven meanwhile); with the mod back the car is there again. A mod installed while the game runs (the Mods
-page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod removed while the game runs
-leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
+page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod switched off or removed while
+the game runs takes its cars out of them at once, and the garage keeps a car of it as a game loaded without the mod does
+(its place kept, the car back with the mod). In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
 their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. The Car database's *Export* (Start) writes the car shown whole as a mod, `mods/cars_<disc>/`, for your other discs (it is
 off on the disc it came from): its rows of the database in a records file, its models and pictures. A disc that has the

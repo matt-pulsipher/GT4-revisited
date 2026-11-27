@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,6 +38,8 @@ public:
     ByteSpan row_at(size_t index) const { return ByteSpan(data_).subspan(index * row_size_, row_size_); }
     // Rows added (a mod car's, mod_cars.h): each its id and row_size() bytes; the ids stay in order.
     void add_rows(std::vector<std::pair<u32, Bytes>> rows);
+    // Every row of these ids taken out (a removed mod car's).
+    void remove_rows(const std::set<u32>& ids);
 
 private:
     u32 flags_ = 0;
@@ -136,6 +139,9 @@ public:
     // read and to come; the labels added. The ones in stay as they are (a removed mod's car stays until the database is made
     // again), and so do the tables, label lists and pools already handed out (rows are added to them).
     std::vector<std::string> add_mod_cars();
+    // The mods' cars whose files the reader no longer lists (a mod switched off or removed while the game runs) taken out of
+    // every table and label list read and to come; the labels taken out.
+    std::vector<std::string> remove_mod_cars();
     // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
     std::optional<Bytes> car_file(u64 code);
     // A race's pool of opponents (specdb/<set>/RACES/<35, the RACE row>), with the mod cars that join it; none without one.
