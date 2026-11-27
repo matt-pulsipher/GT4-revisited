@@ -459,9 +459,88 @@ void hybrid_start(const ex::Car& c, CarPart& x) {
     x.mileage = 0, x.mileage_steps = 30;
 }
 
-void near_drivers(std::span<ex::Car> cars) {
+namespace {
+
+ex::Vec3 sub3(const ex::Vec3& b, const ex::Vec3& a) { return {b.x - a.x, b.y - a.y, b.z - a.z}; }
+F dot3(const ex::Vec3& a, const ex::Vec3& d) { return (a.x * d.x + a.y * d.y) + a.z * d.z; }
+
+// 0x3DBD10: the pair's view of each other (neither a ghost, F +0x3EE; both on or both off a pit lane, F +0x539 bit 4): within
+// 100 m and the other's height + 5 m, each one's distance ahead and to the right of the other.
+bool view(const ex::Car& a, const ex::Car& b, ex::PairView& out) {
+    if (a.ghost || b.ghost) return false;
+    if ((a.x535 & 0x10) != (b.x535 & 0x10)) return false;
+    const F d[3] = {b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z};
+    out.dist = gt3r::ee::sqrt((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]);
+    if (F::raw(0x42C80000) < out.dist) return false;
+    const F five = F::raw(0x40A00000);
+    if (d[2] < -(b.p.body_height + five)) return false;
+    if (a.p.body_height + five < d[2]) return false;
+    const F* af = &a.fwd.x;
+    const F* al = &a.lat.x;
+    const F* bf = &b.fwd.x;
+    const F* bl = &b.lat.x;
+    out.ua = out.va = out.ub = out.vb = F();
+    for (int k = 0; k < 3; ++k) {
+        out.ua = out.ua + af[k] * d[k];
+        out.va = out.va + al[k] * d[k];
+        out.ub = out.ub - bf[k] * d[k];
+        out.vb = out.vb - bl[k] * d[k];
+    }
+    return true;
+}
+
+// 0x3DBEE8: for a car a computer drives (control source or driver kind set), the gap to a car ahead within the pair's half
+// width and how fast it closes (the time-scaled velocities along a's heading); false otherwise.
+bool closing(const ex::Car& a, const ex::Car& b, F u, F v, F& gap, F& rate) {
+    gap = rate = F();
+    if (a.control == 0 && a.driver_kind == 0) return false;
+    const F p = (u - b.p.body_rear) - a.p.body_front;
+    if (p <= F()) return false;
+    const F half = (a.p.body_width + b.p.body_width) * F::raw(0x3F000000);
+    if (half < v || v < -half) return false;
+    const F av[3] = {a.vel.x, a.vel.y, a.vel.z}, bv[3] = {b.vel.x, b.vel.y, b.vel.z};
+    const F* af = &a.fwd.x;
+    F q = F();
+    for (int k = 0; k < 3; ++k) q = q + af[k] * (b.time_scale * bv[k] - a.time_scale * av[k]);
+    gap = p, rate = -q;
+    return true;
+}
+
+// 0x3DC0B0: where the other car is (the low nibble: 1 far behind .. 6 far ahead; the high one: 1 far left .. 7 far right),
+// 0 past 50 m.
+u8 position_code(F dist, F u, F v, F ahead, F behind, F w) {
+    if (F::raw(0x42480000) < dist) return 0;
+    const F four = F::raw(0x40800000), half = F::raw(0x3F000000);
+    u8 c;
+    if (ahead * four < u) c = 6;
+    else if (ahead < u) c = 5;
+    else if (F() < u) c = 4;
+    else if (-behind <= u) c = 3;
+    else if (-behind * four <= u) c = 2;
+    else c = 1;
+    const F nw = -w;
+    if (v < nw * four) return c | 0x10;
+    if (v < nw) return c | 0x20;
+    if (v < nw * half) return c | 0x30;
+    if (v <= w * half) return c | 0x40;
+    if (v <= w) return c | 0x50;
+    if (v <= w * four) return c | 0x60;
+    return c | 0x70;
+}
+
+// 0x3DC038: the slipstream behind `leader` at (x ahead, y right) of it: over 100 km/h, behind it by less than its speed and
+// within its width, (speed + x) / speed.
+F slip_factor(const ex::Car& leader, F x, F y) {
+    const F v = leader.speed, h = leader.p.body_width;
+    if (F::raw(0x41DE38E2) < v && x < F() && -v < x && -h < y && y < h) return (v + x) / v;
+    return F();
+}
+
+} // namespace
+
+void proximity(std::span<ex::Car> cars, ex::Proximity& k) {
     const F kHalf = F::raw(0x3F000000), five = F::raw(0x40A00000), twenty = F::raw(0x41A00000);
-    for (ex::Car& c : cars) c.ai.contact = F(), c.ai.zone = {};
+    for (ex::Car& c : cars) c.ai.contact = F(), c.ai.zone = {}; // (0x4281B0)
     // 0x4281E8: the cells (front, front left, front right, left, right, rear left, rear right, rear) from a car at (u ahead, v right).
     const auto zones = [&](std::array<u8, 8>& z, F dist, F u, F v, F ahead, F behind, F w) {
         enum { kFront, kFrontLeft, kFrontRight, kLeft, kRight, kRearLeft, kRearRight, kRear };
@@ -495,9 +574,10 @@ void near_drivers(std::span<ex::Car> cars) {
             else if (u < -(behind * kHalf)) least(left ? kRearLeft : kRearRight, 1);
         }
     };
+    // 0x428530: the contact with a car closed on.
     const auto meet = [&](ex::Car& a, const ex::Car& b, F u, F v) {
         F gap, rate;
-        if (!ex::gap_closing(a, b, u, v, gap, rate)) return; // (0x3DBEE8)
+        if (!closing(a, b, u, v, gap, rate)) return;
         F x;
         if (F::raw(0x3FB1C71B) < rate) x = F::raw(0x3F800000);
         else if (F::raw(0x3CE38E37) < rate && gap / rate < five) x = kHalf;
@@ -507,17 +587,32 @@ void near_drivers(std::span<ex::Car> cars) {
         }
         if (a.ai.contact < x) a.ai.contact = x;
     };
-    for (size_t i = 0; i < cars.size(); ++i)
-        for (size_t j = i + 1; j < cars.size(); ++j) {
+    const size_t n = cars.size() < ex::kMaxCars ? cars.size() : ex::kMaxCars;
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j) {
             ex::Car &a = cars[i], &b = cars[j];
             ex::PairView pv;
-            if (!ex::pair_view(a, b, pv)) continue;
+            if (!view(a, b, pv)) {
+                k.slip[i][j] = k.slip[j][i] = F();
+                k.code[i][j] = k.code[j][i] = 0;
+                continue;
+            }
             const F w = (a.p.body_width + b.p.body_width) * kHalf;
             const F ab = a.p.body_front + b.p.body_rear, ba = a.p.body_rear + b.p.body_front;
             zones(a.ai.zone, pv.dist, pv.ua, pv.va, ab, ba, w);
             zones(b.ai.zone, pv.dist, pv.ub, pv.vb, ba, ab, w);
+            k.code[i][j] = position_code(pv.dist, pv.ua, pv.va, ab, ba, w);
+            k.code[j][i] = position_code(pv.dist, pv.ub, pv.vb, ba, ab, w);
             if (pv.dist < twenty) meet(a, b, pv.ua, pv.va), meet(b, a, pv.ub, pv.vb);
+            k.slip[i][j] = slip_factor(b, pv.ub, pv.vb);
+            k.slip[j][i] = slip_factor(a, pv.ua, pv.va);
         }
+    for (size_t i = 0; i < n; ++i) {
+        F s = F();
+        for (size_t j = 0; j < n; ++j) s = s + k.slip[i][j];
+        if (F::raw(0x3F800000) < s) s = F::raw(0x3F800000);
+        cars[i].slip_target = s;
+    }
 }
 
 bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& type, Equipment& eq) {

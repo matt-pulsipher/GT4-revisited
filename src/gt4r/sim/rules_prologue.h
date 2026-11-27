@@ -211,10 +211,13 @@ int gear_for_speed(const ex::Car& c, F v);
 void moving_start(ex::Car& c, F v);
 // 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
 u16 mileage(F fuel, F distance);
-// 0x3DC1C8's part for the drivers (phase 14), into the records' c.ai: the zone cells of the cars around (0x4281E8: at least 2
-// beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
-// on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
-void near_drivers(std::span<ex::Car> cars);
+// 0x3DC1C8 (phase 14): which cars are near which: for each pair that sees the other (0x3DBD10: neither a ghost, both on or
+// both off a pit lane, within 100 m and the other's height + 5 m) the drivers' zone cells of the cars around (0x4281E8: at
+// least 2 beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners), the position codes (0x3DC0B0, the
+// conductor + 0xDCF4 + 8 i + j), within 20 m the contact with a car closed on (0x3DBEE8, 0x428530: 1 over 5 km/h, 0.5 within 5 s,
+// else 0.05 under half a meter and 0.1 under 4 m) and the slipstream behind the other (0x3DC038, the conductor + 0xDBF4 +
+// 4 (8 i + j)); then each car's slipstream target (F +0x52C) the sum, at most 1.
+void proximity(std::span<ex::Car> cars, ex::Proximity& k);
 // The parameter block's engine and driveline (Gran Turismo 3's layout, Prologue's converter's) in Gran Turismo 4's form: the
 // torque curve, limits, turbo stages, the driveline's layout, gears (at most 7 of the block's 8 ratios), differentials, the
 // shift speeds, inertias, and each axle's tire radius and width.

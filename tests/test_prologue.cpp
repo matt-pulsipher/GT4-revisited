@@ -472,6 +472,9 @@ TEST(disc_prologue_pairs_pass_equal) {
     CHECK(s.err.empty());
     CHECK(s.records == 6000 && s.clean == s.records);
     CHECK(s.with_slip > 0);
+    std::printf("  the pairs' slipstream factors and position codes: %llu of %llu equal\n", (unsigned long long)s.table_equal,
+                (unsigned long long)s.table_values);
+    CHECK(s.table_values > 0 && s.table_equal == s.table_values);
 }
 
 // The race's rules on our session (race_rules.h): lesson 1's speed cap (0x3E1C20: 50 km/h, as the original's lesson 1 drives),
