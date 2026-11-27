@@ -513,6 +513,8 @@ int race_strobe_tree(Disc& disc, const Args& a) {
             if (d.group) {
                 const race::StrobeMovie::Fill* f = d.group->fill < movie->fills.size() ? &movie->fills[d.group->fill] : nullptr;
                 std::printf("shape fill %u kind %d value %08x", unsigned(d.group->fill), f ? int(f->kind) : -1, f ? unsigned(f->value) : 0u);
+                if (f && f->kind == 1 && f->index < movie->gradients.size()) // (a gradient: its stops, place and colour)
+                    for (const auto& [at, c] : movie->gradients[f->index].stops) std::printf(" [%.3f %08x]", double(at), unsigned(c));
             } else if (!d.external.empty()) std::printf("external %s scale %.2f", d.external.c_str(), double(std::hypot(d.m[0], d.m[1])));
             else std::printf("text \"%s\"", d.words.c_str());
             std::printf(" at %.0f,%.0f mul %.2f %.2f %.2f %.2f add %.2f %.2f %.2f %.2f\n", double(d.m[4]), double(d.m[5]), double(d.mul[0]), double(d.mul[1]),

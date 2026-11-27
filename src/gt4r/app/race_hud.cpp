@@ -120,6 +120,7 @@ struct RaceHud::Impl {
     gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
     gt3r::text::FontFile race_fonts; // the movies' on Prologue's disc (font/race.fnt: FC_16 .. FC_48, DC_12)
     std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
+    std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> gradient_textures; // (a gradient's ramp, 256 x 1)
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
@@ -384,6 +385,8 @@ RaceHud::~RaceHud() {
     if (impl_->course_logo.texture) SDL_DestroyTexture(impl_->course_logo.texture);
     for (auto& [key, t] : impl_->movie_textures)
         if (t) SDL_DestroyTexture(t);
+    for (auto& [key, t] : impl_->gradient_textures)
+        if (t) SDL_DestroyTexture(t);
 }
 
 void RaceHud::set_course_logo(ByteSpan set) {
@@ -443,6 +446,37 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
         o.r = ch[0], o.g = ch[1], o.b = ch[2], o.a = ch[3];
         return o;
     };
+    // A gradient (fill kind 1) as a ramp along the fill matrix's u, 256 texels for 0 .. 1, held at its ends: each texel the
+    // first pair of stops that holds its place, the colour between them (0xAABBGGRR, alpha 0x80 full); past the last stop
+    // the last texel. (❓ The program's ramp is not read: judged by the Race Monitor's pace-up mark, stops red 0, yellow
+    // 0.314, red 1 and then blue and magenta also at 1, which the original draws red to yellow and back,
+    // 21-gtmode-deep bspec_race_monitor_show_map.png.)
+    auto ramp = [&](size_t i) -> SDL_Texture* {
+        SDL_Texture*& t = m.gradient_textures[{&movie, i}];
+        if (t) return t;
+        const auto& st = movie.gradients[i].stops;
+        gt3r::Tex1::Image img;
+        img.width = 256, img.height = 1;
+        img.rgba.assign(256, 0);
+        for (size_t k = 0; k < 256; ++k) {
+            const float at = std::clamp(float(k) / 255.0f, st.front().first, std::max(st.front().first, st.back().first));
+            u32 c = st.front().second;
+            for (size_t j = 0; j + 1 < st.size(); ++j)
+                if (at >= st[j].first && at <= st[j + 1].first) {
+                    const float f = st[j + 1].first > st[j].first ? (at - st[j].first) / (st[j + 1].first - st[j].first) : 0;
+                    c = 0;
+                    for (int b = 0; b < 4; ++b) {
+                        const float lo = float((st[j].second >> (8 * b)) & 0xFF), hi = float((st[j + 1].second >> (8 * b)) & 0xFF);
+                        c |= u32(std::lround(lo + (hi - lo) * f)) << (8 * b);
+                    }
+                    break;
+                }
+            const u32 a = std::min<u32>(255, ((c >> 24) & 0xFF) * 255 / 128);
+            img.rgba[k] = (c & 0x00FFFFFFu) | a << 24;
+        }
+        t = m.make_texture(img);
+        return t;
+    };
     auto texture = [&](size_t i) -> SDL_Texture* {
         SDL_Texture*& t = m.movie_textures[{&movie, i}];
         if (t) return t;
@@ -498,6 +532,7 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const std::array<float, 16>* mat = fill.value < movie.matrices.size() ? &movie.matrices[fill.value] : nullptr;
             SDL_Texture* tex = fill.kind == 4 ? texture(fill.index) : nullptr;
             const race::StrobeMovie::Gradient* grad = fill.kind == 1 && fill.index < movie.gradients.size() ? &movie.gradients[fill.index] : nullptr;
+            if (grad && !grad->stops.empty()) tex = ramp(fill.index);
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
             // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
@@ -534,27 +569,12 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
                 if (fill.kind == 0) x.color = colour(fill.value, d);
-                else if (grad && !grad->stops.empty()) {
-                    // A gradient's colour at the point's place along it.
-                    const auto& st = grad->stops;
-                    u32 c = st.front().second;
-                    for (size_t k = 0; k + 1 < st.size(); ++k)
-                        if (u >= st[k].first && u <= st[k + 1].first) {
-                            const float t = st[k + 1].first > st[k].first ? (u - st[k].first) / (st[k + 1].first - st[k].first) : 0;
-                            c = 0;
-                            for (int j = 0; j < 4; ++j) {
-                                const float a = float((st[k].second >> (8 * j)) & 0xFF), b = float((st[k + 1].second >> (8 * j)) & 0xFF);
-                                c |= u32(std::lround(a + (b - a) * t)) << (8 * j);
-                            }
-                        }
-                    if (u > st.back().first) c = st.back().second;
-                    x.color = colour(c, d);
-                } else {
-                    x.color = colour(0x80808080u, d, true);
-                }
+                else x.color = colour(0x80808080u, d, true); // (a picture's or a gradient's ramp's texel, through the colour change)
                 v.push_back(x);
             }
+            if (grad && tex) SDL_SetRenderTextureAddressMode(m.r, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
             SDL_RenderGeometry(m.r, tex, v.data(), int(v.size()), nullptr, 0);
+            if (grad && tex) SDL_SetRenderTextureAddressMode(m.r, SDL_TEXTURE_ADDRESS_AUTO, SDL_TEXTURE_ADDRESS_AUTO);
         } else if (d.text && !d.words.empty()) {
             const race::StrobeMovie::TextField& t = *d.text;
             // The font string: "hm_16#1*80,80": a name, its palette (1 the plain glyphs, the movies' default:

@@ -317,7 +317,9 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   area (its fourth state's shapes on their first frame, through the instances' matrices; a pause row's
   is 142 x 20) holds it.
 - Drawing: each shape group is its polygon filled (solid, a picture through its fill matrix, or a
-  gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
+  gradient along the matrix's u: here a ramp of 256 texels for 0 .. 1 held at its ends, each texel from the first pair of stops
+  that holds its place, ❓ the program's ramp not read; the pace-up mark's gradient has stops red 0, yellow 0.314, red 1 and
+  blue and magenta also at 1, drawn red to yellow in the original's); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
   menus' fonts (`font/menu.fnt`) by the font string `name#palette*x%,y%` (palette 1, the plain
   glyphs, when none is given), the glyphs at their own pixel size (scale 1) times the font string's percentages and the
