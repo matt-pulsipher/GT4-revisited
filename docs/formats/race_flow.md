@@ -429,7 +429,8 @@ place, `numberOfEntries`, `playerGridNumber` (the player's place), `courseLabel`
 (transmission, assists), `canReplay` 0. `IsBSpec` (0x110CB8; the time trial's and the free run's
 too): a paved course (its COURSE row's +0x10 0) whose byte +0x14 is not 0; `IsDryCourse`: not
 kind 2 or 3; the tire on kind 3 is 12 (`start_quick_work`; the race side still writes 1 for both
-on the single race). ❓ Only the first chip word (the paint's colour) is filled.
+on the single race). The photo drive's fill (0x11B2D0) sets `IsASpec` and `IsBSpec` to 1 on any course (its page,
+quick-freerun's, shows the B-spec button: ✔ the original's GT mode photo drive at Tsukuba, five buttons). ❓ Only the first chip word (the paint's colour) is filled.
 
 ## Saved replays
 

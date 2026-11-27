@@ -3201,6 +3201,7 @@ public:
             q.race = setup_.race, q.sequence = setup_.sequence;
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
             test_car(app, setup_, q);
+            menu::start_quick_work(*menus_, q); // (the sequence's work as its start fills it: the B-spec button and the rest)
             // An event's grid from its pool (`race=<label>`, no `opponents`).
             if (!setup_.race.empty() && setup_.opponents.empty() && setup_.cars > 1) draw_grid(app, setup_, q);
             if (sequence_ == "single_race" && !setup_.event_row.empty()) apply_arcade_options(setup_);
