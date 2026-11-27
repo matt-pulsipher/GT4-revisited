@@ -418,7 +418,8 @@ pace's word and lit key, the total time `h:mm'ss`, the lap, a row per car in rac
 grid letter, its best lap, its gap to the leader: the time since the leader was where it is ❓), the
 player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's grid letter at its place
 (the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip with its
-pace-up marks, the pit panel, and with Show Map (Cross) the rows' `LAP`, `PIT`, `BEST`, `BESTMARK` in place of `MAP_PANEL`
+pace-up marks, the pit panel, and the rows' `LAP`, `PIT`, `BEST`, `BESTMARK`, always filled and shown (0x3DA7C8 has no test of
+Show Map: `MAP_PANEL`'s black covers that column while the map is up, ✔ 21-gtmode-deep `bspec_race_monitor.png`)
 (race_flow.md "What runs where"). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
 **The view's speed** (`SPEED`, `"x %d"` 0x3DBBD0 of the monitor's +0x74): the monitor's keys (0x3D95F0) with the race pad's bit

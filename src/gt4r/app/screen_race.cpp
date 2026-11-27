@@ -3471,7 +3471,7 @@ private:
             text(bar + ".DIFF", r == 1 || gap < 0 ? "" : race::format_lap_time(gap));
             m.call(bar + ".GRID", "gotoAndStop", {V::number(letter(car))});
             m.call(bar, "gotoAndStop", {V::number(car == me ? 2 : 1)}); // (the followed car's row lit: 0x3DAF60, the monitor's +0x64)
-            // L, P, Best (0x3DA7C8; under the map, shown with Show Map): the lap (0x343B50: the crossings, at least 1, one less once
+            // L, P, Best (0x3DA7C8; under the map's panel, seen with Show Map): the lap (0x343B50: the crossings, at least 1, one less once
             // finished), the pit stops (0x3FA498), the best lap; the best's mark when the lap last completed made a new best (when
             // the lap changes: the best below the one kept then, unsigned, and kept).
             if (monitor_race_ != &f) monitor_race_ = &f, monitor_lap_.clear(), monitor_best_.clear(), monitor_mark_.clear(); // (the race's own)
@@ -3486,8 +3486,9 @@ private:
             text(bar + ".LAP", std::to_string(lap));
             text(bar + ".PIT", std::to_string(race_->pit_stops(car)));
             text(bar + ".BEST", best > 0 ? race::format_lap_time(best) : "--'--.---");
-            for (const char* part : {".LAP", ".PIT", ".BEST"}) show(bar + part, !monitor_map_);
-            show(bar + ".BESTMARK", !monitor_map_ && monitor_mark_[car]);
+            // (0x3DA7C8 fills and shows them whatever Show Map says: the map's panel covers that column while it is up)
+            for (const char* part : {".LAP", ".PIT", ".BEST"}) show(bar + part, true);
+            show(bar + ".BESTMARK", monitor_mark_[car] != 0);
         }
         show("MAP_PANEL", monitor_map_);
         fill_gap_strip(order, me);
