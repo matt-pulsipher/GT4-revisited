@@ -16,6 +16,9 @@ public:
     virtual ~MenuPainter() = default;
     // The pages' 640 x 480 at (x, 0), `scale` screen units a page unit. Nothing behind them is cleared.
     virtual void draw(menu::Runtime& menus, float x, float scale) = 0;
+    // The mouse and fingers this frame on the pages where they were last drawn (app/menu_pointer.h): a tap focuses or chooses,
+    // a drag scrolls, as on the menus' own screen.
+    virtual void pointer(App& app, menu::Runtime& menus) = 0;
     // A course map face (RaceCourseMapFace) drawn by its owner in its place: `dst` its rectangle on the screen, `k` screen pixels
     // a page pixel.
     std::function<void(const menu::LiveWidget& face, const SDL_FRect& dst, float k, float opacity)> course_map;
