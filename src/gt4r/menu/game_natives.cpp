@@ -370,10 +370,41 @@ Value GameNatives::make_sound() {
 }
 
 // ---- MOption
+// The game's options (MGame.option, 0x161CB0: the game's own block, Status +0x38CB0) and copies of them (MGame.getOption,
+// 0x161B88: the block copied into the object, 0x18FEE8). A copy's changes and its apply (0x4365B8 on the copy's block) are
+// the copy's alone until MGame.setOption (0x161C38) copies it back into the game's (0x43A970) and applies it.
+struct OptionObject : Object {
+    std::shared_ptr<GameState> copy; // the copy's options (null: the game's own)
+    using Object::Object;
+};
+
 Value GameNatives::make_option() {
-    if (option) return object_value(option);
-    option = std::make_shared<Object>("MOption");
-    GameState* s = &state();
+    if (!option) option = build_option(state(), nullptr);
+    return object_value(option);
+}
+
+Value GameNatives::copy_option() {
+    const GameState& g = state();
+    auto copy = std::make_shared<GameState>();
+    copy->options = g.options, copy->bgm_playlist = g.bgm_playlist, copy->slide_playlist = g.slide_playlist, copy->monitor_params = g.monitor_params;
+    return object_value(build_option(*copy, copy));
+}
+
+void GameNatives::commit_option(const Value& from) {
+    const auto* o = dynamic_cast<const OptionObject*>(from.p.get());
+    if (!o || !o->copy) return; // (the game's own: nothing to copy)
+    GameState& g = state();
+    g.options = o->copy->options, g.bgm_playlist = o->copy->bgm_playlist, g.slide_playlist = o->copy->slide_playlist;
+    apply_monitor(*this);
+    rt.save_options();
+    rt.options_changed();
+}
+
+std::shared_ptr<Object> GameNatives::build_option(GameState& held, std::shared_ptr<GameState> copy) {
+    auto option = std::make_shared<OptionObject>("MOption");
+    option->copy = copy;
+    // (Every accessor holds a copy's options: a member read from `getOption().name` outlives the object.)
+    const std::shared_ptr<GameState> s = copy ? copy : std::shared_ptr<GameState>(std::shared_ptr<void>(), &held);
     for (const auto& [name, value] : s->options) {
         const std::string n = name;
         option->property(n, [s, n] { return option_value(s->options[n]); }, [s, n](const Value& v) {
@@ -406,23 +437,34 @@ Value GameNatives::make_option() {
     }
     Runtime* r = &rt;
     // apply(), save(): the settings take effect (Runtime::on_options) and are kept (under the
-    // data folder).
+    // data folder). A copy's take effect as the copy has them (the option pages' preview) and
+    // are not kept: the game's options stay as they were.
     GameNatives* np = this;
-    auto save = [r, np](Vm&, const Value&, Args) {
+    const bool copied = copy != nullptr;
+    auto take_effect = [r, np, s, copied] {
+        if (copied) {
+            if (r->on_options) r->on_options(settings_of(*s));
+            return;
+        }
         apply_monitor(*np);
         r->save_options();
         r->options_changed();
+    };
+    auto save = [take_effect](Vm&, const Value&, Args) {
+        take_effect();
         return number(1);
     };
     option->method("apply", save);
     option->method("save", save);
     option->method("load", [](Vm&, const Value&, Args) { return number(1); });
-    option->method("setDefault", [s, r](Vm&, const Value&, Args) {
+    option->method("setDefault", [s, r, copied](Vm&, const Value&, Args) {
         const std::string zone = s->option_text("game_zone");
         const std::array<std::string, 2> controllers{s->option_text("controllers_1p"), s->option_text("controllers_2p")};
         s->option_defaults(zone.empty() ? r->region() : zone);
         reset_controllers(*s, controllers);
-        r->options_changed();
+        if (copied) {
+            if (r->on_options) r->on_options(settings_of(*s));
+        } else r->options_changed();
         return Value{};
     });
     // setGameZoneDefault (0x435D48): the zone by the program's region.
@@ -433,7 +475,7 @@ option->method("setGameZoneDefault", [s, r](Vm&, const Value&, Args) {
 });
 for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    install_controllers(*this, *option);
+    install_controllers(s, *option);
     // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
     // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
     // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
@@ -441,11 +483,11 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
     // bgm/<region>/ads.inf, its third group; ❓ the slide show's list as long, as a saved game
     // has it). ❓ initShuffle is taken as the program's making of the order again: position 0,
     // every enabled row unplayed, "none" when no row is enabled.
-    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &state().bgm_playlist}, {"slide_playlist", &state().slide_playlist}}) {
+    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &s->bgm_playlist}, {"slide_playlist", &s->slide_playlist}}) {
         auto p = std::make_shared<Object>("MPlayList");
         GameState::PlayList* l = list;
         Runtime* r = &rt;
-        auto rows = [l, r]() -> u32 {
+        auto rows = [s, l, r]() -> u32 {
             if (!l->rows) {
                 for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
                     const std::optional<Bytes> inf = r->reader()(path);
@@ -457,14 +499,14 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
             }
             return std::min<u32>(l->rows, 128);
         };
-        p->property("play_data", [l, rows] {
+        p->property("play_data", [s, l, rows] {
             std::vector<Value> out;
             for (u32 i = 0; i < rows(); ++i) {
                 const GameState::PlayList::Row& row = l->row[i];
                 out.push_back(Value::array({number(row.order), number(row.played), number(row.enabled), number(row.order2)}));
             }
             return Value::array(std::move(out));
-        }, [l, rows](const Value& v) {
+        }, [s, l, rows](const Value& v) {
             const std::vector<Value>* items = v.items();
             if (!items) return;
             const u32 n = std::min<u32>(rows(), u32(items->size()));
@@ -479,16 +521,16 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
             for (u32 i = 0; i < rows(); ++i)
                 if (l->row[i].enabled) l->none = 0;
         });
-        p->method("initShuffle", [l, rows](Vm&, const Value&, Args) {
+        p->method("initShuffle", [s, l, rows](Vm&, const Value&, Args) {
             bool any = false;
             for (u32 i = 0; i < rows(); ++i) l->row[i].played = !l->row[i].enabled, any |= l->row[i].enabled != 0;
             l->none = !any, l->position = 0;
             return Value{};
         });
-        p->property("shuffle", [l] { return number(l->shuffle); }, [l](const Value& v) { l->shuffle = v.truthy(); });
+        p->property("shuffle", [s, l] { return number(l->shuffle); }, [s, l](const Value& v) { l->shuffle = v.truthy(); });
         option->set(list_name, object_value(p));
     }
-    return object_value(option);
+    return option;
 }
 
 // ---- The garage (GranTurismo4::GarageScratch; save.md "The garage") of a game's state: the game played's,
@@ -771,8 +813,15 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         r->sound("sound", "loadShutter", a);
         return Value{};
     });
-    for (const char* nothing : {"setReturnToLastMenuProject", "dumpAvailable"})
-        g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    // setReturnToLastMenuProject (0x166398 -> 0x42FC50 with the last project's name): the project asked for next is the
+    // one the menus came from, and the one asked for until then (the running one when none was) becomes the last.
+    g.method("setReturnToLastMenuProject", [s, r = &rt](Vm&, const Value&, Args) {
+        const std::string last = s->last_menu_project;
+        s->last_menu_project = !s->next_menu_project.empty() ? s->next_menu_project : r->project() ? r->project()->name() : std::string();
+        s->next_menu_project = last;
+        return Value{};
+    });
+    g.method("dumpAvailable", [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
     // saveMenuStack keeps a copy of the stack and its length in bytes (0x42FE88); loadMenuStack
@@ -940,17 +989,16 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
                              number(o.view == "BONNET" ? 1 : o.view == "OVERLOOK" ? 2 : 0), number(o.display.map ? 1 : 0)});
     });
     g.property("option", [this] { return make_option(); });
-    g.method("getOption", [this](Vm&, const Value&, Args) { return make_option(); });
-    g.method("setOption", [](Vm&, const Value&, Args) { return Value{}; });
+    g.method("getOption", [this](Vm&, const Value&, Args) { return copy_option(); });
+    g.method("setOption", [this](Vm&, const Value&, Args a) {
+        if (!a.empty()) commit_option(a[0]);
+        return Value{};
+    });
 
     g.set("garage", object_value(make_garage(s)));
 
-    // The demonstrations the title page falls back to.
-    auto demo = std::make_shared<Object>("MDemonstration");
-    for (const char* nothing : {"initialize", "resetPlayListCounter", "resetMovieCount"}) demo->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    demo->set("type", text("")), demo->set("name", text("")), demo->set("arg", text(""));
-    demo->set("repeat_time", number(0)), demo->set("skip_time", number(0)), demo->set("restart_from_beginning", number(0));
-    g.set("demonstration", object_value(demo));
+    // The demonstrations the title page falls back to (game_demo.cpp).
+    install_demonstration(*this, g);
 
     // The calendar, the records, the favorites, the presents, the used cars (game_records.cpp).
     install_records(*this, g, *rt.vm().lookup("menu").as<script::Module>());
@@ -1238,7 +1286,8 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
     // The Replay Theater's replays (game_replays.cpp).
-    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY") install_replay_list(*this, *m);
+    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY")
+        install_replay_list(*this, *m, mode);
     if (mode == "MODE_DEMONSTRATION") install_demo_list(*this, *m, false);
     if (mode == "MODE_DEMONSTRATION_SUB") install_demo_list(*this, *m, true);
     return object_value(m);

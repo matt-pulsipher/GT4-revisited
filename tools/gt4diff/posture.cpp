@@ -11,6 +11,7 @@
 #include "gt4r/race/posture_hands.h"
 #include "gt4r/race/posture_solver.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -183,9 +184,97 @@ Bytes read_all(const std::string& path) {
 
 } // namespace
 
+// The program's posture (RaceCarModel vf30) of a model on the memory as it is, against ours from the same record: the solver's
+// inputs and the bones.
+static void check_solve(Ee& ee, u32 model, int recorded, float alpha, int& solves, int& equal, int& inputs, int& inputs_equal) {
+    ee.hle(kScreenLevel, [](Ee& e) { e.w32(u32(e.a(0)) + 0x6A0, 0); }, "screen level");
+    const u32 human = model + kHuman;
+    ee.w32(human + 0x7B8, 1);
+    ee.w32(human + 0x7C0, 0);
+    bool seen = false;
+    int inputs_bad = -1;
+    // The car file in memory: the block before the driver's set.
+    u32 car_file = 0;
+    {
+        const u32 set = ee.r32(human);
+        for (u32 a = set & ~15u; a > 0x100000 && set - a < 0x200000; a -= 16)
+            if (ee.r32(a) == 0x34524143) {
+                car_file = a;
+                break;
+            }
+    }
+    u32 at = 0;
+    rp::Skeleton s;
+    ee.probe(kSolve, [&](Ee& e) {
+        rp::Controls c = read_controls(e, u32(e.a(0)));
+        at = u32(e.a(1));
+        s = read_skeleton(e, at);
+        const rp::Places p = read_places(e, u32(e.a(2)));
+        rp::Gaze g;
+        const u32 gp = u32(e.a(3));
+        if (gp) {
+            Reader r{e};
+            g.kind = int(e.r32(gp));
+            g.at = r.v(gp + 0x10);
+        }
+        if (std::getenv("GT4R_POSTURE_SHOW"))
+            std::printf("  model %06X rec %d alpha %.2f: spine %d arms %d legs %d head %d; plain %d no twist %d keep neck %d free %d lever hand %d gesture %.3f phase %.3f wheel %.3f grips %.3f %.3f recline %.3f lean %.3f gaze %.2f %.2f %.2f seat %.3f %.3f %.3f pos %.2f %.2f %.2f\n",
+                        model, recorded, alpha, c.spine, c.arms, c.legs, c.head_on, c.plain_hands, c.no_twist, c.keep_neck, c.free_hands, p.shift_hand,
+                        p.gesture.host(), c.phase.host(), c.wheel_angle.host(), c.grip_from[0].host(), c.grip_from[1].host(), c.recline.host(),
+                        c.lean.host(), g.at.x.host(), g.at.y.host(), g.at.z.host(), p.seat.x.host(), p.seat.y.host(), p.seat.z.host(), p.pos.x.host(), p.pos.y.host(), p.pos.z.host());
+        // The inputs, from the car's parts block, its place and the record of its driver.
+        const bool second = at == model + kSecondHuman + 0x10;
+        const u32 human = model + (second ? kSecondHuman : kHuman);
+        if (car_file) {
+            // (the file as it is on the disc: its offsets are addresses in memory)
+            Bytes car_bytes(e.r32(car_file + 8));
+            e.read_bytes(car_file, car_bytes.data(), u32(car_bytes.size()));
+            const auto rebase = [&](u32 at) {
+                u32 w;
+                std::memcpy(&w, car_bytes.data() + at, 4);
+                if (w) w -= car_file;
+                std::memcpy(car_bytes.data() + at, &w, 4);
+                return w;
+            };
+            for (u32 at = 0x14; at < 0x38; at += 4) rebase(at);
+            rebase(rebase(0x10) + 0x50);
+            const rp::Cockpit cockpit = rp::read_posture_cockpit(ByteSpan(car_bytes), second);
+            rp::PostureInput in;
+            if (e.r32(human + 0x7B4)) {
+                in = rp::still_posture(cockpit);
+            } else {
+                Reader r{e};
+                const u32 block = e.r32(model + 4) + 0x9A0 + (second ? 0x370 : 0);
+                rp::DriverRecord before, after;
+                for (u32 n = 0; n < 64; ++n) before.v[n] = r.f(block + 0x160 + 4 * n), after.v[n] = r.f(block + 0x260 + 4 * n);
+                // (a call with the record flag clear: no reduction by class)
+                in = rp::driving_posture(cockpit, rp::blend_records(before, after, rp::F(alpha)), r.v(human + 0x7C4), r.v(human + 0x7D0), second, recorded != 0);
+            }
+            inputs_bad = compare_inputs(in, c, p, gp ? &g : nullptr, alpha == 0.37f);
+        }
+        rp::solve(c, s, p, gp ? &g : nullptr);
+        seen = true;
+    });
+    try {
+        ee.call(kModelPosture, {Arg::ptr(model), Arg::integer(0), Arg::integer(recorded), Arg::flt(alpha)}, 50'000'000);
+    } catch (const std::exception& e) {
+        std::printf("  model %06X recorded %d alpha %.2f: %s\n", model, recorded, alpha, e.what());
+        return;
+    }
+    if (!seen) return;
+    ++solves;
+    const int bad = compare("solver", s, read_skeleton(ee, at), alpha == 0.37f);
+    if (inputs_bad > 0) std::printf("  model %06X recorded %d alpha %.2f: %d inputs differ\n", model, recorded, alpha, inputs_bad);
+    inputs += inputs_bad >= 0, inputs_equal += inputs_bad == 0;
+    if (!bad) ++equal;
+    else std::printf("  model %06X recorded %d alpha %.2f: %d bones differ\n", model, recorded, alpha, bad);
+}
+
 // The driver's step (0x403260) on a state's memory against ours: the fields ours has.
 static int gaze_steps = 0, gaze_equal = 0, gaze_aimed = 0;
-static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& equal) {
+static int stop_solves = 0, stop_equal = 0, stop_inputs = 0, stop_inputs_equal = 0;
+// `stop_at`: at that step the program's posture run on the stepped record (check_solve) and the steps stopped.
+static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& equal, int stop_at = -1) {
     bool gaze_on = true;
     const bool gaze_drive = std::getenv("GT4R_POSTURE_GAZE") != nullptr;
     ee.reset();
@@ -234,12 +323,48 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         s.height = r.f(k + 0x60), s.lean_left = r.f(k + 0x64), s.nod_left = r.f(k + 0x68);
         s.tilt = r.f(k + 0xD0), s.tilt_rate = r.f(k + 0xD4), s.head_rate = r.f(k + 0xD8);
         s.first = ee.r32(block + 0x28) == 1;
+        s.hand_rate = r.f(k + 0x1C), s.lever_rate[0] = r.f(k + 0x20), s.lever_rate[1] = r.f(k + 0x24);
+        s.grip_rate[0] = r.f(k + 0x28), s.grip_rate[1] = r.f(k + 0x2C), s.rest = r.f(k + 0x6C), s.gate_wait = r.f(k + 0x70), s.busy = r.f(k + 0x78);
+        s.held_gear = int(ee.r32(block)), s.seen_gear = int(ee.r32(block + 4)), s.phase = int(ee.r32(block + 0x18));
         s.gaze.state = int(ee.r32(block + 0x1C));
         s.gaze.rate = r.v(k + 0x30), s.gaze.target = r.v(k + 0x7C), s.gaze.held = r.f(k + 0xF4), s.gaze.aim_angle = r.f(k + 0xF8);
     };
     load();
-    for (int step = 0; step < 240; ++step) {
-        const float follow = 12.0f * std::sin(float(step) * 0.06f) * std::sin(float(step) * 0.013f);
+    // (GT4R_POSTURE_GEAR: the car's gear, engine speed and pedals driven, the gear change compared)
+    const bool gear_on = std::getenv("GT4R_POSTURE_GEAR") != nullptr;
+    rp::GearInput gin;
+    if (const char* lay = std::getenv("GT4R_POSTURE_LAYOUT"); gear_on && lay) { // (another layout put in the car's: "1,1,6,5")
+        int v[4] = {0, 0, 0, 0};
+        if (std::sscanf(lay, "%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3]) == 4)
+            for (u32 n = 0; n < 4; ++n) ee.w32(car + 0x1080 + 4 * n, u32(v[n]));
+    }
+    gin.layout = {int(ee.r32(car + 0x1080)), int(ee.r32(car + 0x1084)), int(ee.r32(car + 0x1088)), int(ee.r32(car + 0x108C))};
+    const u32 params = ee.r32(car + 0x10);
+    const int top = ee.r8(params + 0x236);
+    int phases_seen = 0;
+    for (int step = 0; step < (gear_on ? 720 : 240); ++step) {
+        float follow = 12.0f * std::sin(float(step) * 0.06f) * std::sin(float(step) * 0.013f);
+        if (gear_on) {
+            if (step >= 240) follow *= 0.05f; // (the wheel near the middle: the reach not held off)
+            static constexpr int kGears[] = {2, 3, 4, 3, 2, 1, 0, 1, 2, 3, 2, 4, 5, 4, 3};
+            const int gear = std::min(kGears[(step / 45) % 15], top);
+            ee.w8(car + 0x624, u8(gear));
+            const s32 up = ee.call(0x36BEE0, {Arg::ptr(car), Arg::integer(gear)}).v0_s32();
+            const s32 down = gear >= 2 ? ee.call(0x36BF28, {Arg::ptr(car), Arg::integer(gear)}).v0_s32() : 0;
+            const float wave = std::sin(float(step) * 0.21f);
+            const float rpm = (step / 23) % 2 ? float(up) - 250.0f + 300.0f * wave : float(down) + 700.0f * wave;
+            ee.w32(car + 0x738, rp::F(rpm).bits);
+            ee.w32(car + 0x58C, rp::F(step % 90 < 55 ? 0.95f : 0.0f).bits);
+            ee.w32(car + 0x590, rp::F(step % 90 >= 70 ? 0.6f : 0.0f).bits);
+            const rp::F t0 = r.f(car + 0x38), t1 = r.f(car + 0x3C);
+            const rp::F least = t1 < t0 ? t1 : t0;
+            rp::ShiftInputs si;
+            si.rpm = gt3r::ee::to_int(r.f(car + 0x738)), si.top = top, si.gear = gear, si.throttle = r.f(car + 0x58C), si.brake = r.f(car + 0x590);
+            si.suggested = ee.call(0x36BF68, {Arg::ptr(car), Arg::fbits(least.bits)}).v0_s32();
+            si.up_rpm = up, si.down_rpm = down;
+            gin.gear = gear, gin.reach = rp::shift_reach(si);
+            gin.start_hold = ee.call(0x34C210, {Arg::ptr(car)}).v0_s32() != 0;
+        }
         ee.w32(car + 0x768, rp::F(follow).bits);
         for (u32 n = 0; n < 64; ++n) ee.w32(block + 0x160 + 4 * n, s.after.v[n].bits);
         // The car moved along, shaken and turned.
@@ -267,6 +392,7 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         motion.roll = mixed(0x8C0, 0x670);
         motion.turn = rp::from_euler(mixed(0x8BC, 0x66C), mixed(0x8C4, 0x674), -motion.roll);
         motion.velocity = {r.f(car + 0x648), r.f(car + 0x650), -r.f(car + 0x64C)};
+        if (gear_on) motion.gear = &gin;
         // The gaze's inputs: the front wheels' angles (0x344DA8), the computer driver's aim (0x350CE8).
         {
             const rp::F t = rp::F(0.0f) + r.f(car + 0x554);
@@ -315,12 +441,38 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
             if (!bad++) std::printf("  model %06X step %d:", model, step);
             std::printf(" +%02X ours %.6f program %.6f", at, s.after.at(at).host(), theirs.host());
         }
+        if (gear_on) { // the gear change
+            for (u32 at : {0x1Cu, 0x20u, 0x24u, 0x28u, 0x2Cu, 0x30u, 0x80u, 0x84u}) {
+                const rp::F theirs = r.f(block + 0x160 + at);
+                if (s.after.at(at) == theirs) continue;
+                if (!bad++) std::printf("  model %06X step %d:", model, step);
+                std::printf(" +%02X ours %.6f program %.6f", at, s.after.at(at).host(), theirs.host());
+            }
+            const int ours_i[3] = {s.held_gear, s.seen_gear, s.phase};
+            const u32 at_i[3] = {0, 4, 0x18};
+            for (int n = 0; n < 3; ++n) {
+                if (ours_i[n] == int(ee.r32(block + at_i[n]))) continue;
+                if (!bad++) std::printf("  model %06X step %d:", model, step);
+                std::printf(" ints +%02X ours %d program %d", at_i[n], ours_i[n], int(ee.r32(block + at_i[n])));
+            }
+            phases_seen |= 1 << (s.phase & 15);
+        }
         if (bad) {
-            std::printf(" (states ours %d %d program %08X; follow %.3f)\n", s.state[0], s.state[1], ee.r32(block + 0x30), follow);
+            std::printf(" (states ours %d %d program %08X; follow %.3f; phase ours %d program %d)\n", s.state[0], s.state[1], ee.r32(block + 0x30), follow, s.phase,
+                        int(ee.r32(block + 0x18)));
             return;
         }
         ++equal;
+        if (step == stop_at) {
+            if (std::getenv("GT4R_POSTURE_SHOW"))
+                std::printf("  model %06X step %d: phase %d hand %.3f lever %.3f %.3f grip %.3f %.3f foot %.3f\n", model, step, s.phase, s.after.at(0x1C).host(),
+                            s.after.at(0x20).host(), s.after.at(0x24).host(), s.after.at(0x28).host(), s.after.at(0x2C).host(), s.after.at(0x30).host());
+            for (int recorded = 0; recorded < 2; ++recorded)
+                for (float alpha : {0.0f, 0.37f, 1.0f}) check_solve(ee, model, recorded, alpha, stop_solves, stop_equal, stop_inputs, stop_inputs_equal);
+            return;
+        }
     }
+    if (gear_on && stop_at < 0) std::printf("  model %06X: lever layout %d %d %d %d, the phases seen %03X\n", model, gin.layout.kind, gin.layout.offset, gin.layout.reverse, gin.layout.count, phases_seen);
 }
 
 int run_posture(Disc& disc, const std::vector<std::string>& paths) {
@@ -349,6 +501,15 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
         std::printf("%s: %zu models\n", path.c_str(), models.size());
         int steps = 0, steps_equal = 0;
         for (u32 model : models) compare_steps(ee, mem, model, steps, steps_equal);
+        if (std::getenv("GT4R_POSTURE_GEAR")) { // the posture on the records of a gear change, every 29 steps
+            stop_solves = stop_equal = stop_inputs = stop_inputs_equal = 0;
+            int more = 0, more_equal = 0;
+            for (u32 model : models)
+                for (int stop = 250; stop < 720; stop += 29) compare_steps(ee, mem, model, more, more_equal, stop);
+            std::printf("  the posture in the gear change: %d solves, %d with every bone equal; %d inputs, %d equal\n", stop_solves, stop_equal, stop_inputs,
+                        stop_inputs_equal);
+            solves += stop_solves, equal += stop_equal, inputs += stop_inputs, inputs_equal += stop_inputs_equal;
+        }
         std::printf("  the driver's step: %d, %d with the wheel, the body, the hands, the elbows and the clavicles equal\n", steps, steps_equal);
         std::printf("  the gaze: %d steps in the usual way (%d with the computer driver's aim), %d equal\n", gaze_steps, gaze_aimed, gaze_equal);
         gaze_steps = gaze_equal = gaze_aimed = 0;
@@ -360,92 +521,7 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
                     ee.protect_text = false;
                     ee.write_bytes(0, mem);
                     ee.clear_probes();
-                    ee.hle(kScreenLevel, [](Ee& e) { e.w32(u32(e.a(0)) + 0x6A0, 0); }, "screen level");
-                    const u32 human = model + kHuman;
-                    ee.w32(human + 0x7B8, 1);
-                    ee.w32(human + 0x7C0, 0);
-                    bool seen = false;
-                    int inputs_bad = -1;
-                    // The car file in memory: the block before the driver's set.
-                    u32 car_file = 0;
-                    {
-                        const u32 set = ee.r32(human);
-                        for (u32 a = set & ~15u; a > 0x100000 && set - a < 0x200000; a -= 16)
-                            if (ee.r32(a) == 0x34524143) {
-                                car_file = a;
-                                break;
-                            }
-                    }
-                    u32 at = 0;
-                    rp::Skeleton s;
-                    ee.probe(kSolve, [&](Ee& e) {
-                        rp::Controls c = read_controls(e, u32(e.a(0)));
-                        at = u32(e.a(1));
-                        s = read_skeleton(e, at);
-                        const rp::Places p = read_places(e, u32(e.a(2)));
-                        rp::Gaze g;
-                        const u32 gp = u32(e.a(3));
-                        if (gp) {
-                            Reader r{e};
-                            g.kind = int(e.r32(gp));
-                            g.at = r.v(gp + 0x10);
-                        }
-                        if (std::getenv("GT4R_POSTURE_SHOW"))
-                            std::printf("  model %06X rec %d alpha %.2f: spine %d arms %d legs %d head %d; plain %d no twist %d keep neck %d free %d lever hand %d gesture %.3f phase %.3f wheel %.3f grips %.3f %.3f recline %.3f lean %.3f gaze %.2f %.2f %.2f seat %.3f %.3f %.3f pos %.2f %.2f %.2f\n",
-                                        model, recorded, alpha, c.spine, c.arms, c.legs, c.head_on, c.plain_hands, c.no_twist, c.keep_neck, c.free_hands, p.shift_hand,
-                                        p.gesture.host(), c.phase.host(), c.wheel_angle.host(), c.grip_from[0].host(), c.grip_from[1].host(), c.recline.host(),
-                                        c.lean.host(), g.at.x.host(), g.at.y.host(), g.at.z.host(), p.seat.x.host(), p.seat.y.host(), p.seat.z.host(), p.pos.x.host(), p.pos.y.host(), p.pos.z.host());
-                        // The inputs, from the car's parts block, its place and the record of its driver.
-                        const bool second = at == model + kSecondHuman + 0x10;
-                        const u32 human = model + (second ? kSecondHuman : kHuman);
-                        if (car_file) {
-                            // (the file as it is on the disc: its offsets are addresses in memory)
-                            Bytes car_bytes(e.r32(car_file + 8));
-                            e.read_bytes(car_file, car_bytes.data(), u32(car_bytes.size()));
-                            const auto rebase = [&](u32 at) {
-                                u32 w;
-                                std::memcpy(&w, car_bytes.data() + at, 4);
-                                if (w) w -= car_file;
-                                std::memcpy(car_bytes.data() + at, &w, 4);
-                                return w;
-                            };
-                            for (u32 at = 0x14; at < 0x38; at += 4) rebase(at);
-                            rebase(rebase(0x10) + 0x50);
-                            const rp::Cockpit cockpit = rp::read_posture_cockpit(ByteSpan(car_bytes), second);
-                            rp::PostureInput in;
-                            if (e.r32(human + 0x7B4)) {
-                                in = rp::still_posture(cockpit);
-                            } else {
-                                Reader r{e};
-                                const u32 block = e.r32(model + 4) + 0x9A0 + (second ? 0x370 : 0);
-                                rp::DriverRecord before, after;
-                                for (u32 n = 0; n < 64; ++n) before.v[n] = r.f(block + 0x160 + 4 * n), after.v[n] = r.f(block + 0x260 + 4 * n);
-                                in = rp::driving_posture(cockpit, rp::blend_records(before, after, rp::F(alpha)), r.v(human + 0x7C4), r.v(human + 0x7D0), second);
-                                if (!recorded) { // (a call with no reduction by class)
-                                    const rp::Controls keep = in.controls;
-                                    in.controls.arms = in.controls.legs = 1;
-                                    in.controls.plain_hands = in.controls.no_twist = 0;
-                                    (void)keep;
-                                }
-                            }
-                            inputs_bad = compare_inputs(in, c, p, gp ? &g : nullptr, alpha == 0.37f);
-                        }
-                        rp::solve(c, s, p, gp ? &g : nullptr);
-                        seen = true;
-                    });
-                    try {
-                        ee.call(kModelPosture, {Arg::ptr(model), Arg::integer(0), Arg::integer(recorded), Arg::flt(alpha)}, 50'000'000);
-                    } catch (const std::exception& e) {
-                        std::printf("  model %06X recorded %d alpha %.2f: %s\n", model, recorded, alpha, e.what());
-                        continue;
-                    }
-                    if (!seen) continue;
-                    ++solves;
-                    const int bad = compare("solver", s, read_skeleton(ee, at), alpha == 0.37f);
-                    if (inputs_bad > 0) std::printf("  model %06X recorded %d alpha %.2f: %d inputs differ\n", model, recorded, alpha, inputs_bad);
-                    inputs += inputs_bad >= 0, inputs_equal += inputs_bad == 0;
-                    if (!bad) ++equal;
-                    else std::printf("  model %06X recorded %d alpha %.2f: %d bones differ\n", model, recorded, alpha, bad);
+                    check_solve(ee, model, recorded, alpha, solves, equal, inputs, inputs_equal);
                 }
     }
     std::printf("posture: %d solves, %d with every bone equal; %d inputs, %d equal\n", solves, equal, inputs, inputs_equal);

@@ -574,9 +574,13 @@ TEST(disc_gt_mode_license_visit_is_a_day) {
         f.rt->game().during_quick_menu = true;
         f.rt->start_project(q.project);
         f.rt->settle();
-        if (visit == 1) {
+        // Visit 0: a failed run only (no grade: kept nowhere, the day empty). Visit 1: a bronze, then a slower bronze and a
+        // failed run: the day keeps the run that beat the visit's best (0x1105A8, 0x110800).
+        const std::vector<std::pair<const char*, u32>> runs =
+            visit == 0 ? std::vector<std::pair<const char*, u32>>{{"failed", 12'500}} : std::vector<std::pair<const char*, u32>>{{"bronze", 11'166}, {"bronze", 11'200}, {"failed", 10'900}};
+        for (const auto& [result, ms] : runs) {
             menu::RaceResult r;
-            r.kind = menu::RaceResult::Kind::License, r.race = race->race, r.result = "bronze", r.time_ms = 11'166;
+            r.kind = menu::RaceResult::Kind::License, r.race = race->race, r.result = result, r.time_ms = ms;
             q.ran(r);
             CHECK(g.today == today); // not until the sequence ends
             f.rt->start_project(q.project);
@@ -589,6 +593,13 @@ TEST(disc_gt_mode_license_visit_is_a_day) {
         CHECK(g.today == today + 1 && g.diary.size() == days + 1);
         CHECK(g.diary.back().type == (visit == 0 ? 0 : 4));
         if (visit == 1) CHECK(g.diary.back().b1 == 11 && g.diary.back().word == 11'166);
+        script::Vm& vm = f.rt->vm();
+        const script::Value label[1] = {script::Value::string(race->race)};
+        const script::Value unit = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "race_record"), "getUnit"), label);
+        const script::Value ranking = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "license_record"), "getUnit"), label);
+        std::printf("  visit %d: the test's unit %s %s, %d ranked\n", visit, vm.attribute(unit, "type").as_string().c_str(), vm.attribute(unit, "result").as_string().c_str(),
+                    int(vm.call(vm.attribute(ranking, "getRankNum"), {}).i));
+        CHECK(vm.attribute(unit, "type").as_string() == (visit == 0 ? "none" : "license") && vm.call(vm.attribute(ranking, "getRankNum"), {}).i == (visit == 0 ? 0 : 2));
     }
     CHECK(f.clean());
 }

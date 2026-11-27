@@ -57,6 +57,13 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         else if (setup.counted && setup.lap_length > 0) r.counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
         if (i < setup.past_line.size() && setup.past_line[i]) r.counter = 1;
         if (i < setup.marks.size()) r.mark = setup.marks[i];
+        if (i < setup.back.size()) r.back = setup.back[i];
+    }
+    practice_.clear();
+    if (setup.practice_grid.size() == cars.size()) { // (vf2 0x3F5270: the list by grid place)
+        practice_.resize(cars.size());
+        for (size_t i = 0; i < cars.size(); ++i) practice_[i] = i;
+        std::stable_sort(practice_.begin(), practice_.end(), [&](size_t a, size_t b) { return setup.practice_grid[a] < setup.practice_grid[b]; });
     }
     signal_start_ = false;
     claims_.clear();
@@ -78,6 +85,14 @@ float RaceFlow::progress(size_t i, const CarState& c) const {
 }
 
 void RaceFlow::sort_order(std::span<const CarState> cars) {
+    if (!practice_.empty()) {
+        // A free practice's places (vf3 0x3F5350): the list kept from step to step, sorted by the best lap (0x35E3F0, unsigned:
+        // no time is 0x157529FF), a car moved up only past a strictly slower one.
+        auto best = [&](size_t i) { return cars_[i].best_lap_ms < 0 ? u64(0x157529FF) : u64(cars_[i].best_lap_ms); };
+        std::stable_sort(practice_.begin(), practice_.end(), [&](size_t a, size_t b) { return best(a) < best(b); });
+        order_ = practice_;
+        return;
+    }
     for (size_t i = 0; i < order_.size(); ++i) order_[i] = i;
     std::stable_sort(order_.begin(), order_.end(), [&](size_t a, size_t b) {
         const CarRecord &ra = cars_[a], &rb = cars_[b];
@@ -96,6 +111,10 @@ void RaceFlow::sort_order(std::span<const CarState> cars) {
 void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
     CarRecord& r = cars_[i];
     ev.started.push_back(i);
+    if (!practice_.empty()) { // (a free practice's, vf20 0x3F50F0: its times from here)
+        r.base_ms = t;
+        return;
+    }
     if (setup_.start == StartType::Moving) {
         if (r.mark == 0) r.base_ms = setup_.mission ? 0 : t;
         if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
@@ -171,9 +190,12 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
             }
         }
         // The goal (virtual 23: a test of kind 2 ends there).
-        if (setup_.goal > 0 && setup_.test_kind == 2) {
+        if (setup_.goal > 0 && (setup_.test_kind == 2 || setup_.machine_test != 0)) {
             const F d(setup_.goal);
-            if (prev < d && d <= cur) end_car(i, clock_ + units((d - prev) / run), ev);
+            if (prev < d && d <= cur) {
+                end_car(i, clock_ + units((d - prev) / run), ev);
+                if (setup_.machine_test != 0) r.best_lap_ms = run_ms(i); // (❓ where the program writes it: read back by 0x35E3F0)
+            }
         }
         return;
     }
@@ -204,9 +226,11 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
         if ((setup_.test_kind == 3 || setup_.test_kind == 6) && setup_.laps == old) end_car(i, at, ev);
         return;
     }
-    // The finish (0x357B98): the leader has finished, or this car has driven the race's laps.
+    // The finish (0x357B98): the leader has finished, or this car has driven the race's laps, or the race's time is over (the
+    // crossing's moment, ms, at or past the limit: 0x34C158) and this car leads.
     const size_t leader = order_.empty() ? i : order_[0];
-    if (cars_[leader].finished || (setup_.laps > 0 && old >= setup_.laps)) end_car(i, at, ev);
+    const bool time_over = setup_.limit_ms > 0 && t >= setup_.limit_ms;
+    if (cars_[leader].finished || (setup_.laps > 0 && old >= setup_.laps) || (time_over && leader == i)) end_car(i, at, ev);
     r.base_ms = t;
 }
 
@@ -264,6 +288,7 @@ s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
     if (r.finished) return r.last_lap_ms >= 0 ? r.last_lap_ms : clock_ms(r.finish_units) - r.base_ms;
     if (hold_ > 0 || !clock_running_ || (setup_.player_clock && r.counter == 0)) return 0;
+    if (!practice_.empty() && r.counter == 0) return 0; // (a free practice's, vf34 → 0x357830: none before its start is counted)
     // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
     if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;
     if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;
@@ -303,7 +328,31 @@ std::string result_time(s64 ms, bool plus) {
     return buf;
 }
 
-void ResultBoard::begin(size_t cars, size_t player, std::string lap_word, std::string laps_word) {
+std::vector<int> qualify_places(std::span<const s64> best_ms) {
+    const size_t n = best_ms.size();
+    auto t = [&](size_t i) { return best_ms[i] < 0 ? u64(0x157529FF) : u64(best_ms[i]); };
+    std::vector<int> rank(n, 0), place(n, 0);
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j)
+            if (t(i) != t(j)) ++rank[t(j) < t(i) ? i : j];
+    std::vector<bool> taken(n, false);
+    for (size_t i = 0; i < n; ++i) {
+        size_t p = size_t(rank[i]);
+        while (p < n && taken[p]) ++p;
+        if (p >= n) p = 0;
+        while (taken[p]) ++p;
+        taken[p] = true, place[i] = int(p);
+    }
+    return place;
+}
+
+s64 row_time_limit_ms(std::span<const u8> row) {
+    if (row.size() < 0x1A) return 0;
+    return s64(u32(row[0x18]) | u32(row[0x19]) << 8) * 60000;
+}
+
+void ResultBoard::begin(size_t cars, size_t player, std::string lap_word, std::string laps_word, bool time_limit) {
+    time_limit_ = time_limit;
     rows_.assign(cars, Row{});
     recorded_.assign(cars, false);
     player_ = player;
@@ -339,15 +388,18 @@ void ResultBoard::finished(const RaceFlow& flow, std::span<const size_t> cars) {
         Row& r = rows_[row];
         r.fixed = true;
         // The time (ResultArcade::vf9, kind 0): the winner's whole time; the others' gap to it, or
-        // the laps short of the winner's.
+        // the laps short of the winner's. A race with a time limit (kind 1, 0x3E00B0): the winner's laps (" 123Laps"), the
+        // others on its laps their gap to it, the rest their own laps.
         const RaceFlow::CarRecord& c = flow.car(car);
         const s64 ms = flow.run_ms(car);
         if (row == 0) leader_ms_ = ms, leader_laps_ = c.laps_done;
-        if (c.laps_done == leader_laps_) {
+        auto laps = [&](int n, char sign) { return std::string(1, sign) + std::to_string(n) + (n < 2 ? lap_word_ : laps_word_); };
+        if (time_limit_) {
+            r.time = row != 0 && c.laps_done == leader_laps_ ? result_time(ms - leader_ms_, true) : laps(c.laps_done, ' ');
+        } else if (c.laps_done == leader_laps_) {
             r.time = result_time(row == 0 ? ms : ms - leader_ms_, row != 0);
         } else {
-            const int behind = leader_laps_ - c.laps_done;
-            r.time = "+" + std::to_string(behind) + (behind < 2 ? lap_word_ : laps_word_);
+            r.time = laps(leader_laps_ - c.laps_done, '+');
         }
     }
     all_fixed_ = std::all_of(recorded_.begin(), recorded_.end(), [](bool b) { return b; });

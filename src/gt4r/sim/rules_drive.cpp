@@ -354,6 +354,9 @@ void change_gear(ex::Car& c, int g) {
 
 } // namespace
 
+s32 up_shift_rpm(const ex::Car& c, const DriveExtra& x) { return up_speed(c, x); }
+s32 down_shift_rpm(const ex::Car& c, const DriveExtra& x, int g) { return down_speed(c, x, x.d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]); }
+
 F turbo_boost(const EngineBlock& e, s16 n, int stage) { return turbo_stage(e, n, stage); }
 
 DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* settings) {

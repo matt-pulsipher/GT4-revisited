@@ -59,7 +59,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
-    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
+    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it); 6 a pit start on its grid place
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
     bool remote = false; // another player's car of an online race: posed from its owner's states (net/net_race.h), its driver plans only
@@ -117,6 +117,11 @@ public:
     // The entries' cars as a demonstration's file enters them (each its equipment, grid place, gearbox and
     // aids; sim/ai/demo_driver.h), or back as set up (empty); the world starts again.
     void set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides);
+    // An entry's condition block from the next restart (a garage car's, as the last run left it: each run of a sequence
+    // starts from the riding car's, 0x10F948).
+    void set_condition(size_t entry, const std::optional<std::array<u8, 0x20>>& c) {
+        if (entry < setup_.entries.size()) setup_.entries[entry].condition = c;
+    }
     // The computer drivers drive the player's car too (B-spec, a scripted run) from the next restart.
     void set_computer_player(bool on) { computer_player_ = on; }
     // The game's computer drivers drive the cars (false: the caller's inputs, e.g. the stand-in's
@@ -133,6 +138,8 @@ public:
     const race::StartRace& start_race() const { return start_course_->race(); }
     const race::PlannedStart& start_of(size_t car) const { return starts_[car]; }
     int start_crossings(size_t car) const;
+    // Its backward crossings to take back first (F + 0x4B0: a pit start's, race::planned_back).
+    int start_back(size_t car) const;
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
     void set_crossings(size_t car, int n) {
         if (session_) session_->set_crossings(car, n);
@@ -253,6 +260,8 @@ public:
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
+    // F +0x62E (the arcade's "Passing pit lane" mark, the pit pass's pad visit): 0 none.
+    int pit_mark(size_t car) const { return session_ && car < car_visuals_.size() ? session_->pit_mark(car) : 0; }
     // A car's race is over (0x343D78: the computer cruises it on, or as `mode` asks: ai::Field::finish); a test's player's: the
     // computer's cars too (0x3F88E8).
     void finish_car(size_t car, bool test, int mode = 3) {
@@ -303,6 +312,9 @@ public:
     audio::RaceSound* sound();
 
     void set_cars_hidden(bool on) { cars_hidden_ = on; } // (a lesson's guide film: the course alone)
+    // The best lap's ghost (screen_race.cpp): the player's car once more, drawn see-through at a state of its own, no shadow,
+    // no driver, no sound; none: not drawn.
+    void set_ghost(const std::optional<race::CarState>& state, float alpha) { ghost_state_ = state, ghost_alpha_ = alpha; }
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none. `half`: one of the two views of a split screen (0 and 1: the several-view draw
@@ -416,6 +428,9 @@ public:
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
     // speedometer's face.
     float car_top_speed(size_t i) const;
+    // A car's top speed while racing (car +0x6CC, m/s: the most of its speed, 0x35DEC4, kept until its run ends) and its speed
+    // now (+0x6C8) if more: a machine test's top speed at its goal (vf23 0x3F6C30).
+    gt3r::ee::F car_max_speed(size_t i) const;
     // The materials a wheel counts as off the course on (the program's 0x622430, a word per material).
     bool soft_material(u8 material) const { return material < soft_.size() && soft_[material] != 0; }
     // The cars move by the game's simulation (false: the stand-in).
@@ -494,6 +509,8 @@ private:
     std::vector<ServiceNote> service_;
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false, cars_hidden_ = false;
+    std::optional<race::CarState> ghost_state_; // set_ghost
+    float ghost_alpha_ = 0.5f;
     std::vector<bool> ended_; // the cars whose run is over (finish_car)
     float player_ps_ = 0;
     std::unique_ptr<race::StartCourse> start_course_;

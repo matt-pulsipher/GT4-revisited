@@ -80,7 +80,9 @@ struct CarStart {
     int speed = 0;
     // F + 0x65B (0x363B10): 1 the car starts before the section's start (or is of kind 2), where its clock starts; 2 past it.
     u8 mark = 0;
-    bool on_line() const { return kind != 0; }
+    // (0x363B10, 0x3640E0: kinds 1 .. 5 are put on the course's driving line; 0, 6 (a pit start: the free practice's player,
+    // DynamicsConductorFreePractice::vf30 0x3F4F10), 7 and 8 stand on their grid place)
+    bool on_line() const { return kind >= 1 && kind <= 5; }
 };
 CarStart car_start(const RowStart& row, Conductor c, size_t car, int section_start);
 

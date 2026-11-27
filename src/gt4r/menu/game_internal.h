@@ -159,11 +159,18 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
+// ---- game_demo.cpp: MDemonstration.
+void install_demonstration(GameNatives& n, Object& game);
 // Whether all 16 tests of a license ("l0b", "l0a", "lib", "lia", "l0s") are passed with bronze or better (0x4312B0).
 bool license_all_bronze(Database& d, const GameState& s, const std::string& category);
 // Whether the player may drive an event himself (the race's menus' IsASpec): it asks for no license (its RACE row's byte
 // +0x45), or every test of that license is passed (0x110498).
 bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
+// The course records (0x433C10: a course's unit, made in order of its code when `make`; -1 none) and a ranking's insert
+// (0x433260 by time, 0x433348 by top speed: the place by the value, the real clock's date, the car's code, the pass code;
+// false past the tenth). `base` the unit's offset in `block` (the course record's or the machine test's).
+int course_record_unit(Database& d, GameState& s, const std::string& course, bool make);
+bool ranking_insert(Database& d, Bytes& block, size_t base, bool by_speed, u32 value, const std::string& car, const std::string& pass_code);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
 s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
@@ -173,7 +180,7 @@ s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms
 std::vector<std::string> saved_replays(const std::string& data_dir);
 struct GameNatives;
 // The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
-void install_replay_list(GameNatives& n, Object& manager);
+void install_replay_list(GameNatives& n, Object& manager, const std::string& mode);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
 // ---- game_photos.cpp
@@ -200,7 +207,7 @@ std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::st
 
 // ---- game_controllers.cpp
 // MOption's controller settings, and their part of the options' reset (`before`: both ports' text as it was).
-void install_controllers(GameNatives& n, Object& option);
+void install_controllers(const std::shared_ptr<GameState>& s, Object& option);
 void reset_controllers(GameState& s, const std::array<std::string, 2>& before);
 
 // The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).
@@ -222,6 +229,10 @@ struct GameNatives {
     std::shared_ptr<Object> make_music(const std::string& object);
     script::Value make_sound();
     script::Value make_option();
+    // MGame.getOption: a copy of the options; setOption: a copy made the game's options and applied.
+    script::Value copy_option();
+    void commit_option(const script::Value& from);
+    std::shared_ptr<Object> build_option(GameState& held, std::shared_ptr<GameState> copy);
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
     std::shared_ptr<save::GameSave> card_save, card2_save;

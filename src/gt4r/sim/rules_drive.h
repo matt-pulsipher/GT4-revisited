@@ -169,6 +169,9 @@ void wheel_speeds(ex::Car& c, const DriveExtra& x, const WheelLayout& l);
 void engine_speed(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTables* t = nullptr);
 // 0x36BF68: the gear for speed v (rules_start.h's start_gear on these blocks).
 int gear_for_speed(const ex::Car& c, const DriveExtra& x, F v);
+// 0x36BEE0: the up-shift rpm (a computer's by its driver's factor); 0x36BF28: gear g's down-shift rpm (g from 2).
+s32 up_shift_rpm(const ex::Car& c, const DriveExtra& x);
+s32 down_shift_rpm(const ex::Car& c, const DriveExtra& x, int g);
 // 0x351DC8: the gear decision by the pedal style (0x36C8E8: automatic 0x36C160, manual 0x36C690,
 // sequential 0x36C780 / 0x36C850) and the change, the clutch to slip or shift.
 void gear_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const TireExtra& tires, const DriveTables& t);

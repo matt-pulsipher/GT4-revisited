@@ -50,7 +50,34 @@ struct FlowSetup {
     int test_kind = 0;
     bool mission = false;
     bool no_lap = false; // a course without a lap (COURSE +0x12 = 1, K +0xCBDE)
+    // The race's time limit (ms; 0 none): the event's minutes (RACE +0x18, the conductor's +0xF850) x 60,000 (0x34C140). Once a
+    // crossing of the line is at or past it, the leader finishes there and the others at their next crossings (0x34C158, vf21).
+    s64 limit_ms = 0;
+    // Each car's backward crossings to take back first (F + 0x4B0 as the set-up leaves it: 1 for a car of start kind 6 standing
+    // past half the lap, 0x36437C; empty: none).
+    std::vector<u8> back;
+    // A free practice (DynamicsConductorFreePractice, a championship's Free Qualify and the practice): each car's grid place
+    // (empty: not one). Its places go by the best laps (vf3 0x3F5350: the list in grid order at the start (vf2), each step sorted
+    // by the best lap, no time behind every time, ties keeping their order); a car's times count from its counted start
+    // (vf20 0x3F50F0: F + 0x614 the crossing's moment).
+    std::vector<int> practice_grid;
+    // A machine test's kind (DynamicsConductorMachineTest; 0 not one): no laps (vf37), nothing at the line (vf20, vf21), the run
+    // ended at the goal (vf23 0x3F6C30 → 0x358000, as a license test of kind 2): its time the car's best (what 0x35E3F0 reads
+    // back, vf34 and the sequence 0x115A90).
+    int machine_test = 0;
 };
+
+// A championship's Free Qualify (0x119310): the grid by the practice's best laps (0x3EE808): each entry's place the count of
+// entries with a strictly better time (ms; -1 none, as the program's 0x157529FF, behind every time), ties to the earlier
+// entry first, each entry taking the first place not taken from its count on. Entry 0 the player's.
+std::vector<int> qualify_places(std::span<const s64> best_ms);
+// The free practice's starts (DynamicsConductorFreePractice::vf30 0x3F4F10): the player's car kind 6 (❓ the pit's), every other
+// car a rolling start of kind 5 at 120 km/h, (300 + 24 x its number) metres behind the line. Metres (below 0 behind).
+constexpr float qualify_start_distance(size_t car) { return -float(300 + 24 * int(car)); }
+constexpr float kQualifyStartKmh = 120;
+
+// The time limit an event's RACE row gives (its u16 +0x18, minutes; 0x35E108 copies it to the rule block's +0x38): ms, 0 none.
+s64 row_time_limit_ms(std::span<const u8> row);
 
 // A car's crossings of the line where it stands at the start (the set-up 0x363B10, 0x364300 .. 0x36444C: F + 0x4AC), `v`
 // its distance along the course: 1 (past the line) unless it stands in the lap's last sector; there still 1 short of the
@@ -175,6 +202,7 @@ private:
     std::vector<s64> claims_; // claim_finish's, by car (empty: none)
     std::vector<CarRecord> cars_;
     std::vector<size_t> order_;
+    std::vector<size_t> practice_; // a free practice's list (vf3), kept from step to step; empty: not one
     int hold_ = 0, hold_total_ = 0;
     s64 clock_ = 0;
     bool clock_running_ = true;
@@ -195,8 +223,9 @@ public:
         bool changed = false;
         bool fixed = false; // the car has finished
     };
-    // `lap_word` / `laps_word`: the race's words for one lap and several (WordOfLap, WordOfLaps).
-    void begin(size_t cars, size_t player, std::string lap_word = "Lap", std::string laps_word = "Laps");
+    // `lap_word` / `laps_word`: the race's words for one lap and several (WordOfLap, WordOfLaps). `time_limit`: a race with a
+    // time limit (ResultArcade +0x50 = 1, 0x3DF0A4): its rows by laps.
+    void begin(size_t cars, size_t player, std::string lap_word = "Lap", std::string laps_word = "Laps", bool time_limit = false);
     // The cars that finished in a step, in that order (RaceFlow::Events::finished).
     void finished(const RaceFlow& flow, std::span<const size_t> cars);
     // While the page is up: the running cars' rows from the race's order now.
@@ -220,6 +249,7 @@ private:
     bool all_fixed_ = false;
     s64 leader_ms_ = 0;
     int leader_laps_ = 0;
+    bool time_limit_ = false;
     std::string lap_word_, laps_word_;
 };
 

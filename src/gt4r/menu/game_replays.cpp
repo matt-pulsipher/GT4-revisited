@@ -79,7 +79,7 @@ namespace {
 struct ReplayRow {
     std::string title, course, car, date; // the course and the car by their labels
     u32 time_ms = 0;
-    bool bspec = false, valid = true, license = false;
+    bool bspec = false, valid = true, license = false, best_lap = false;
     std::string mode = "NOTHING";
     int submode = -1;
     int kb = 0;
@@ -91,7 +91,8 @@ std::shared_ptr<Object> replay_object(GameNatives& n, const ReplayRow& r) {
     Database& d = n.db();
     std::string car;
     if (!r.car.empty() && d.car(r.car)) car = n.rt.vm().attribute(make_car_object(n.rt, r.car, 0), "short_name").to_string();
-    f->set("objectName", text(r.license ? "FileReplayLicense" : "FileReplayFull"));
+    // (The list's icon by the file's class: a best lap's, labomode's bg_best, is neither of the two named.)
+    f->set("objectName", text(r.best_lap ? "FileReplayBest" : r.license ? "FileReplayLicense" : "FileReplayFull"));
     f->set("title", text(r.title));
     // (The course's label: the page's script translates it, CourseNameCaption.)
     f->set("carName", text(car)), f->set("courseName", text(r.course)), f->set("time", text(r.time_ms ? time_text(r.time_ms) : std::string()));
@@ -140,6 +141,7 @@ ReplayRow rebuilt_row(GameNatives& n, const std::string& path, const Bytes& byte
         row.title = f.title, row.course = f.course, row.time_ms = f.time_ms, row.bspec = f.bspec;
         if (!f.cars.empty()) row.car = f.cars[0].label;
         if (!f.mode.empty()) row.mode = f.mode, row.submode = f.submode, row.license = license_mode(f.mode);
+        row.best_lap = f.best_lap();
         row.icon = keep_picture(n.state(), "replay:" + path, f.picture);
     } catch (const std::exception&) {
         row.valid = false;
@@ -187,8 +189,30 @@ ReplayRow own_row(GameNatives& n, const std::string& path, const Bytes& bytes) {
 
 } // namespace
 
-void install_replay_list(GameNatives& n, Object& manager) {
-    auto files = std::make_shared<std::vector<std::string>>(saved_replays(n.rt.data_dir()));
+// The card manager's files by its mode: the best lap modes list the best lap replays alone, Load Best Lap Replay those of the
+// race's course and car (the sequence hands the manager the car's and the course's codes, 0x11CF30; ❓ the manager's own
+// filter is not read); the others every replay.
+std::vector<std::string> replays_for(GameNatives& n, const std::string& mode) {
+    std::vector<std::string> all = saved_replays(n.rt.data_dir());
+    if (mode != "MODE_SAVE_BESTLAP_REPLAY" && mode != "MODE_LOAD_BESTLAP_REPLAY") return all;
+    std::vector<std::string> out;
+    const RaceRequest& q = n.state().race;
+    for (const std::string& path : all) {
+        const Bytes b = read_file(path);
+        if (!race::ReplayFile::is_replay(b)) continue;
+        try {
+            const race::ReplayFile f = race::ReplayFile::decode(b);
+            if (!f.best_lap()) continue;
+            if (mode == "MODE_LOAD_BESTLAP_REPLAY" && (f.course != q.course || f.cars.empty() || f.cars[0].label != q.car)) continue;
+            out.push_back(path);
+        } catch (const std::exception&) {
+        }
+    }
+    return out;
+}
+
+void install_replay_list(GameNatives& n, Object& manager, const std::string& mode) {
+    auto files = std::make_shared<std::vector<std::string>>(replays_for(n, mode));
     GameNatives* np = &n;
     GameState* s = &n.state();
     manager.property("count", [files] { return number(s32(files->size())); });
@@ -205,7 +229,7 @@ void install_replay_list(GameNatives& n, Object& manager) {
         ReplayRow row;
         row.course = q.course, row.car = q.car, row.date = day_text(std::time(nullptr)), row.time_ms = q.time_ms, row.bspec = q.bspec, row.kb = q.kb;
         row.icon = keep_picture(*s, "replay:new", q.picture);
-        row.mode = q.mode, row.submode = q.submode, row.license = license_mode(q.mode);
+        row.mode = q.mode, row.submode = q.submode, row.license = license_mode(q.mode), row.best_lap = q.best_lap;
         auto f = replay_object(n, row);
         f->method("isExist", [](Vm&, const Value&, Args) { return number(1); }); // 1: not there
         f->method("readSize", [](Vm&, const Value&, Args) { return number(0); });
@@ -217,13 +241,13 @@ void install_replay_list(GameNatives& n, Object& manager) {
     if (fresh.p) {
         const std::shared_ptr<Object> f = fresh.as<Object>();
         std::weak_ptr<Object> weak = f;
-        auto save = [s, files, over, weak, np](Vm&, const Value&, Args) {
+        auto save = [s, files, over, weak, np, mode](Vm&, const Value&, Args) {
             const std::shared_ptr<Object> o = weak.lock();
             // (Over one of Gran Turismo 4's own: that one goes, a new one is written.)
             if (!over->empty() && std::filesystem::path(*over).extension() != ".gt4rrep") remove_replay(*over), over->clear();
             const bool ok = o && s->pending_replay && s->pending_replay->save && s->pending_replay->save(o->get("title").to_string(), *over);
             over->clear();
-            *files = saved_replays(np->rt.data_dir());
+            *files = replays_for(*np, mode);
             return text(ok ? "OK" : "DEVICE_ERROR");
         };
         f->method("saveNew", save), f->method("save", save);

@@ -4,6 +4,7 @@
 #include "gt4r/net/net_field.h"
 
 #include "gt4r/race/aspec_points.h"
+#include "gt4r/race/race_flow.h"
 
 #include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
@@ -28,6 +29,7 @@
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -125,6 +127,11 @@ struct RaceWorld::Impl {
         std::unique_ptr<race::DriverFigure> figure;
         bool posed = false;
         race::posture::F follow, follow_rate; // the steering command's follower (0x40CC58), here of the front wheels' angle
+        // The gear change's: the lever's layout (from the car's GEAR part, at the first step), the engine speed as the race
+        // shows it (car +0x738, 0x350ED0: kept here beside the driver, the race display's own is not this).
+        bool gear_known = false;
+        race::posture::GearInput gear;
+        race::posture::ShownRpm shown_rpm;
     };
     std::vector<MovingDriver> drivers;
     // Each car's body's moving parts (a few cars' scripts: null for the others).
@@ -382,8 +389,9 @@ void RaceWorld::build_simulation() {
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
                 // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
                 // without laps (practice, a free run) runs on the free-run conductor, whose rule block holds 0 there (the
-                // original's Practice state).
-                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0 && setup_.conductor == race::Conductor::Other &&
+                // original's Practice state); an endurance race of a time limit has no laps and counts it.
+                entries[i].fuel = setup_.event_row.size() > 0x43 && (setup_.event_row[0x43] != 0 || race::row_time_limit_ms(setup_.event_row) > 0) &&
+                                  setup_.conductor == race::Conductor::Other &&
                                   !setup_.pace.solo && race::course_start(*app_.db(), setup_.course).fuel;
             }
             counts_fuel_ = !entries.empty() && entries[0].fuel;
@@ -487,6 +495,7 @@ void RaceWorld::build_simulation() {
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
                     pr.mode = computer_player_ ? 1 : 0; // (K +0xCBDC: a B-spec race)
+                    pr.limit_minutes = u32(race::row_time_limit_ms(setup_.event_row) / 60000); // (the conductor's +0xF850)
                     pr.pit_menu = setup_.players < 2; // (a two-player battle has no pit menu: 0x32F028 makes none)
                     pit_asked_.assign(setup_.entries.size(), 0);
                     tires_fitted_ = pit_hooks.tires;
@@ -532,7 +541,8 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
     for (size_t i = 0; i < entries.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         std::optional<race::CarStart> rolling;
-        if ((we.start_speed > 0 || we.start_kind == 1) && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618), a two-player battle's handicap (0x347108)
+        if (we.start_kind == 6) rolling.emplace(), rolling->kind = 6; // (a pit start on its grid place: the free practice's player)
+        else if ((we.start_speed > 0 || we.start_kind == 1) && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618), a two-player battle's handicap (0x347108)
             rolling.emplace();
             rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : road.gtrw && we.start_distance == 0 ? 0 : 1; // (Prologue: at the line the grid)
             rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
@@ -541,12 +551,16 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         const race::PlannedStart& p = starts_.back();
         entries[i].start_speed = p.line ? 0.0f : we.start_speed;
         race::put_start(entries[i], r, p, players_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program);
-        if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
+        if (rolling && !p.line && rolling->kind != 6) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
     }
 }
 
 int RaceWorld::start_crossings(size_t car) const {
     return car < starts_.size() ? race::planned_crossings(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
+}
+
+int RaceWorld::start_back(size_t car) const {
+    return car < starts_.size() ? race::planned_back(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
 }
 
 // The line each car's driver starts on, and the cars their drivers hold in a rolling start.
@@ -596,7 +610,7 @@ void RaceWorld::restart() {
     for (size_t i = 0; i < impl_->motions.size() && i < car_visuals_.size(); ++i)
         if (impl_->motions[i]) car_visuals_[i]->restart_motion(*impl_->motions[i]);
     clear_effects();
-    for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
+    for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f), d.gear_known = false;
 }
 
 void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer, u32 hold_left) {
@@ -704,6 +718,12 @@ float RaceWorld::gadget_impulse(size_t i) const {
 
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
+gt3r::ee::F RaceWorld::car_max_speed(size_t i) const {
+    if (!session_ || i >= car_visuals_.size()) return gt3r::ee::F();
+    const auto& c = session_->record(i);
+    return c.max_speed < c.speed_abs ? c.speed_abs : c.max_speed; // (vf23 0x3F6C30: with the speed now)
 }
 
 void RaceWorld::arm_bspec(const sim::Program& program) {
@@ -1095,6 +1115,28 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
                 const sim::ai::Field::Probe p = field_->probe_get(d.car);
                 if (!(p.aim_x == F(0.0f) && p.aim_y == F(0.0f))) motion.aim = race::posture::V3{p.aim_x, F(car.position.y), -p.aim_y};
             }
+            // The gear change's inputs (a Gran Turismo 4 race's cars; the lever stays in a replay without its session).
+            const sim::Session* sim_cars = live ? session_.get() : heard;
+            if (sim_cars && d.car < sim_cars->cars().size() && sim_cars->gt4_rules()) {
+                const gt3r::sim::exact::Car& rec = sim_cars->record(d.car);
+                const sim::rules::DriveExtra& drive = sim_cars->gt4_record(d.car).drive;
+                if (!d.gear_known) { // (0x385410 at the set-up; 0x402320 puts the lever at the gear's place, 0x350EB0 the shown speed at the rpm)
+                    d.gear_known = true;
+                    d.gear.layout = race::posture::gear_layout(db::part_row(*app_.db(), sim_cars->equipment(d.car).part(sim::Equipment::Gear)));
+                    d.state.reset(d.cockpit, d.gear.layout, rec.gear);
+                    d.shown_rpm.start(rec.rpm);
+                }
+                d.shown_rpm.step(rec.rpm, dt);
+                race::posture::ShiftInputs si;
+                si.rpm = gt3r::ee::to_int(d.shown_rpm.value), si.top = drive.d.gears, si.gear = rec.gear;
+                si.throttle = rec.throttle_pedal, si.brake = rec.brake_pedal;
+                const std::optional<F> target = live && field_ ? field_->least_target(d.car) : std::nullopt;
+                si.suggested = target ? sim_cars->gear_for_speed(d.car, *target) : 0;
+                si.up_rpm = sim::rules::up_shift_rpm(rec, drive);
+                si.down_rpm = rec.gear >= 2 ? sim::rules::down_shift_rpm(rec, drive, rec.gear) : 0;
+                d.gear.gear = rec.gear, d.gear.reach = race::posture::shift_reach(si), d.gear.start_hold = sim_cars->countdown() > 0;
+                motion.gear = &d.gear;
+            }
             d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;
@@ -1344,6 +1386,12 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
         if (m.pit_live && i == 0 && m.license_scene) m.license_scene->add_items(m.items);
         light_items(m.items, first, m.lights[i]);
+    }
+    if (ghost_state_ && !cars_hidden_ && !car_visuals_.empty()) { // (the ghost: the player's car's model again)
+        const size_t first = m.items.size();
+        car_visuals_[0]->add_items(m.items, *ghost_state_, pose.eye, 0.0f, lens_ && lens_->full_detail ? nullptr : &lod_view);
+        for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = ghost_alpha_;
+        if (!m.lights.empty()) light_items(m.items, first, m.lights[0]);
     }
     if (!split) course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
@@ -1631,6 +1679,11 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
+    }
+    if (ghost_state_ && !car_visuals_.empty()) {
+        const size_t first = m.mirror_items.size();
+        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f);
+        for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;
