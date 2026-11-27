@@ -81,6 +81,35 @@ void encrypt(u8* out, const u8* in, const Schedule& key) {
     out[4] = e ^ k[4], out[5] = u8(f + k[5]), out[6] = u8(g + k[6]), out[7] = h ^ k[7];
 }
 
+// The block back (the rounds the other way: the permutation, the transforms, the exponents and the keys undone).
+void decrypt(u8* out, const u8* in, const Schedule& key) {
+    const Tables& t = tables();
+    int rounds = key[0];
+    if (rounds > kMaxRounds) rounds = kMaxRounds;
+    const u8* k = key.data() + 1 + 16 * rounds;
+    u8 a = in[0] ^ k[0], b = u8(in[1] - k[1]), c = u8(in[2] - k[2]), d = in[3] ^ k[3], e = in[4] ^ k[4], f = u8(in[5] - k[5]), g = u8(in[6] - k[6]), h = in[7] ^ k[7];
+    auto ipht = [](u8& x, u8& y) { x = u8(x - y), y = u8(y - x); };
+    for (int r = rounds - 1; r >= 0; --r) {
+        k -= 16;
+        const u8 pa = a, pb = c, pc = e, pd = g, pe = b, pf = d, pg = f, ph = h;
+        a = pa, b = pb, c = pc, d = pd, e = pe, f = pf, g = pg, h = ph;
+        ipht(a, e), ipht(b, f), ipht(c, g), ipht(d, h);
+        ipht(a, c), ipht(e, g), ipht(b, d), ipht(f, h);
+        ipht(a, b), ipht(c, d), ipht(e, f), ipht(g, h);
+        a = t.log[u8(a - k[8])], b = t.exp[u8(b ^ k[9])], c = t.exp[u8(c ^ k[10])], d = t.log[u8(d - k[11])];
+        e = t.log[u8(e - k[12])], f = t.exp[u8(f ^ k[13])], g = t.exp[u8(g ^ k[14])], h = t.log[u8(h - k[15])];
+        a ^= k[0], b = u8(b - k[1]), c = u8(c - k[2]), d ^= k[3], e ^= k[4], f = u8(f - k[5]), g = u8(g - k[6]), h ^= k[7];
+    }
+    out[0] = a, out[1] = b, out[2] = c, out[3] = d, out[4] = e, out[5] = f, out[6] = g, out[7] = h;
+}
+
+u32 get_bits(const u8* buf, u32 at, u32 bits) {
+    u32 v = 0;
+    for (u32 k = 0; k < bits; ++k, ++at)
+        if (buf[at >> 3] & (1u << (at & 7))) v |= 1u << k;
+    return v;
+}
+
 // 0x1A2C40: the hash's step on an 8-byte block m, its 16 bytes of state h.
 void compress(std::array<u8, 16>& h, const u8* m) {
     const Schedule k1 = schedule(h.data() + 8, m, kHashRounds);
@@ -115,7 +144,7 @@ void put_bits(u8* buf, u32 at, u32 v, u32 bits) {
 
 } // namespace
 
-PassCoder::PassCoder(const std::array<u8, 8>& key_a, const std::array<u8, 8>& key_b) : key_a_(key_a), key_b_(key_b) {}
+PassCoder::PassCoder(const std::array<u8, 8>& key_a, const std::array<u8, 8>& key_b, PassLayout layout) : key_a_(key_a), key_b_(key_b), layout_(std::move(layout)) {}
 
 std::optional<PassCoder> PassCoder::from_program(ByteSpan image, u32 load) {
     if (kKeyA < load || kKeyB + 8 - load > image.size()) return std::nullopt;
@@ -125,25 +154,52 @@ std::optional<PassCoder> PassCoder::from_program(ByteSpan image, u32 load) {
     return PassCoder(a, b);
 }
 
-std::string PassCoder::encode(const PassFields& f, u32 seed) const {
-    // 0x1A31A0: the fields packed into 80 bits.
-    u8 packed[10] = {};
-    const u32 values[10] = {f.kind, f.car, f.course, f.flag, f.test, f.word14, f.word18, f.time, f.word20, f.word24};
-    const u32 widths[10] = {5, 9, 8, 1, 12, 12, 3, 22, 4, 4};
+std::optional<std::vector<u32>> PassCoder::decode(const std::string& digits) const {
+    // The digits as a little-endian number of the block's bytes.
+    std::vector<u8> b(layout_.block, 0);
+    for (size_t i = layout_.check ? 1 : 0; i < digits.size(); ++i) {
+        if (digits[i] < '0' || digits[i] > '9') return std::nullopt;
+        u32 carry = u32(digits[i] - '0');
+        for (u8& v : b) {
+            const u32 cur = u32(v) * 10 + carry;
+            v = u8(cur), carry = cur >> 8;
+        }
+        if (carry) return std::nullopt;
+    }
+    const Schedule key = schedule(key_a_.data(), key_b_.data(), kCipherRounds);
+    for (size_t o = b.size() - 8 + 1; o-- > 0;) decrypt(b.data() + o, b.data() + o, key);
+    std::vector<u8> check = b;
+    put_bits(check.data(), 4, 0, 12);
+    const u32 crc = save::crc32(ByteSpan(check.data(), check.size()));
+    if (get_bits(b.data(), 4, 12) != ((crc ^ (crc >> 12) ^ (crc >> 24)) & 0xFFF)) return std::nullopt;
+    const u8* packed = b.data() + (layout_.block - layout_.packed);
+    std::vector<u32> out;
     u32 at = 0;
-    for (int k = 0; k < 10; ++k) put_bits(packed, at, values[k], widths[k]), at += widths[k];
-    // 0x1A2FA8: after two zero bytes; the hash's nibble, the CRC's fold; enciphered at each offset.
-    u8 b[12] = {};
-    std::memcpy(b + 2, packed, 10);
+    for (u32 w : layout_.widths) out.push_back(get_bits(packed, at, w)), at += w;
+    return out;
+}
+
+std::string PassCoder::encode(const PassFields& f, u32 seed) const {
+    return encode(std::vector<u32>{f.kind, f.car, f.course, f.flag, f.test, f.word14, f.word18, f.time, f.word20, f.word24}, seed);
+}
+
+std::string PassCoder::encode(const std::vector<u32>& values, u32 seed) const {
+    // 0x1A31A0 (0x44B258): the fields packed.
+    std::vector<u8> packed(layout_.packed, 0);
+    u32 at = 0;
+    for (size_t k = 0; k < layout_.widths.size() && k < values.size(); ++k) put_bits(packed.data(), at, values[k], layout_.widths[k]), at += layout_.widths[k];
+    // 0x1A2FA8 (0x44B060): after two zero bytes; the hash's nibble, the CRC's fold; enciphered at each offset.
+    std::vector<u8> b(layout_.block, 0);
+    std::memcpy(b.data() + (layout_.block - layout_.packed), packed.data(), layout_.packed);
     u32 x = hash32(seed);
     x ^= x >> 16, x ^= x >> 8, x ^= x >> 4;
-    put_bits(b, 0, x & 0xF, 4);
-    const u32 crc = save::crc32(ByteSpan(b, 12));
-    put_bits(b, 4, (crc ^ (crc >> 12) ^ (crc >> 24)) & 0xFFF, 12);
+    put_bits(b.data(), 0, x & 0xF, 4);
+    const u32 crc = save::crc32(ByteSpan(b.data(), b.size()));
+    put_bits(b.data(), 4, (crc ^ (crc >> 12) ^ (crc >> 24)) & 0xFFF, 12);
     const Schedule key = schedule(key_a_.data(), key_b_.data(), kCipherRounds);
-    for (size_t o = 0; o + 8 <= 12; ++o) encrypt(b + o, b + o, key);
-    // 0x1A48B0: the little-endian number's digits, least first, padded with '0' to 30 and turned round.
-    std::vector<u8> n(b, b + 12);
+    for (size_t o = 0; o + 8 <= b.size(); ++o) encrypt(b.data() + o, b.data() + o, key);
+    // 0x1A48B0 (0x44C918): the little-endian number's digits, least first, padded with '0' and turned round.
+    std::vector<u8> n = b;
     std::string digits;
     auto zero = [&n] {
         for (u8 v : n)
@@ -158,10 +214,10 @@ std::string PassCoder::encode(const PassFields& f, u32 seed) const {
         }
         digits.push_back(char('0' + rem));
     }
-    constexpr size_t kDigits = 30;
-    if (digits.size() < kDigits) digits.append(kDigits - digits.size(), '0');
+    if (digits.size() < layout_.digits) digits.append(layout_.digits - digits.size(), '0');
     std::string out(digits.rbegin(), digits.rend());
-    // The check digit over the rest.
+    // The check digit over the rest (Prologue's).
+    if (!layout_.check) return out;
     u32 c = 0xFFFFFFFFu;
     for (size_t i = 1; i < out.size(); ++i) c = c * 3 + u32(s32(gt3r::s8(out[i])));
     out[0] = char('0' + c % 10);

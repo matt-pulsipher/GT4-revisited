@@ -3941,6 +3941,7 @@ private:
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
         if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.best_lap_ms = u32(best);
+        if (!race_->world().session_entries().empty()) r.equipment = race_->world().session_entries()[0].equipment;
         // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
         if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
             r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;

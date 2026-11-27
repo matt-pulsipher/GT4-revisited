@@ -6,12 +6,17 @@
 #include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/race_natives.h"
+#include "gt4r/menu/prologue_passcode.h"
+#include "gt4r/menu/prologue_license.h"
+#include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/pit_tires.h"
 #include "gt4r/sim/showroom.h"
 
 #include "gt4r/formats/db/specdb_prologue.h"
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 
 namespace gt4r::menu {
 
@@ -297,6 +302,59 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
     }
 }
 
+// A ranking entry's pass code (0x10F718 -> 0x44B258; docs/formats/menu.md "After a race"): ten fields packed, the record's kind 17
+// (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x4482C0, 0x448398: 0x449190), a flag
+// (the free run's and machine test's: the car as sold, 0x445B88), the car's power (PS) and weight (kg) as the showroom gives them
+// (0x364E90, 0x364FA8), the run's kind (0 the time trial, 1 the free run, 2 a license test, 3 a machine test), the time, and two
+// more: the front and rear tires' kinds (0x4462E0, 0x446320), or a license test's category (B 0, A 1, IB 2, IA 3, S 4, coffee 5:
+// RaceLicense::vf96 0x3BCB38 by the race's label) and its number less one; the first four bits a hash of the real clock's
+// seconds (0x44AF40). ✔ The original's codes on the reference cards (a B-1 run, a time trial of the Ka at Tsukuba) decode to
+// the fields ours makes of the same runs (test disc_gt4_pass_codes_of_the_original). ❓ The car-as-sold check compares the parts but the tires
+// and the wheels and wing with the car as sold (0x445B88 reads a parts row of its own: not followed to its end).
+std::string ranking_pass_code(Database& d, const RaceResult& r, int kind, u32 time) {
+    const sim::Program& p = d.program;
+    if (!p.known() || !d.db || d.db->prologue() || !r.equipment) return "--------";
+    std::array<u8, 8> a, b;
+    for (u32 i = 0; i < 8; ++i) a[i] = p.b(0x6A7C88 + i), b[i] = p.b(0x6A7C90 + i);
+    const menu::PassCoder coder(a, b, menu::PassLayout::gt4());
+    const sim::Equipment& eq = *r.equipment;
+    std::string car;
+    for (const RaceResult::Finisher& f : r.order)
+        if (f.entry == 0) car = f.car;
+    const s32 car_place = prologue_table_place(d, "GENERIC_CAR", kCarTable, car), course_place = prologue_table_place(d, "COURSE", kCourseTable, r.course);
+    u32 ps = 0, kg = 0;
+    if (const sim::Showroom* sr = d.showroom())
+        if (const std::optional<sim::ShowroomFigures> fig = sr->figures(eq)) ps = u32(gt3r::ee::to_int(fig->power)), kg = u32(s32(fig->weight));
+    u32 stock = 0;
+    if (kind == 1 || kind == 3) {
+        sim::Equipment sold;
+        if (sim::stock_car(*d.db, p, car, sold)) {
+            stock = 1;
+            for (u32 slot = sim::Equipment::Brake; slot <= sim::Equipment::Tcsc; slot += 8)
+                if (slot != sim::Equipment::FrontTire && slot != sim::Equipment::RearTire && eq.part(slot) != sold.part(slot)) stock = 0;
+        }
+    }
+    u32 f8 = sim::tire_kind(*d.db, eq, 0), f9 = sim::tire_kind(*d.db, eq, 1);
+    if (kind == 2) {
+        // (the race's label as the region names it: "usl0b0001")
+        std::string label;
+        for (const std::string& tried : db::race_labels(r.race, d.rt->region()))
+            if (label.empty() && d.code(kRaceTable, tried) != kNoCode) label = tried;
+        f8 = 0xFFFFFFFC, f9 = 0xFFFFFFFF; // (none: -4, -1)
+        if (label.size() >= 9 && label[2] == 'l') {
+            const char c = label[4], i = label[3];
+            const int cat = c == 'b' ? (i == 'i' ? 6 : 4) : c == 'a' ? (i == 'i' ? 7 : 5) : c == 's' ? 8 : c == 'c' ? 9 : 0;
+            f8 = u32(cat - 4), f9 = u32(std::atoi(label.c_str() + 5) - 1);
+        }
+    }
+    // The hash's word (0x44AF40): the real clock (0x548918 less its base), ❓ taken as the seconds from 2000-01-01, local.
+    std::tm base{};
+    base.tm_year = 100, base.tm_mday = 1, base.tm_isdst = -1;
+    const std::time_t now = std::time(nullptr), from = std::mktime(&base);
+    const u32 clock = now > from ? u32(now - from) : 0;
+    return coder.encode(std::vector<u32>{17, u32(car_place), u32(course_place), stock, ps, kg, u32(kind), time, f8, f9}, clock);
+}
+
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
 // (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
 // (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.
@@ -530,7 +588,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
                 s.race_session.license_best = r.time_ms;
                 day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.time_ms, day.code = race_code;
             }
-            const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(r.pass_code.empty() ? "--------" : r.pass_code)};
+            const std::string code = r.pass_code.empty() ? ranking_pass_code(d, r, 2, r.time_ms) : r.pass_code;
+            const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(code)};
             const Value record = vm().attribute(vm().lookup("game"), "license_record");
             const Value label[1] = {Value::string(race)};
             const Value u = record.p ? vm().call(vm().attribute(record, "getUnit"), label) : Value{};
@@ -575,20 +634,20 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
     // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
     // (0x1165B8, 0x433348): not run here (the machine test's own conductor is not built), so not inserted. ❓ The race's kind
-    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code (0x10F718 ->
-    // 0x44B258) is not made: "--------".
+    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code: ranking_pass_code.
     if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
         std::string car;
         for (const RaceResult::Finisher& f : r.order)
             if (f.entry == 0) car = f.car;
         const s32 have = work.get("BestTime"); // (the sequence's best: none before a run, 0x112E78 / 0x117718)
         if ((r.course_kind == 7 || r.course_kind == 1) && (have <= 0 || r.best_lap_ms < u32(have))) {
-            if (const int u = course_record_unit(d, s, r.course, true); u >= 0) ranking_insert(d, s.course_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+            if (const int u = course_record_unit(d, s, r.course, true); u >= 0)
+                ranking_insert(d, s.course_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, r.course_kind == 7 ? 0 : 1, r.best_lap_ms));
             work.set("BestTime", s32(r.best_lap_ms));
         } else if (r.course_kind == 6 && r.finished) {
             const u8 kind = row.size() > 0x10 ? u8(row[0x10] - 6) : 0;
             const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
-            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, 3, r.best_lap_ms));
         }
     }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player

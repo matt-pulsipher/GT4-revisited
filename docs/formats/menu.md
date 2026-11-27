@@ -660,8 +660,18 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   run inserts nothing. A machine test the car finished (+0x5B6) inserts its best lap every run (0x1161A0): the 400 m
   test into the machine record's unit 0 (mt400_lasvegas into 3, 0x116268), the 1000 m into 1 (0x116440), the top speed
   into 2 by speed (0x1165B8, 0x433348; not here: the machine test's conductor is not built). ❓ The race's kind (+0xD68
-  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. The pass code (0x10F718 -> 0x44B258: 83 bits
-  of ten fields, the car's place in 11 bits, the course's in 9) is not made: "--------". `game_race.cpp` race_finished.
+  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. `game_race.cpp` race_finished.
+- **A ranking entry's pass code** (license tests and courses, 0x10F718 -> 0x44B258; `game_race.cpp` ranking_pass_code,
+  `menu/prologue_passcode.*` PassLayout::gt4): ten fields of 5, 11, 9, 1, 12, 12, 3, 22, 4, 4 bits (83) — the kind 17
+  (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x449190), the car as sold (the
+  free run's and machine test's, 0x445B88; ❓ the parts compared judged), the showroom's PS and kg (0x364E90, 0x364FA8), the
+  run's kind (0 time trial, 1 free run, 2 license, 3 machine test), the time, the front and rear tires' kinds (0x4462E0,
+  0x446320) or a license test's category (B 0, A 1, IB 2, IA 3, S 4, coffee 5; RaceLicense::vf96 0x3BCB38) and number less
+  one — packed into 11 bytes after two zero bytes, the first four bits a hash of the real clock's seconds (0x44AF40: ❓ taken
+  from 2000-01-01, local), the next twelve the folded CRC-32, enciphered as Prologue's (SAFER SK-128, 13 rounds) under the
+  program's key 0x6A7C88 (a program table, found in all three releases) at each offset of the 13 bytes, written as 32 decimal
+  digits with no check digit (0x44C918). ✔ `gt4r_diff <disc> passcode` (the program's 0x44B258 against ours: 300 of 300); ✔
+  the reference cards' codes (a B-1 bronze, a time trial of the Ka at Tsukuba) decode to the fields ours makes of those runs.
 
 - **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
   best score (+0x230) when higher, at most 255, shown on the course page.
