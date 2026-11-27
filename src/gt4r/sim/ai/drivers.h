@@ -342,6 +342,8 @@ public:
         bool on = false;
     };
     void set_band(const Band& b) { band_ = b; }
+    // The race prepared (the conductor's virtual 27): the spreads' switches set, as the first step sets them (SCPS-17001 v1.05).
+    void prepared() { spread_live_ = true; }
     const Band& band() const { return band_; }
 
     // For checks against another race's drivers: a driver's plan and traffic state set as that race's driver object
