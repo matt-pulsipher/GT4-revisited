@@ -107,10 +107,10 @@ public:
     SDL_Point menu_model_size(const SDL_FRect& dst) const;
 
     // The sound's settings ([audio]): the output device, the music's and the effects' level (on top of the game's own options), the
-    // rear cue.
+    // rear cue. Both levels start at 1: what plays is the game's options alone (a new game's 115 / 128, docs/formats/sound.md).
     struct Sound {
         std::string device; // empty: the system's
-        float music = 0.8f, effects = 0.8f;
+        float music = 1.0f, effects = 1.0f;
         bool rear_cue = true;
     };
     const Sound& sound_settings() const { return sound_settings_; }

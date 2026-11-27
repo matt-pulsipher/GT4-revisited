@@ -164,7 +164,7 @@ Revisited's app defaults:
 |---|---|---|---|
 | Prologue's step: its own routines with the engine's GT3 ones and GT3's tables where Prologue's do not replace them; an unknown Prologue build falls to GT3's tables | `sim/*prologue*` | Prologue's program | nogt3's list B (`prostep`) |
 | The rumble's default, Modern | `input/race_feedback.*` (`gt3r::race::RumbleModel`) | the pad block (0x36CEE8), our "original" choice | GT3 Revisited's default; GT4's is the other choice |
-| The music's and effects' 0.8 levels over the game's options | `app.h` Sound | the options alone (115 / 128) | GT3 Revisited's default (`gt4sound`) |
+| The music's and effects' levels over the game's options | `app.h` Sound | the options alone (115 / 128) | ported: the app's levels start at 1 (the player's own [audio] levels kept) |
 | Looking back from a car the pad does not drive | `screen_race.cpp` (`gt3r::race::look_back_held`) | the port's word 0x43CF90 for the pad's car | engine, watched cars only |
 | Prologue's race display rows for modes Prologue lacks | `race_hud_prologue.h` (`gt3r::race::HudRun`) | Prologue's own modes | nogt3's list D |
 | The scenery's 0.6 s fade, the frame pacer, the pause when the window loses focus | `gt3r::race::SceneryFade`, `FramePacer`, `focus_loss` | none | ours |

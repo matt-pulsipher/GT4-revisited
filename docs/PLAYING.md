@@ -109,7 +109,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   rate counter; gamma over the whole picture; anti-aliasing; anisotropic filtering; the 3D views' resolution, and
   whether it is lowered while the GPU is too slow; the menus' cars and prizes at the screen's resolution or the
   console's 640x448; the 3D renderer.
-- *Audio*: the output device; the music's and the effects' volume, on top of the game's own options; whether sounds behind you
+- *Audio*: the output device; the music's and the effects' volume, on top of the game's own options (both at 100% to start, so the
+  game's own option levels are what plays); whether sounds behind you
   are sent as the console sends them (one side turned over, for a surround decoder) or plain.
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
@@ -151,8 +152,8 @@ race_views = original    ; original | all
 in_car_shake = on        ; on | off
 [audio]
 device =                 ; an output device's name; empty: the system's
-music_volume = 0.80
-effects_volume = 0.80
+music_volume = 1.00
+effects_volume = 1.00
 rear_cue = on            ; on | off
 [saves]
 folder =                 ; empty: the data folder
