@@ -953,7 +953,11 @@ page fades out in 0.25 s. The tachometer is a picture of the program (a Tex1 at 
 (320, 341) of the 640 x 448 frame buffer, coloured (130, 130, 150), turning clockwise 720 degrees
 a second (0x104150). The program shows it while the disc loads; here the next project starts
 once the black is whole, the page holds 0.5 s after the picture is in (❓ judged) and takes no
-keys. Before a race the scripts set the mode "capture" (MSystem.SetLoadingMode): the last picture is
+keys. Settings > Display "Loading pages" chooses the style (`[video] loading_page`, `app/loading_timing.h`): "Quick" (the default) is
+a dip to black, 0.25 s in and 0.25 s out, with no picture and no hold (the next project starts at once under the black); before a
+race it shows the held page for one frame and reads the race, the tachometer fading in only if the reading takes over 0.25 s
+(the race is read in one step of the app thread today, so it does not show). "Original" is the sequence above. Before a race
+the scripts set the mode "capture" (MSystem.SetLoadingMode): the last picture is
 kept (here: the pages are drawn into a picture of their own from the call on, since the menus close their pages as they
 end) and the tachometer fades in over it in 1 s; the race is then read, in which the picture stands
 still, and takes the screen at once (❓ the program fades the page out in 0.25 s). ❓ Not done: "snow",

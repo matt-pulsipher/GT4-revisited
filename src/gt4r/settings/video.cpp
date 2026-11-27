@@ -58,6 +58,7 @@ Video Video::load(const gt3r::IniDocument& c) {
     v.dynamic_resolution = flag(c, "dynamic_resolution", v.dynamic_resolution);
     v.texture_packs = flag(c, "texture_packs", v.texture_packs);
     v.sharp_menu_models = gt3r::to_lower(c.get(kSection, "menu_models").value_or("screen")) != "console";
+    v.quick_loading = gt3r::to_lower(gt3r::trim(c.get(kSection, "loading_page").value_or("quick"))) != "original";
     if (const auto t = c.get(kSection, "msaa")) v.msaa = step_of(std::atoi(t->c_str()), {1, 2, 4, 8});
     if (const auto t = c.get(kSection, "anisotropy")) v.anisotropy = step_of(std::atoi(t->c_str()), {1, 2, 4, 8, 16});
     v.render_scale = gt3r::platform::parse_render_scale(c.get(kSection, "render_scale").value_or("auto"));
@@ -84,6 +85,7 @@ void Video::save(gt3r::IniDocument& c) const {
     on_off("dynamic_resolution", dynamic_resolution, was.dynamic_resolution);
     on_off("texture_packs", texture_packs, was.texture_packs);
     if (sharp_menu_models != was.sharp_menu_models) c.set(kSection, "menu_models", sharp_menu_models ? "screen" : "console");
+    if (quick_loading != was.quick_loading) c.set(kSection, "loading_page", quick_loading ? "quick" : "original");
     if (msaa != was.msaa) c.set(kSection, "msaa", std::to_string(msaa));
     if (anisotropy != was.anisotropy) c.set(kSection, "anisotropy", std::to_string(anisotropy));
     if (render_scale != was.render_scale) c.set(kSection, "render_scale", render_scale ? two_digits(*render_scale) : "auto");

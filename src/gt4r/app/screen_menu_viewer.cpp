@@ -505,7 +505,7 @@ private:
                 } else if (!race_) {
                     // Between two projects, the loading page: the next project starts once its
                     // black covers the last page, and the page fades out over it.
-                    if (loading_ && !loading_->active()) loading_->begin(unsigned(runtime_->frame() / 7));
+                    if (loading_ && !loading_->active()) loading_->set_quick(app.video().quick_loading), loading_->begin(unsigned(runtime_->frame() / 7));
                     if (!loading_ || loading_->covered()) {
                         if (!runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
                         if (loading_) loading_->end();
@@ -521,7 +521,7 @@ private:
                 if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view" || race_->sequence == "split_battle" || race_->sequence == "photo_develop") && app.gpu()) {
                     // The loading page before it, when the scripts asked for the last page held.
                     if (loading_ && runtime_->game().loading_mode == "capture") {
-                        if (!loading_->active()) loading_->begin_capture();
+                        if (!loading_->active()) loading_->set_quick(app.video().quick_loading), loading_->begin_capture();
                         if (!loading_->covered()) return;
                         loading_->stop();
                         runtime_->game().loading_mode = "default"; // (the race's menus', quick.pp)

@@ -16,6 +16,7 @@
 //   gamma = 1.00             ; 0.50 .. 2.00, above 1 lighter
 //   menu_models = screen     ; screen | console (640x448): the cars and prizes in the menus
 //   gpu = auto               ; auto | gles | gles_driver | off (the 2D pages only); taken at the start
+//   loading_page = quick     ; quick | original: the pages between menu projects and before a race
 //   texture_packs = on       ; off: the game's own textures
 
 #include "platform/aspect.h"
@@ -36,6 +37,7 @@ enum class Gpu { Automatic, Gles, GlesDriver, Off };
 struct Video {
     bool fullscreen = false, vsync = true, limit_60fps = false, show_fps = false;
     bool dynamic_resolution = gt3r::platform::is_mobile(), sharp_menu_models = true, texture_packs = true;
+    bool quick_loading = true; // the loading pages: quick (a short dip to black) or the original's
     int msaa = gt3r::platform::default_msaa(gt3r::platform::is_mobile()), anisotropy = 4;
     std::optional<float> render_scale; // none: automatic
     float gamma = 1.0f;
