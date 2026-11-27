@@ -115,6 +115,53 @@ bool event_aspec_allowed(Database& d, const GameState& s, u8 license) {
     return license <= 5 && license_all_bronze(d, s, kCategories[license - 1]);
 }
 
+// The unit of a course (0x433C10): the units kept in order of the course's code, one made there when `make`.
+int course_record_unit(Database& d, GameState& s, const std::string& label, bool make) {
+    const u64 code = d.code(kCourseTable, label);
+    if (code == kNoCode) return -1;
+    Bytes& b = s.course_record;
+    size_t i = 0;
+    for (; i < kCourseUnits; ++i) {
+        const u64 c = get64(b, i * kCourseUnit);
+        if (c == code) return int(i);
+        if (c == kNoCode || c > code) break;
+    }
+    if (!make || i >= kCourseUnits || get64(b, (kCourseUnits - 1) * kCourseUnit) != kNoCode) return -1;
+    std::memmove(b.data() + (i + 1) * kCourseUnit, b.data() + i * kCourseUnit, (kCourseUnits - 1 - i) * kCourseUnit);
+    // A fresh unit, as a new game has them.
+    GameState fresh;
+    std::memcpy(b.data() + i * kCourseUnit, fresh.course_record.data(), kCourseUnit);
+    put64(b, i * kCourseUnit, code);
+    return int(i);
+}
+
+// A ranking's insert (0x433260 by time: before the first entry empty or slower; 0x433348 by top speed: before the first
+// slower): the entries after it moved down, the tenth dropped; the entry: the value, the real clock's date, the car's code,
+// the pass code (32 bytes).
+bool ranking_insert(Database& d, Bytes& b, size_t base, bool by_speed, u32 v, const std::string& car, const std::string& pass) {
+    size_t at = 0;
+    for (; at < 10; ++at) {
+        const u32 w = get32(b, base + 8 + at * 0x30);
+        if (by_speed) {
+            float have, want;
+            std::memcpy(&have, &w, 4), std::memcpy(&want, &v, 4);
+            if (have < want) break;
+        } else if (w == kNoTime || w > v) break;
+    }
+    if (at >= 10) return false;
+    std::memmove(b.data() + base + 8 + (at + 1) * 0x30, b.data() + base + 8 + at * 0x30, (9 - at) * 0x30);
+    const size_t o = base + 8 + at * 0x30;
+    std::memset(b.data() + o, 0, 0x30);
+    put32(b, o, v);
+    u16 y;
+    u8 m, dd;
+    today_on_clock(y, m, dd);
+    b[o + 4] = u8(y), b[o + 5] = u8(y >> 8), b[o + 6] = m, b[o + 7] = dd;
+    put64(b, o + 8, d.code(kCarTable, car));
+    std::memcpy(b.data() + o + 0x10, pass.data(), std::min<size_t>(pass.size(), 32));
+    return true;
+}
+
 void install_records(GameNatives& n, Object& g, script::Module& menu) {
     GameNatives* np = &n;
     GameState* s = &n.state();
@@ -417,28 +464,7 @@ void install_records(GameNatives& n, Object& g, script::Module& menu) {
                     const float f = arg_number(a, 0);
                     std::memcpy(&v, &f, 4);
                 } else v = u32(arg_int(a, 0, s32(kNoTime)));
-                size_t at = 0;
-                for (; at < 10; ++at) {
-                    const u32 w = get32(*b, base + 8 + at * 0x30);
-                    if (by_speed) {
-                        float have, want;
-                        std::memcpy(&have, &w, 4), std::memcpy(&want, &v, 4);
-                        if (have < want) break;
-                    } else if (w == kNoTime || w > v) break;
-                }
-                if (at >= 10) return number(0);
-                std::memmove(b->data() + base + 8 + (at + 1) * 0x30, b->data() + base + 8 + at * 0x30, (9 - at) * 0x30);
-                const size_t o = base + 8 + at * 0x30;
-                std::memset(b->data() + o, 0, 0x30);
-                put32(*b, o, v);
-                u16 y;
-                u8 m, d;
-                today_on_clock(y, m, d);
-                (*b)[o + 4] = u8(y), (*b)[o + 5] = u8(y >> 8), (*b)[o + 6] = m, (*b)[o + 7] = d;
-                put64(*b, o + 8, db().code(kCarTable, arg_text(a, 1)));
-                const std::string pass = arg_text(a, 2, "--------");
-                std::memcpy(b->data() + o + 0x10, pass.data(), std::min<size_t>(pass.size(), 32));
-                return number(1);
+                return number(ranking_insert(db(), *b, base, by_speed, v, arg_text(a, 1), arg_text(a, 2, "--------")));
             };
         };
         u->method("insertEntry", insert(false));
@@ -464,25 +490,7 @@ void install_records(GameNatives& n, Object& g, script::Module& menu) {
         });
         return object_value(u);
     };
-    // The unit of a course; made (in order of the code) when `make`.
-    auto course_unit = [s, db](const std::string& label, bool make) -> int {
-        const u64 code = db().code(kCourseTable, label);
-        if (code == kNoCode) return -1;
-        Bytes& b = s->course_record;
-        size_t i = 0;
-        for (; i < kCourseUnits; ++i) {
-            const u64 c = get64(b, i * kCourseUnit);
-            if (c == code) return int(i);
-            if (c == kNoCode || c > code) break;
-        }
-        if (!make || i >= kCourseUnits || get64(b, (kCourseUnits - 1) * kCourseUnit) != kNoCode) return -1;
-        std::memmove(b.data() + (i + 1) * kCourseUnit, b.data() + i * kCourseUnit, (kCourseUnits - 1 - i) * kCourseUnit);
-        // A fresh unit, as a new game has them.
-        GameState fresh;
-        std::memcpy(b.data() + i * kCourseUnit, fresh.course_record.data(), kCourseUnit);
-        put64(b, i * kCourseUnit, code);
-        return int(i);
-    };
+    auto course_unit = [s, db](const std::string& label, bool make) { return course_record_unit(db(), *s, label, make); };
     auto course_record = std::make_shared<Object>("MCourseRecord");
     course_record->method("getUnit", [s, course_unit, course_unit_value](Vm&, const Value&, Args a) {
         const int unit = course_unit(arg_text(a, 0), true);

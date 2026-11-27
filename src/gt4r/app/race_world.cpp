@@ -29,6 +29,7 @@
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -126,6 +127,11 @@ struct RaceWorld::Impl {
         std::unique_ptr<race::DriverFigure> figure;
         bool posed = false;
         race::posture::F follow, follow_rate; // the steering command's follower (0x40CC58), here of the front wheels' angle
+        // The gear change's: the lever's layout (from the car's GEAR part, at the first step), the engine speed as the race
+        // shows it (car +0x738, 0x350ED0: kept here beside the driver, the race display's own is not this).
+        bool gear_known = false;
+        race::posture::GearInput gear;
+        race::posture::ShownRpm shown_rpm;
     };
     std::vector<MovingDriver> drivers;
     // Each car's body's moving parts (a few cars' scripts: null for the others).
@@ -604,7 +610,7 @@ void RaceWorld::restart() {
     for (size_t i = 0; i < impl_->motions.size() && i < car_visuals_.size(); ++i)
         if (impl_->motions[i]) car_visuals_[i]->restart_motion(*impl_->motions[i]);
     clear_effects();
-    for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
+    for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f), d.gear_known = false;
 }
 
 void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer, u32 hold_left) {
@@ -1103,6 +1109,28 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
                 const sim::ai::Field::Probe p = field_->probe_get(d.car);
                 if (!(p.aim_x == F(0.0f) && p.aim_y == F(0.0f))) motion.aim = race::posture::V3{p.aim_x, F(car.position.y), -p.aim_y};
             }
+            // The gear change's inputs (a Gran Turismo 4 race's cars; the lever stays in a replay without its session).
+            const sim::Session* sim_cars = live ? session_.get() : heard;
+            if (sim_cars && d.car < sim_cars->cars().size() && sim_cars->gt4_rules()) {
+                const gt3r::sim::exact::Car& rec = sim_cars->record(d.car);
+                const sim::rules::DriveExtra& drive = sim_cars->gt4_record(d.car).drive;
+                if (!d.gear_known) { // (0x385410 at the set-up; 0x402320 puts the lever at the gear's place, 0x350EB0 the shown speed at the rpm)
+                    d.gear_known = true;
+                    d.gear.layout = race::posture::gear_layout(db::part_row(*app_.db(), sim_cars->equipment(d.car).part(sim::Equipment::Gear)));
+                    d.state.reset(d.cockpit, d.gear.layout, rec.gear);
+                    d.shown_rpm.start(rec.rpm);
+                }
+                d.shown_rpm.step(rec.rpm, dt);
+                race::posture::ShiftInputs si;
+                si.rpm = gt3r::ee::to_int(d.shown_rpm.value), si.top = drive.d.gears, si.gear = rec.gear;
+                si.throttle = rec.throttle_pedal, si.brake = rec.brake_pedal;
+                const std::optional<F> target = live && field_ ? field_->least_target(d.car) : std::nullopt;
+                si.suggested = target ? sim_cars->gear_for_speed(d.car, *target) : 0;
+                si.up_rpm = sim::rules::up_shift_rpm(rec, drive);
+                si.down_rpm = rec.gear >= 2 ? sim::rules::down_shift_rpm(rec, drive, rec.gear) : 0;
+                d.gear.gear = rec.gear, d.gear.reach = race::posture::shift_reach(si), d.gear.start_hold = sim_cars->countdown() > 0;
+                motion.gear = &d.gear;
+            }
             d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;
@@ -1352,6 +1380,12 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
         if (m.pit_live && i == 0 && m.license_scene) m.license_scene->add_items(m.items);
         light_items(m.items, first, m.lights[i]);
+    }
+    if (ghost_state_ && !cars_hidden_ && !car_visuals_.empty()) { // (the ghost: the player's car's model again)
+        const size_t first = m.items.size();
+        car_visuals_[0]->add_items(m.items, *ghost_state_, pose.eye, 0.0f, lens_ && lens_->full_detail ? nullptr : &lod_view);
+        for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = ghost_alpha_;
+        if (!m.lights.empty()) light_items(m.items, first, m.lights[0]);
     }
     if (!split) course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
@@ -1639,6 +1673,11 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
+    }
+    if (ghost_state_ && !car_visuals_.empty()) {
+        const size_t first = m.mirror_items.size();
+        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f);
+        for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;

@@ -1238,7 +1238,8 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
     // The Replay Theater's replays (game_replays.cpp).
-    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY") install_replay_list(*this, *m);
+    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY")
+        install_replay_list(*this, *m, mode);
     if (mode == "MODE_DEMONSTRATION") install_demo_list(*this, *m, false);
     if (mode == "MODE_DEMONSTRATION_SUB") install_demo_list(*this, *m, true);
     return object_value(m);

@@ -907,7 +907,8 @@ F Field::hold_speed(const Driver& d, F vt) const {
 void Field::set_kind(Driver& d, int kind) {
     const int was = d.kind;
     d.kind = kind;
-    if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
+    // (SCPS-17001 v1.05's 0x45D238: kind 5 after kind 4 too)
+    if (kind == 6 || (kind < 7 && kind == 5 && (was != 4 || tables_.japan))) d.stop_count = 120;
 }
 
 // 0x464E40: the outputs cleared (0x464ED8), the steering straightened.
@@ -1066,6 +1067,12 @@ void Field::set_shadow(size_t car) {
 Field::Suggestion Field::suggestion(size_t car) const {
     const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     return d ? d->suggest : Suggestion{};
+}
+
+std::optional<F> Field::least_target(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return std::nullopt;
+    return d->v_next < d->v_cur ? d->v_next : d->v_cur;
 }
 
 void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {

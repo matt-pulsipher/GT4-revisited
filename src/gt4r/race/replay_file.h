@@ -41,6 +41,14 @@ struct ReplayFile {
             if (tag == kRecording) return &b;
         return nullptr;
     }
+    // A best lap's replay (Save Best Lap Replay: the program's FileGT4ReplayBest, "GhostData"): the player's car alone over one lap,
+    // in a section "BLAP" holding the lap's time (u32 ms). Load Best Lap Replay races against it (its car's states).
+    static constexpr u32 kBestLap = 0x50414C42;
+    bool best_lap() const {
+        for (const auto& [tag, b] : other)
+            if (tag == kBestLap) return true;
+        return false;
+    }
 
     Bytes encode() const;
     // Throws FormatError.

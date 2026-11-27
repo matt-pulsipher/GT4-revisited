@@ -305,6 +305,9 @@ public:
     audio::RaceSound* sound();
 
     void set_cars_hidden(bool on) { cars_hidden_ = on; } // (a lesson's guide film: the course alone)
+    // The best lap's ghost (screen_race.cpp): the player's car once more, drawn see-through at a state of its own, no shadow,
+    // no driver, no sound; none: not drawn.
+    void set_ghost(const std::optional<race::CarState>& state, float alpha) { ghost_state_ = state, ghost_alpha_ = alpha; }
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none. `half`: one of the two views of a split screen (0 and 1: the several-view draw
@@ -496,6 +499,8 @@ private:
     std::vector<ServiceNote> service_;
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false, cars_hidden_ = false;
+    std::optional<race::CarState> ghost_state_; // set_ghost
+    float ghost_alpha_ = 0.5f;
     std::vector<bool> ended_; // the cars whose run is over (finish_car)
     float player_ps_ = 0;
     std::unique_ptr<race::StartCourse> start_course_;

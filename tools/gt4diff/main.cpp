@@ -15,6 +15,7 @@
 
 namespace gt4r::diff {
 int run_posture(Disc& disc, const std::vector<std::string>& paths); // posture.cpp
+int run_gear(Disc& disc, const std::vector<std::string>& paths);    // gear.cpp
 int run_course_script(Disc& disc, const std::string& course, const std::vector<std::string>& paths); // course_script.cpp
 }
 
@@ -88,6 +89,7 @@ int main(int argc, char** argv) {
         }
         if (test == "course_script" && argc > 4) return gt4r::diff::run_course_script(*disc, argv[3], std::vector<std::string>(argv + 4, argv + argc)); // gt4r_diff <disc> course_script <course> <eeMemory.bin>...
         if (test == "posture") return gt4r::diff::run_posture(*disc, std::vector<std::string>(argv + 3, argv + argc)); // gt4r_diff <disc> posture <eeMemory.bin>...
+        if (test == "gear") return gt4r::diff::run_gear(*disc, std::vector<std::string>(argv + 3, argv + argc)); // gt4r_diff <disc> gear <eeMemory.bin>...
         if (test == "floats") return gt4r::diff::run_floats(*disc, std::vector<std::string>(argv + 3, argv + argc)); // (floats.h)
         if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;

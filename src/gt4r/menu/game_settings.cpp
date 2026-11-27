@@ -68,6 +68,7 @@ GameSettings settings_from(const std::map<std::string, OptionValue>& options) {
     s.automatic = r.flag("automatic_gear", true);
     s.asm_on = r.flag("assist_asm", true), s.tcs_on = r.flag("assist_tcs", true);
     s.license_manual = r.flag("license_transmission_MT", false);
+    s.ghost = r.flag("automatic_ghost", true);
     s.steering_assist = r.text("steering_assist_1p", "AMATEUR");
     s.active_steering = r.flag("active_steering_1p", false);
     s.controllers.port = {input::port_from_text(r.text("controllers_1p", "")), input::port_from_text(r.text("controllers_2p", ""))};

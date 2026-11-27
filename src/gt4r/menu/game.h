@@ -88,6 +88,7 @@ struct RaceResult {
     int place = 0;         // 0: first
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
+    u32 best_lap_ms = 0;   // the player's car's best lap (0x35E3F0; 0: none)
     std::string pass_code; // a ranking entry's (up to 32 characters)
     std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
     float distance_m = 0;  // what the car driven covered
@@ -315,10 +316,12 @@ struct GameState {
     struct RaceSession {
         int best_place = 15; // the best place finished in it (an event's record follows a better one only, 0x114498)
         std::string sequence; // the sequence asked for ("" : none under way)
-        // A license test's sequence puts its day in the diary when it ends (0x110800): the last
-        // run's result and time, or a day with nothing in it when no run passed (result 13).
+        // A license test's sequence puts its day in the diary when it ends (0x110800): the result and
+        // time of the graded run that last beat the sequence's best (0x1105A8), or a day with nothing in
+        // it when no run was graded (result 13).
         bool license_open = false;
-        DayEvent license_day; // type 0 until a run
+        DayEvent license_day;       // type 0 until a graded run
+        u32 license_best = kNoTime; // the sequence's best graded time (0x11CB38 starts it at 359,999,999)
     } race_session;
     // The race sequence is over (the menus go on): what the program writes at its end.
     void end_race_sequence();
@@ -360,6 +363,7 @@ struct GameState {
         int submode = -1;
         u32 time_ms = 0;
         bool bspec = false;
+        bool best_lap = false; // a best lap's replay (MODE_SAVE_BESTLAP_REPLAY)
         int kb = 1;
         std::vector<u32> picture; // 64 x 64, or empty
         // Writes it under the title; over the file `path` ("": a new one). False when it cannot be written.
