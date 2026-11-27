@@ -208,11 +208,16 @@ TEST(save_edit_write_backup_refusals) {
     CHECK(save::SaveDocument::open(place, made_up_codes(), "BASCUS-97328", &why).has_value());
 }
 
+// The engine's make_card with a time for the card's root entries (GT3R #502), where the engine has it (found through the
+// directories' namespace); none without it.
+template <class Dirs> auto card_at(const Dirs& dirs, s64 t, int) -> std::optional<decltype(make_card(dirs, t))> { return make_card(dirs, t); }
+template <class Dirs> std::optional<Bytes> card_at(const Dirs&, s64, long) { return std::nullopt; }
+
 TEST(save_edit_card_image) {
     const fs::path dir = a_saved_game("gt4r-test-save-edit3");
-    // The card's root entries ("." and "..") take the clock's second when a card is made (the engine's make_card: the export's
-    // image and the new card below each make one) and replace_in_card keeps the image's: all three are made again until they
-    // fall within one second, so the times agree.
+    // The card's root entries ("." and "..") take the clock's second when a card is made (the engine's make_card) and
+    // replace_in_card keeps the image's. With a time for them, the image changed and the new card are made at one time;
+    // without, the export's image and the new card are made again until they fall within one second, so the times agree.
     Bytes image, other, fresh;
     std::vector<gt3r::ps2::McDir> dirs;
     std::string why;
@@ -223,11 +228,18 @@ TEST(save_edit_card_image) {
         if (image.empty()) break;
         // The game data file replaced by other bytes: the image a new card with them would be, page for page, its spare bytes too.
         dirs = gt3r::ps2::read_card(image);
+        const std::optional<Bytes> at_once = card_at(dirs, 1792250709, 0);
         for (gt3r::ps2::McFile& f : dirs[0].files)
             if (f.name == kName) {
                 for (size_t i = 0; i < f.data.size(); i += 777) f.data[i] ^= 0x5A;
                 other = f.data;
             }
+        if (at_once) {
+            std::printf("  the cards made at one time\n");
+            fresh = *card_at(dirs, 1792250709, 0);
+            patched = save::replace_in_card(*at_once, kName, kName, other, &why);
+            break;
+        }
         fresh = gt3r::ps2::make_card(dirs);
         patched = save::replace_in_card(image, kName, kName, other, &why);
         if (std::time(nullptr) == before) break;
