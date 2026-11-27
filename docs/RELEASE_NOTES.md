@@ -16,7 +16,7 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 - Saved games are files: several games, saved by themselves, no memory card questions
 - PlayStation 2 memory card images in and out, and a save editor
 - Controllers and wheels with force feedback, rumble for modern controllers, DualSense triggers, remappable controls
-- Mods over the disc's files, and texture packs
+- Mods over the disc's files, texture packs, and cars of their own (a text file over a car of the disc), fetched from the other players online
 - Replay effects and extra views as options
 - GT4 Revisited's own menu from the title: Select, or the GT4R menu button beside it
 
@@ -27,4 +27,4 @@ Download: macOS (Apple Silicon), Windows, Linux and Android.
 ## Known problems
 
 - Photo Lab: no printer or USB memory
-- Mods' cars, events and liveries are not read yet
+- Mods' events and liveries are not read yet; a mod car has no body or electric drive of its own yet

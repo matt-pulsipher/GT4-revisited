@@ -169,8 +169,52 @@ used or not for each disc, and where two change the same file the upper one of t
 down* on a mod's page write its `priority`). A texture pack's pictures (PNG, any size up to 4096 a side) are named by
 the texture they replace: *Save the game's textures* writes every car's, course's and figure's texture under that name
 (`gt4tool textures <disc> <folder> car/lod/fdeu0006` a few of them). Packs change what is loaded from then on. They replace
-the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods'
-cars, events and liveries are not read.
+the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods' cars are
+below; their events and liveries are not read.
+
+**Mod cars** are text files, `mods/<name>/cars/<label>.ini`, each naming a car of the disc it is made from (its donor)
+and what is different; the file format is GT3 Revisited's (its MODDING.md, "Adding cars"), with this game's limits:
+
+```ini
+[car]
+label = my_coupe_26          ; a-z, 0-9 and _, at most 40; not a car of the disc
+name = My Coupe `26          ; as the menus and the race show it
+maker = Mazda                ; a maker of the game: its dealer sells the car (else the donor's maker)
+year = 2026
+price = 31500                ; credits (the donor's when left out)
+category = tuning            ; normal | racing | tuning | concept
+donor = impreza_wrx_sti_00   ; needed: every part the file leaves out is the donor's (gt4tool car <disc> lists the labels)
+model = rx8_03               ; optional: another car of the disc whose body and paints it has (else the donor's)
+[body]
+weight_kg = 1180             ; also front_weight_pct, length_mm, width_mm, height_mm, wheelbase_mm,
+front_track_mm = 1500        ;   rear_track_mm, ride_height_mm, cd, frontal_area_m2;
+                             ;   scale_suspension, scale_brakes = yes | no (springs and brakes for the new weight)
+[powertrain]
+power_kw = 220               ; or power_hp / power_ps: the donor's curve made this strong; or torque_nm / torque_lbft
+max_rpm = 8000               ; the rev limit; also idle_rpm, output_pct, sound_id (an engine sound of the disc),
+; curve = 1000:200 4000:260  ;   layout, aspiration, displacement (the specs' texts); curve: rpm:Nm, up to 24 points
+[drivetrain]
+drive = FR                   ; FF | FR | MR | RR | AWD; front_torque_pct for AWD
+gears = 3.2 2.1 1.5 1.15 0.92 0.78   ; up to 11
+final_drive = 4.1            ; and reverse
+[tires]
+front = 225/40R18            ; rear = ..., or size = ... for both; width and aspect in fives
+grip_pct = 105               ; its tires as sold
+[dealer]
+for_sale = yes               ; at its maker's dealer in Gran Turismo mode
+thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's; logo = the name's artwork (PNG)
+[raw.CHASSIS]                ; bytes of the car's own rows of BRAKE, SUSPENSION, CHASSIS, RACINGMODIFY, DRIVETRAIN,
+0x1D = 120                   ;   GEAR, ENGINE, FRONTTIRE or REARTIRE (docs/formats/database.md): 0x30:u16 = 1000
+```
+
+The car is made of the donor's rows of the game's own database (docs/formats/database.md "Mod cars"), so it races,
+is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model and pictures, or
+the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
+there). The Mods page lists each mod's cars, and why one is not in the game. A save keeps the car by a code its label
+gives: removing the mod leaves a garage place for a car the game no longer has. In a Multi-LAN Race a player who lacks
+another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
+their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
+an electric drive (a file with `type = electric` is not loaded), mods' makers (`makers/`).
 
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
@@ -281,7 +325,8 @@ The ones a player meets first:
   and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.
-- Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
+- Mods: files, textures, texture packs and cars are used; mods' events, liveries and makers are not read yet, and a mod
+  car has no body or electric drive of its own yet.
 
 ## Scripted play (for checks)
 
