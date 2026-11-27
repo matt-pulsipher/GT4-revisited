@@ -30,6 +30,25 @@ TEST(prologue_display_mode_by_its_race_classes) {
     CHECK(prologue_display_mode(HudRun::License, HudPlay::Live) == HudMode::License);
 }
 
+// Prologue's Best and Last lines (RaceDisplay::vf36 0x38CA18 and the fader 0x392C78): shown until START, then 8 s from it (and
+// from a lap), fading in and out over 9 steps. ✔ the original's Tsukuba race: shown at the count, gone at 0'20 (its saved
+// state: both faders at 0, state 2, the hold's count just below 0).
+TEST(prologue_best_last_lines_for_eight_seconds) {
+    using gt4r::race::prologue_times_opacity;
+    CHECK(prologue_times_opacity(-1) == 1.0f); // (before START)
+    CHECK(prologue_times_opacity(0) == 1.0f);
+    CHECK(std::fabs(prologue_times_opacity(1) - 8.0f / 9) < 1e-4f); // (the call's step fades out)
+    CHECK(prologue_times_opacity(2) == 1.0f);
+    CHECK(prologue_times_opacity(480) == 1.0f);
+    CHECK(std::fabs(prologue_times_opacity(481) - 8.0f / 9) < 1e-4f);
+    CHECK(prologue_times_opacity(489) <= 1e-4f && prologue_times_opacity(600) == 0.0f);
+    CHECK(prologue_times_opacity(20 * 60) == 0.0f); // (0'20: gone)
+    // A lap's call from nothing: in over nine steps, out after the hold.
+    CHECK(prologue_times_opacity(1, 0) == 0.0f);
+    CHECK(std::fabs(prologue_times_opacity(5, 0) - 4.0f / 9) < 1e-4f);
+    CHECK(prologue_times_opacity(10, 0) == 1.0f && prologue_times_opacity(480, 0) == 1.0f && prologue_times_opacity(490, 0) == 0.0f);
+}
+
 // The sheen's exponent (kind 4, 0x49EB90): 8 below a shininess of 12, never 4. The converted sets give the engine (which picks
 // 4 / 8 / 16 at 6 / 12) a shininess of at least 6 on every sheen; the lit shapes keep theirs (4 / 8 / 16 there too).
 TEST(disc_sheen_exponent_is_this_games) {

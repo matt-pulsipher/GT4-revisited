@@ -36,6 +36,7 @@
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/input/player_controls.h"
 #include "gt4r/input/race_feedback.h"
+#include "gt4r/race/display_mode_prologue.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/split_lists.h"
@@ -2125,6 +2126,8 @@ public:
     }
     // A line of the race's text shown for three seconds (RaceDisplay::vf19 through 0x38BC98); its time.
     void post_notice(std::string text) { notice_ = std::move(text), notice_time_ = 0; }
+    // Race steps since the display's car's last lap line came up (-1: none, or the last line was a test's or a machine test's).
+    int lap_line_steps() const { return license_line_ms_ < 0 && machine_line_.empty() ? event_steps_ : -1; }
     void age_notice(double dt) {
         if (notice_time_ >= 0) notice_time_ += dt;
     }
@@ -5617,6 +5620,12 @@ private:
         const race::RaceFlow& flow = race_->flow();
         if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;
         else e.since_start = double(flow.steps_since_start()) / 60;
+        // Best and Last called up by START, then by each lap of the display's car (its lap line's event_steps_).
+        if (!flow.holding() && flow.steps_since_start() >= 0) {
+            e.times_steps = flow.steps_since_start();
+            if (const int lap = race_->lap_line_steps(); lap >= 0 && lap <= e.times_steps)
+                e.times_from = race::prologue_times_opacity(e.times_steps - lap), e.times_steps = lap;
+        }
         if (flow.player_finished()) e.finish_t = double(flow.steps_since_player_finish()) / 60.0;
         for (int k = 0; k < 3; ++k) e.targets[size_t(k)] = test_time(k);
         e.penalty = h.replay ? 0 : race_->penalty_seconds();

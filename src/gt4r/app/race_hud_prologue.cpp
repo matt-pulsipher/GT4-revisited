@@ -835,11 +835,13 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         case hr::HudPart::TimeLine: {
             if (!s.show_time) break;
+            // (Best and Last for 8 s from START and from each lap; a school test's always: race::prologue_times_opacity)
+            const float times = mode == hr::HudMode::License ? opacity : opacity * race::prologue_times_opacity(e.times_steps, e.times_from);
             switch (hr::TimeLine(row.sub)) {
             case hr::TimeLine::Best:
-            case hr::TimeLine::BestTime:
+            case hr::TimeLine::BestTime: m.draw_time(row.x, row.y, row.align, s.best_ms, "Best", nullptr, 0, 0, times); break;
             case hr::TimeLine::Fastest: m.draw_time(row.x, row.y, row.align, s.best_ms, "Best", nullptr, 0, 0, opacity); break;
-            case hr::TimeLine::Last: m.draw_time(row.x, row.y, row.align, s.last_ms, "Last", nullptr, 0, 0, opacity); break;
+            case hr::TimeLine::Last: m.draw_time(row.x, row.y, row.align, s.last_ms, "Last", nullptr, 0, 0, times); break;
             case hr::TimeLine::Total: m.draw_time(row.x, row.y, row.align, s.total_ms, "Total", nullptr, 0, 0, opacity); break;
             case hr::TimeLine::Lap:
             case hr::TimeLine::Time: m.draw_time(row.x, row.y, row.align, std::max<s64>(0, s.lap_ms), "", "GT4_meter_texture_laptime", -2, 4, opacity); break;
