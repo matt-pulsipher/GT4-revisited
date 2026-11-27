@@ -380,8 +380,8 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   The wheels' spin and the drawn car's points 0x3B25F0 (0x344040, on the special row's height; no lean's view).
 - *Prologue's own, the small routines* (`rules_prologue.cpp`): the pad's HUD percentage and full throttle 0x3DD910 (= Gran Turismo
   4's 0x3484D0), a computer's HUD percentage 0x3DDC40 (two thirds of the way to its command's, 100 % at 15 degrees), the pad's brake
-  onto the layout's wheels 0x3B22D0 (= 0x343CF8), the sideways hold near standstill 0x3BAFE0 (= 0x3522B0), the bump wave 0x375340
-  (= 0x369640), the surface index 0x3B46C8 (= 0x3F4E40) and the soft materials 0x3B4738 (the words 0x503E28 + 4 m) counted over
+  onto the layout's wheels 0x3B22D0 (= 0x343CF8), the sideways hold near standstill 0x3BAFE0 (= 0x3522B0) and the bump wave
+  0x375340 (= 0x369640) (both Gran Turismo 4's own, `rules::low_speed_hold` / `rules::bump_wave`), the surface index 0x3B46C8 (= 0x3F4E40) and the soft materials 0x3B4738 (the words 0x503E28 + 4 m) counted over
   the layout's wheels on the road, phase 12's hit feedback 0x3B9280 (= 0x350308: kept after a hit of kind 2).
 - *Prologue's own*: the class grip 0x3BC03C, the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
   the layout's wheels), the brake heat 0x3B3810 (Gran Turismo 4's over the layout but heating with the pedal up too), and the
@@ -402,6 +402,8 @@ Still not run, or not Prologue's own:
   stop zone (0x3C46C8 ..: the conductor's +0x10BA8, set by no race here) and their PD steering and throttle (0x506612 of 2 or
   more; 1 on the disc): not ported.
 - The program's sensor lines of a pit stop: no Prologue course has the records.
+- The showroom's figures, charts and jack droop (`sim::Showroom`) are Gran Turismo 4's ShowRoomCar's; Prologue's program has no such
+  class (none in its type information), and on its disc `Showroom` reads none of Gran Turismo 4's tables and answers nothing.
 
 ## The computer drivers ✔
 

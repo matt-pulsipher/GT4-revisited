@@ -827,7 +827,7 @@ std::array<int, 3> RaceWorld::signs(size_t i) const {
     out[0] = aid == 2 ? 3 : aid == 1 ? 1 : 0;
     const auto& c = session_->record(i);
     out[1] = c.handbrake.host() > 0.25f ? 2 : 0;
-    if (program_ && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host();
+    if (program_ && program_->known() && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host(); // (Gran Turismo 4's static block)
     out[2] = oil_from_ && c.oil.host() >= *oil_from_ ? 2 : 0;
     return out;
 }
