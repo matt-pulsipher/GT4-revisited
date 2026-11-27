@@ -185,9 +185,6 @@ public:
     // category (0x34C998: dirt 1, snow 2; the bump tables' surface 5 takes row 15 on snow). The session starts with 2 when its first start place is on a loose surface, else 0.
     void set_course_kind(const Program& program, u8 kind);
     u8 course_kind() const { return course_kind_; }
-    // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
-    // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
-    void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
     // SCPS-17001 v1.05's program: its own rules where they differ from v1.01's.
     bool japan() const { return japan_; }
     bool gt4_rules() const { return gt4_rules_; }

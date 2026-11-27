@@ -85,10 +85,11 @@ Gran Turismo 4's.
   (physics.md "Program tables"). Prologue's are values too (`sim/program_tables_prologue*`,
   SCPS-15055 v1.01's), served on any Prologue disc and checked against its program once
   (formats/prologue.md "The program").
-- **The engine's GT3 tables** (`ProgramData`, `sim::core_program`) reach the race step only
-  through the engine's own rules (`GT4R_SIM_RULES=engine`, for comparisons) and through parts of
-  Prologue's path (physics.md "What runs where").
-- **A program that is neither Gran Turismo 4's nor a placed Prologue build** races nothing.
+- **The engine's GT3 tables** are never used: `sim::core_program` (the engine's `ProgramData`) holds Gran
+  Turismo 4's static block and soft materials on a Gran Turismo 4 disc, Prologue's own tables on a Prologue
+  disc, and 0 everywhere else; the engine's own step rules do not run on any disc (physics.md "What runs where").
+- **A program that is neither Gran Turismo 4's nor a placed Prologue build** races nothing: the race shows the
+  player "this release is not supported yet".
 - **What still runs the engine's code on a Gran Turismo 4 disc** is listed where it runs:
   - the race step: physics.md "What runs where" (only the shared math, checked bit for bit);
   - sound: formats/sound.md;

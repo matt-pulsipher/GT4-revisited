@@ -27,6 +27,7 @@
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
 #include "gt4r/race/license_scene.h"
+#include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/sections.h"
@@ -371,6 +372,11 @@ void RaceWorld::build_simulation() {
     if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
     start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
+        // A program that is neither Gran Turismo 4's nor a placed Prologue build races nothing (no stand-in): the race says so.
+        if (const sim::Program p = sim::Program::load(*app_.disc()); !p.known() && !sim::PrologueProgram::locate(p).recognized()) {
+            LOG_WARN("Drive: %s", p.issue().c_str());
+            throw std::runtime_error("This release of the game isn't supported yet.");
+        }
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
             if (program.known() && !hand_speeds_ && !impl_->drivers.empty()) {
