@@ -606,7 +606,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
             g.seg = c.road_seg;
             course_query_->ground(g);
             wheel.ground = wheel.ground0 = g.miss ? q.height + wheel.hub.z : g.height;
-            wheel.surface = g.miss ? 0 : u8(ex::surface_index(g)), wheel.x25 = g.miss ? 0 : g.x32, wheel.surface_flags = g.miss ? 0 : g.flags;
+            wheel.surface = g.miss ? 0 : u8(surface_index(g.material, g.flags)), wheel.x25 = g.miss ? 0 : g.x32, wheel.surface_flags = g.miss ? 0 : g.flags;
             extra_[i].kinds[w] = g.miss ? 0 : g.flags, extra_[i].materials[w] = g.miss ? 0 : g.material;
             continue;
         }
@@ -1076,7 +1076,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         if (!std::isnan(in.steer_angle)) {
             const gt3r::ee::F lock = c.p.max_lock;
             c.steer_cmd = prologue_ ? F(in.steer_angle) : F(std::clamp(in.steer_angle, -lock.host(), lock.host())); // (Prologue's: as it is)
-            if (prologue_) ex::ai_steer_pct(c); // (0x3DDC40)
+            if (prologue_) prologue::ai_steer_pct(c); // (0x3DDC40)
             // (F +0x45C as the computer's path of 0x349FD0 makes it of the command 0x464F38 wrote)
             if (gt4_rules_) gx_[i].input.steer_view = rules::steer_unit(c.steer_cmd) * F::raw(0x3F2AACD9);
         }
@@ -1110,7 +1110,8 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else if (prologue_) prologue::brake_heat(c, prologue_cars_[i].layout, prologue_->brake_heat); // (0x3B3810)
         else ex::brake_heat(c, race_.brake_heat);
-        if (!gt4_rules_) ex::clear_feedback(c); // (the engine's hit feedback; Gran Turismo 4's hit record is cleared below)
+        if (prologue_) prologue::clear_hit(c); // phase 12 (0x3B9280)
+        else if (!gt4_rules_) ex::clear_feedback(c); // (the engine's hit feedback; Gran Turismo 4's hit record is cleared below)
         if (gt4_rules_) rules::clear_hit(gx_[i].phases); // phase 12 (0x350308)
     }
     // (0x34DB30 after phase 12, before the collision step: each car's recent hit's steps counted down)

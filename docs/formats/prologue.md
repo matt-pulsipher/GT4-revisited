@@ -354,6 +354,11 @@ at every call of the program's on the record as the program has it, 1,200 of 1,2
   kind 8 (`mtr_gmv_04`, gearbox kind 0) is where Gran Turismo 4 tests its gearbox kind 4: its clutch closed at once (0x3B9E10)
   and its rpm without the idle's floor (0x3B9BB8), `drive_extra`.
   The wheels' spin and the drawn car's points 0x3B25F0 (0x344040, on the special row's height; no lean's view).
+- *Prologue's own, the small routines* (`rules_prologue.cpp`): the pad's HUD percentage and full throttle 0x3DD910 (= Gran Turismo
+  4's 0x3484D0), a computer's HUD percentage 0x3DDC40 (two thirds of the way to its command's, 100 % at 15 degrees), the pad's brake
+  onto the layout's wheels 0x3B22D0 (= 0x343CF8), the sideways hold near standstill 0x3BAFE0 (= 0x3522B0), the bump wave 0x375340
+  (= 0x369640), the surface index 0x3B46C8 (= 0x3F4E40) and the soft materials 0x3B4738 (the words 0x503E28 + 4 m) counted over
+  the layout's wheels on the road, phase 12's hit feedback 0x3B9280 (= 0x350308: kept after a hit of kind 2).
 - *Prologue's own*: the class grip 0x3BC03C, the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
   the layout's wheels), the brake heat 0x3B3810 (Gran Turismo 4's over the layout but heating with the pedal up too), and the
   routines the table above names `prologue::`.

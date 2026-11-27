@@ -13,6 +13,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_input.h"
 
 namespace gt4r::sim::prologue {
@@ -25,6 +26,49 @@ const F kHalfPi = F::raw(0x3FC90FD9);
 F speed_of(u8 kmh) { return gt3r::ee::int_to_f(kmh ? kmh : 50) * kKmh; }
 F f_of(u32 v) { return gt3r::ee::int_to_f(s32(v)); }
 } // namespace
+
+F bump_wave(int mode, F x, F z, F freq) {
+    F w = gt3r::ee::sin(freq * x);
+    w = w + gt3r::ee::cos(freq * z);
+    if (mode != 1) return w;
+    const F sq = w * w;
+    return w < F() ? -sq : sq;
+}
+
+F low_speed_hold(const ex::Wheel& w) {
+    if (w.peak_force == F()) return F();
+    const F ws = w.rim_speed, slip = w.hub_vx - ws;
+    if (ws < F::raw(0xBFB1C71B) || F::raw(0x3FB1C71B) < ws) return F();     // |the rim| over 5 km/h
+    if (slip < F::raw(0xBF0E38E3) || F::raw(0x3F0E38E3) < slip) return F(); // the hub off the rim by over 2 km/h
+    F across = gt3r::ee::cos(w.steer) * w.hub_vy;
+    across = across + gt3r::ee::sin(w.steer) * w.hub_vx;
+    if (F::raw(0x3F8E38E3) < across || across < F::raw(0xBF8E38E3)) return F(); // over 4 km/h across the wheel
+    const F s = gt3r::ee::sin(across * F::raw(0x4034F4AB));                     // 0.9 pi
+    return s * gt3r::ee::cos(ws * F::raw(0x3F90C3BC)) * w.peak_force;            // 0.36 pi
+}
+
+void pad_hud(ex::Car& c, const ex::PadFrame& f) {
+    if (!(f.flags & 1)) c.steer_pct = gt3r::s8(f.steer == 0 ? 0 : f.steer > 0 ? 100 : -100);
+    else {
+        const s32 p = s32(f.steer) * 100;
+        c.steer_pct = gt3r::s8((p < 0 ? p + 0xFFF : p) >> 12);
+    }
+    if (f.flags & 2) {
+        if (f.throttle != 0x1000) c.full_throttle = 0;
+    } else if (f.throttle == 0)
+        c.full_throttle = 0;
+}
+
+void ai_steer_pct(ex::Car& c) {
+    F x = c.steer_cmd * F::raw(0x43BEFC68); // (100 % at 15 degrees, 0x3DDC40)
+    if (F::raw(0x42C80000) < x) x = F::raw(0x42C80000);
+    else if (x < F::raw(0xC2C80000)) x = F::raw(0xC2C80000);
+    c.steer_pct = gt3r::s8((s32(c.steer_pct) + 2 * gt3r::ee::to_int(x)) / 3);
+}
+
+void clear_hit(ex::Car& c) {
+    if (gt3r::s8(c.hit_kind) != 2) c.feedback = 0;
+}
 
 Controls controls(const u8* c) {
     Controls k;
@@ -132,6 +176,7 @@ Tables tables(const Program& program) {
         t.bumps.amp[k] = f_of(program.b(s + 0x1C + k)) * F::raw(0x3A83126E);
         t.bumps.freq[k] = F::raw(0x40C90FDA) / (f_of(program.b(s + 0x4C + k)) * F::raw(0x3DCCCCCC));
         t.bumps.scaled[k] = gt3r::s8(program.b(s + 0x5C + k)), t.bumps.mode[k] = gt3r::s8(program.b(s + 0x6C + k));
+        t.bumps.soft[k] = program.w(0x503E28 + 4 * k); // (0x3B4738: the soft materials)
     }
     for (u32 k = 0; k < 6; ++k) t.in_line[k] = F::raw(program.w(PrologueProgram::kInLine + 4 * k));
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
@@ -426,7 +471,7 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool air, const Tables& t) {
         const F cam = tx.camber_force[size_t(i)];
         fa = fa + -cos(w.steer) * cam;
         fb = fb + -sin(w.steer) * cam;
-        const F hold = ex::low_speed_hold(w, true);
+        const F hold = prologue::low_speed_hold(w); // (0x3BAFE0 = Gran Turismo 4's 0x3522B0 in its layout)
         fa = fa - cos(w.steer) * hold;
         fb = fb - sin(w.steer) * hold;
         fa = fa - sin(w.steer) * gx;
@@ -1075,17 +1120,17 @@ void driver_input_pad(ex::Car& c, const ex::PadConstants&, const ex::PadFrame& i
                       const Tables& t, u8 special_row) {
     const ex::PadFrame f = prefilter(c, in, t.controls, special_row);
     c.full_throttle = 1;
-    ex::pad_hud(c, f);
+    prologue::pad_hud(c, f);
     if (c.p.special != 4) pad_steering(c, f, course_kind, l, t.controls); // (4, the in-line lean's 0x3DE310, no car of the disc)
     pad_pedals(c, f, t);
     c.throttle = c.throttle_pedal;
-    ex::set_brake(c, c.brake_pedal);
+    rules::brake_pedal(c, l, c.brake_pedal); // (0x3B22D0 = Gran Turismo 4's 0x343CF8: the pedal onto the layout's wheels)
 }
 
 void pad_watched(ex::Car& c, const ex::PadFrame& in, const Tables& t, u8 special_row) {
     const ex::PadFrame f = prefilter(c, in, t.controls, special_row);
     c.full_throttle = 1;
-    if (c.control == 0) ex::pad_hud(c, f);
+    if (c.control == 0) prologue::pad_hud(c, f);
 }
 
 void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift) {
@@ -1267,7 +1312,7 @@ void road_bumps(ex::Car& c, const CarPart& x, const ex::SurfaceBumps& b) {
             wh.bump = F();
             continue;
         }
-        F v = ex::bump_wave(b.mode[s], g.x, g.z, b.freq[s]);
+        F v = bump_wave(b.mode[s], g.x, g.z, b.freq[s]);
         if (b.scaled[s]) v = v * wh.speed_ramp;
         wh.bump = v * amp;
     }
@@ -1278,16 +1323,18 @@ ex::GroundCounts ground_contact(ex::Car& c, const CarPart& x, const ex::CourseGr
     course.query(c.g, c.behaviour);
     const rules::WheelLayout& l = x.layout;
     const int n = l.count < 4 ? l.count : 4;
+    ex::GroundCounts k; // (the layout's wheels on the road: on a pit-lane triangle, on a soft material 0x3B4738)
     for (int w = 0; w < n; ++w) {
         ex::Wheel& wh = c.w[size_t(w)];
         const ex::Ground& g = c.g[size_t(w)];
         if (g.miss) continue;
         wh.ground0 = g.height, wh.ground = g.height;
-        wh.surface = u8(ex::surface_index(g));
+        wh.surface = u8(sim::surface_index(g.material, g.flags)); // (0x3B46C8 = Gran Turismo 4's 0x3F4E40)
         wh.x25 = g.x32, wh.surface_flags = g.flags;
+        k.flagged += g.flags & 1;
+        k.soft += b.soft[g.material & 15] != 0;
     }
     road_bumps(c, x, b);
-    const ex::GroundCounts k = ex::ground_counts(c, b);
     c.x535 = u8(c.x535 & 0xEF);
     c.road_seg = c.g[0].seg;
     if (k.flagged && mark_flagged) c.x535 = u8(c.x535 | 0x10);

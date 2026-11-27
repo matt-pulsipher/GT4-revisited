@@ -2,6 +2,7 @@
 
 #include "base/ee_double.h"
 #include "base/ee_math.h"
+#include "gt4r/sim/ground.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/rules_build.h"
@@ -126,7 +127,7 @@ void road_under(const gt3r::sim::Behaviour& bh, const ex::CourseQuery& q, ex::Ai
     if ((m1 && m2) || (m3 && m4)) return;
     p.slope = m1 ? ex::atan2(bh, at - h2, kHalf) : m2 ? ex::atan2(bh, h1 - at, kHalf) : ex::atan2(bh, h1 - h2, kOne);
     p.bank = m3 ? ex::atan2(bh, at - h4, kHalf) : m4 ? ex::atan2(bh, h3 - at, kHalf) : ex::atan2(bh, h3 - h4, kOne);
-    p.height = at, p.surface = s8(ex::surface_index(g)), p.x13 = u8(g.x32);
+    p.height = at, p.surface = s8(sim::surface_index(g.material, g.flags)), p.x13 = u8(g.x32); // (0x3B46C8)
 }
 
 } // namespace
