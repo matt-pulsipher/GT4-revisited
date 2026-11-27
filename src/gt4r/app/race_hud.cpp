@@ -782,6 +782,26 @@ void RaceHud::Impl::draw_map(const HudState& s) {
     }
 }
 
+void RaceHud::draw_map_on_screen(float x, float y, float k, std::span<const Mark> marks, float opacity) {
+    Impl& m = *impl_;
+    if (!m.map_texture || opacity <= 0) return;
+    const float w = float(m.map.image.width), h = float(m.map.image.height);
+    SDL_SetTextureColorMod(m.map_texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(m.map_texture, u8(255 * std::clamp(opacity, 0.0f, 1.0f)));
+    const SDL_FRect dst{x, y, w * k, h * k};
+    SDL_RenderTexture(m.r, m.map_texture, nullptr, &dst);
+    for (const Mark& mk : marks) {
+        const Impl::Picture& pic = m.picture(mk.rival ? "point_rival" : "point_target");
+        if (!pic.texture) continue;
+        float mx, my;
+        m.map.map(mk.x, mk.z, mx, my);
+        SDL_SetTextureColorMod(pic.texture, 255, 255, 255);
+        SDL_SetTextureAlphaMod(pic.texture, u8(255 * std::clamp(opacity, 0.0f, 1.0f)));
+        const SDL_FRect d{x + (mx - pic.w / 2) * k, y + (my - pic.h / 2) * k, pic.w * k, pic.h * k};
+        SDL_RenderTexture(m.r, pic.texture, nullptr, &d);
+    }
+}
+
 void RaceHud::draw_monitor_tires(float x0, float y0, float opacity, const HudState& s) {
     if (!ready() || opacity <= 0) return;
     HudState t = s;

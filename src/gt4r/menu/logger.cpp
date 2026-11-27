@@ -68,7 +68,7 @@ void Logger::Sampler::sample(const LoggerPicture& p) {
     float d = p.distance;
     const float v = p.speed, t = p.throttle, b = p.brake;
     top = std::max(top, v);
-    auto keep = [&] { prev_d = d, prev_v = v, prev_t = t, prev_b = b; };
+    auto keep = [&] { prev_d = d, prev_v = v, prev_t = t, prev_b = b, prev_x = p.x, prev_z = p.z; };
     if (first) {
         start = far = d, first = false;
         return keep();
@@ -88,6 +88,8 @@ void Logger::Sampler::sample(const LoggerPicture& p) {
         s.speed_gear = u16((u32(whole(sv)) << 3) | (u32(p.gear) & 7));
         s.throttle = u8(whole(st)), s.brake = u8(whole(sb));
         out->push_back(s);
+        // (the place at the sample's first metre, 0x11E310 at its start)
+        at->push_back({cur > was ? line_at(was, cur, prev_x, p.x, lo) : p.x, cur > was ? line_at(was, cur, prev_z, p.z, lo) : p.z});
         if (out->size() >= kSamples) return; // (the program keeps no picture then)
         lo += spacing, hi += spacing;
         sum_v = area(was, cur, prev_v, v, lo, hi), sum_t = area(was, cur, prev_t, t, lo, hi), sum_b = area(was, cur, prev_b, b, lo, hi);
@@ -98,7 +100,7 @@ void Logger::Sampler::sample(const LoggerPicture& p) {
 void Logger::analyze_start() {
     // (0x123368: running, not done, no progress; the thread 0x122FA8)
     running = true, analyzed = false, progress_at = progress_of = 0;
-    track[0].clear(), track[1].clear();
+    track[0].clear(), track[1].clear(), places[0].clear(), places[1].clear();
     for (int t = 0; t < 2; ++t) {
         laps_[size_t(t)].reset(), done_[size_t(t)] = true, at_[size_t(t)] = 0;
         has[size_t(t)] = source && source->info[size_t(t)].has;
@@ -117,7 +119,7 @@ void Logger::analyze_start() {
         }
         Sampler& s = samplers_[size_t(t)];
         s = Sampler{};
-        s.out = &track[size_t(t)], s.spacing = spacing, s.inv = 1.0f / spacing, s.length = len;
+        s.out = &track[size_t(t)], s.at = &places[size_t(t)], s.spacing = spacing, s.inv = 1.0f / spacing, s.length = len;
         done_[size_t(t)] = false;
         progress_of = std::max(progress_of, laps_[size_t(t)]->frames);
     }
@@ -157,10 +159,10 @@ bool Logger::analyze_step(double budget) {
 void Logger::finish() {
     laps_[0].reset(), laps_[1].reset();
     running = false;
-    if (!has[1]) track[1] = track[0], samplers_[1] = samplers_[0];
-    if (!has[0] && has[1]) track[0] = track[1], samplers_[0] = samplers_[1];
+    if (!has[1]) track[1] = track[0], places[1] = places[0], samplers_[1] = samplers_[0];
+    if (!has[0] && has[1]) track[0] = track[1], places[0] = places[1], samplers_[0] = samplers_[1];
     const size_t n = std::min(track[0].size(), track[1].size());
-    track[0].resize(n), track[1].resize(n);
+    track[0].resize(n), track[1].resize(n), places[0].resize(n), places[1].resize(n);
     start = std::min(samplers_[0].start, samplers_[1].start);
     const float len = n > 0 ? float(s32(n) - 1) * spacing : 0.0f; // (0x11DBB0)
     end = start + len;
@@ -183,6 +185,16 @@ float Logger::speed_at(int t, float metres) const {
     metres = std::min(std::max(metres, 0.0f), last);
     const size_t i = std::min(size_t(whole(metres / spacing)), s.size() - 1);
     return s[i].speed();
+}
+
+bool Logger::place_at(int t, float metres, float& x, float& z) const {
+    const std::vector<std::array<float, 2>>& s = places[size_t(t)];
+    if (s.empty()) return false;
+    const float last = float(s32(s.size()) - 1) * spacing;
+    metres = std::min(std::max(metres, 0.0f), last);
+    const size_t i = std::min(size_t(whole(metres / spacing)), s.size() - 1);
+    x = s[i][0], z = s[i][1];
+    return true;
 }
 
 float Logger::graph_height() const {
@@ -370,6 +382,14 @@ void step_logger_face(Runtime& rt, LiveWidget& face) {
     }
     // The course map's point at the middle and its span the metres shown (its vcalls +0x308 / +0x310).
     if (L->map_face) {
+        // (the marks point_target and point_rival at the tracks' places, 0x11FF98)
+        for (int t = 0; t < 2; ++t) {
+            float x = 0, z = 0;
+            const bool on = L->analyzed && L->shown(t) && L->place_at(t, L->middle, x, z);
+            const std::string k = t ? "logger_b" : "logger_a";
+            L->map_face->set_property(k, Value::integer(on));
+            L->map_face->set_property(k + "x", Value::number(x)), L->map_face->set_property(k + "z", Value::number(z));
+        }
         L->map_face->set_property("logger_point", Value::number(L->middle + L->start));
         L->map_face->set_property("logger_from", Value::number(std::max(L->view_left(), 0.0f) + L->start));
         L->map_face->set_property("logger_to", Value::number(std::min(L->view_right(), L->end - L->start) + L->start));

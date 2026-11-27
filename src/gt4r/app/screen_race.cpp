@@ -1596,6 +1596,7 @@ public:
             }
             st->first = false, st->last = c.course_v;
             p.distance = st->base + c.course_v, p.speed = c.speed, p.throttle = c.throttle, p.brake = c.brake, p.gear = c.gear;
+            p.x = c.position.x, p.z = c.position.z;
             return true;
         };
         return out;
@@ -2972,6 +2973,19 @@ public:
             if (!race_) leave_to_menus(app);
         } else if (menus_ && race_) {
             painter_ = make_menu_painter(app);
+            // The Analyzer's course map (RaceCourseMapFace): the course's map at the face's place, the tracks' marks at the
+            // middle once the analysis is done (display_main_point); ❓ the face's own drawing (its size, the span shown) is
+            // not read: the map at its picture's size from the face's top left.
+            painter_->course_map = [this](const menu::LiveWidget& face, const SDL_FRect& dst, float k, float opacity) {
+                if (!hud_ || !hud_->ready()) return;
+                std::vector<RaceHud::Mark> marks;
+                if (menu::face_value(face, "display_main_point").truthy())
+                    for (int t = 0; t < 2; ++t) {
+                        const std::string n = t ? "logger_b" : "logger_a";
+                        if (face.get(n).truthy()) marks.push_back({face.get(n + "x").as_float(), face.get(n + "z").as_float(), t == 1});
+                    }
+                hud_->draw_map_on_screen(dst.x, dst.y, k, marks, opacity);
+            };
             enter_quick(0, true, prologue_hud_ && is_license(sequence_)); // (Prologue's lesson: its guide film first)
         } else if (menus_) {
             leave_to_menus(app);

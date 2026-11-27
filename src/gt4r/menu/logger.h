@@ -24,6 +24,7 @@ enum class Key;
 struct LoggerPicture {
     float distance = 0, speed = 0, throttle = 0, brake = 0;
     int gear = 0;
+    float x = 0, z = 0; // the car's place (the sample's two values at +4 / +6, 0x344798 / 0x344828: ❓ taken as its x and z)
 };
 
 // A track's lap run again picture by picture, as the race gives it.
@@ -76,6 +77,7 @@ struct Logger {
     int edge[2] = {0, 0};          // +0x2C4, +0x2C8: the ends' stops
     float spacing = 0.5f;          // the block's +0x40008
     std::array<std::vector<LoggerSample>, 2> track;
+    std::array<std::vector<std::array<float, 2>>, 2> places; // each sample's x, z (at its first metre)
     std::array<s64, 2> ms{-1, -1};
     std::array<bool, 2> has{false, false}; // a lap in the track (a recorder's +0x1D0 0)
     std::array<std::string, 2> car;
@@ -92,6 +94,7 @@ struct Logger {
     void input(const float sticks[4]);
     float graph_height() const; // 0x1233E0
     float speed_at(int t, float metres) const; // m/s at metres from the start (0x11DBE8)
+    bool place_at(int t, float metres, float& x, float& z) const; // the car's place there (0x11DC80, 0x11DD10)
     float view_left() const { return middle - width * 0.5f / scale_m; }
     float view_right() const { return view_left() + width / scale_m; }
     // A track shown (not empty, its display switch on); the pedal bands shown.
@@ -101,9 +104,10 @@ struct Logger {
 private:
     struct Sampler {
         std::vector<LoggerSample>* out = nullptr;
+        std::vector<std::array<float, 2>>* at = nullptr;
         float spacing = 0.5f, inv = 2, length = 0;
         bool first = true;
-        float start = 0, far = 0, prev_d = 0, prev_v = 0, prev_t = 0, prev_b = 0;
+        float start = 0, far = 0, prev_d = 0, prev_v = 0, prev_t = 0, prev_b = 0, prev_x = 0, prev_z = 0;
         float sum_v = 0, sum_t = 0, sum_b = 0, top = 0;
         void sample(const LoggerPicture& p);
     };
@@ -118,6 +122,8 @@ private:
 void install_logger_natives(Runtime& rt, script::Module& menu);
 void step_logger_face(Runtime& rt, LiveWidget& face);
 bool logger_face_key(Runtime& rt, LiveWidget& face, Key k);
+// A value a widget keeps that is no layout property (its `extras`: the logger face's control, the course map's display_*).
+script::Value face_value(const LiveWidget& face, const std::string& name);
 // The control a face shows (its `control`), or none.
 Logger* logger_of_face(const LiveWidget& face);
 // The display switches (the save's block 0x39F1C: Track A, Track B, speed, accel, brake).
