@@ -271,3 +271,66 @@ TEST(disc_menu_replay_play_list) {
     CHECK(f.clean());
     std::filesystem::remove_all(dir);
 }
+
+// The title's time-out with replays on the card's play list (0x10BEF0 over 0x4349A8): each try of kind replay plays the
+// list's next replay instead of the disc's recording; a list shorter than the time-out's tries (repeat_time) ends the
+// time-out after one; a replay gone from the card plays nothing. No list: the disc's recordings.
+TEST(disc_menu_title_card_replays) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-title-card";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "replays");
+    std::filesystem::create_directories(dir / "memorycard");
+    std::vector<std::filesystem::path> files;
+    std::vector<u64> entries;
+    for (const char* name : {"tsukuba-20261124-101500.gt4rrep", "fuji_90s-20261124-101600.gt4rrep", "tsukuba-20261124-101700.gt4rrep"}) {
+        files.push_back(dir / "replays" / name);
+        write_replay(files.back(), "tsukuba", "panda_super_ie_90");
+        u64 h = 0xCBF29CE484222325ull; // (our replays' entries: the file's name hashed, FNV-1a, in 42 bits)
+        for (const char* c = name; *c; ++c) h = (h ^ u8(*c)) * 0x100000001B3ull;
+        entries.push_back(h & ((u64(1) << 42) - 1));
+    }
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    menu::GameState& g = f.rt->game();
+    menu::GameState::Demonstration& d = g.demonstration;
+    g.options["demo_movie_interval"] = 0; // (no movie: every try of the time-out is the list's kind replay)
+    std::printf("  restart_from_beginning %d, tries %d\n", d.restart, d.repeat);
+    d.restart = 0; // (the count kept from one time-out to the next)
+    auto timeout = [&] {
+        std::vector<std::string> played;
+        for (auto step = menu::autodemo_step(*f.rt, true); step; step = menu::autodemo_step(*f.rt, false)) {
+            played.push_back(step->replay);
+            g.menu_result.clear();
+        }
+        return played;
+    };
+    const save::ReplayList list((dir / "memorycard").string(), {});
+    // No list: the disc's recordings, three per time-out.
+    std::vector<std::string> seen = timeout();
+    CHECK(seen.size() == 3 && seen[0].rfind("replay/Rdemo", 0) == 0);
+    // Three on the list (as many as the tries): the card's replays in order from the count, for every try.
+    CHECK(list.save(entries, "Replay list") == save::Result::Ok);
+    d.card_at = 0;
+    seen = timeout();
+    for (const std::string& p : seen) std::printf("  played: %s\n", p.c_str());
+    CHECK(seen.size() == 3 && seen[0] == files[0].string() && seen[1] == files[1].string() && seen[2] == files[2].string());
+    seen = timeout(); // (the count goes on: the first again)
+    CHECK(seen.size() == 3 && seen[0] == files[0].string());
+    // Two on the list (fewer than the tries): one replay ends the time-out.
+    CHECK(list.save({entries[0], entries[1]}, "Replay list") == save::Result::Ok);
+    d.card_at = 1;
+    seen = timeout();
+    CHECK(seen.size() == 1 && seen[0] == files[1].string());
+    // A replay gone from the card: nothing plays for it (and with the short list, the time-out is over).
+    std::filesystem::remove(files[0]);
+    seen = timeout();
+    CHECK(seen.empty() && d.card_at == 1);
+    // An empty list: the disc's recordings again.
+    CHECK(list.save({}, "Replay list") == save::Result::Ok);
+    seen = timeout();
+    CHECK(seen.size() == 3 && seen[0].rfind("replay/Rdemo", 0) == 0);
+    CHECK(f.clean());
+    std::filesystem::remove_all(dir);
+}

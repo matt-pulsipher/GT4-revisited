@@ -857,7 +857,7 @@ the list one replay after another (game_replays.cpp `play_list_next`: 0x10CA50's
 demonstration's count (MDemonstration +0x64, kept across visits; past the end the first again), shuffled through an order
 drawn from the count's seed (+0x68, drawn anew by resetPlayListCounter and initialize: the timer and the small generator,
 0x579358): 0 .. n - 1, each place from the second swapped with the one at the Mersenne Twister's draw x (its place + 1)
-(0x6012C0). A replay not on the card is passed over; as many passed over as the list is long end it. Each replay's end plays
+(0x6012C0; the title's time-out picks from the same list first, "The title's demonstrations"). A replay not on the card is passed over; as many passed over as the list is long end it. Each replay's end plays
 the next until the player ends one with Start (the race's end code 2, 0x10CDD4: ❓ that Start is that code is not read), then
 the theater again. Ours: the race's own replay files have no card folder: their entries are the letter 0 and their file's
 name hashed (FNV-1a) into the 42 bits of a folder's letters. `labo_folder` / `labo_list_index` start at -1.
@@ -1045,9 +1045,14 @@ configuration's list holds `Demo(2, "Rdemo0")` .. `Demo(2, "Rdemo12")` (Europe `
 demo.getType()`, which names 0 autodemo, 1 menu, 2 replay: every Gran Turismo 4 disc's list is kind
 replay (`gt4tool adc <disc> config/config-main.adc`; checked on the US, European and Japanese discs;
 no list gives 0 or 1, and skip_replay is never set). The jump table at 0x68D000 sends replay (and
-autodemo) to 0x10BEF0: the card's replays first (0x4349A8), else the disc's recording by its name
-(0x10BBB0, the file read from the disc, a RaceReplayInformation race run); a key that ends that
-replay (end code 2) ends the time-out. So on the console a time-out with the option at 3 plays two
+autodemo) to 0x10BEF0: the card's play list first (0x4349A8, the Replay Theater's list: its next
+replay by the demonstration's count +0x64, in order or shuffled as the play list picks it; the list's
+length, or 0 with no list or an empty one); with a list, that replay read from the card (0x10BBB0 with
+its flag 1, 0x1D14E0; one gone from the card plays nothing and the time-out goes on), and a list
+shorter than the time-out's tries (+0x50, repeat_time, 3) ends the time-out after it; with none, the
+disc's recording by its name (0x10BBB0 with its flag 0, the file read from the disc, a
+RaceReplayInformation race run). 0x10BBB0's time argument (-1 for the card's, +0x44 for the disc's)
+is not read by it. A key that ends that replay (end code 2) ends the time-out. So on the console a time-out with the option at 3 plays two
 recorded races and then the movie (the count 2, 1, 0). PCSX2 cannot read the disc's recordings
 (the Replay Theater's "Data is corrupted", reference 28), so its attract cycle (reference 01-boot,
 28) shows the movie and then the title. With the option at 5 the movie every other time-out, at 1
@@ -1058,8 +1063,11 @@ the movie): a recorded race of the list (replay/Rdemo0/Rdemo0 ..) plays as the R
 Demo tab plays it (the sequence "replay", `RaceStart::attract`), the game's mark over it; any button
 ends it and the time-out (its `menu_result` "terminate"), the title again with its wait from that
 key (✔ by pictures: a new game, the title left 20 s: Rdemo0, George V Paris, the Bentley; Cross:
-the title, Arcade Mode; 20 s later Rdemo1, El Capitan). ❓ The card's replays, which 0x4349A8 plays
-before the disc's, are not played here.
+the title, Arcade Mode; 20 s later Rdemo1, El Capitan). The card's play list first
+(`menu::card_replay_pick`, shared with the theater's Play; ✔ test `disc_menu_title_card_replays`:
+three on the list play one each try, two end the time-out after one, one gone from the card plays
+nothing, an empty list the disc's; ✔ by pictures: a card with two Fuji replays on its list, the title
+left 20 s: the first at Fuji with the game's mark, Cross: the title, 20 s later the second).
 
 ❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace` (the Analyzer's course map too), `EyetoyFace`, `VirtualFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).

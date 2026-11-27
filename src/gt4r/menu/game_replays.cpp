@@ -496,33 +496,45 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
     });
 }
 
+// 0x4349A8: the card's play list's next replay (the replays' slot, option +0x1148), as the play list and the title's
+// time-out pick it. None or an empty list: 0. Else the demonstration's count (MDemonstration +0x64) names it, from the first
+// again past the end, and goes on by one; with replay_play_mode SHUFFLE (option +0x114C) through an order drawn anew each
+// time from its seed (+0x68): 0, 1, .. n - 1, then each place from the second swapped with the one at the draw x (its place
+// + 1) (0x6012C0; the program's Mersenne Twister seeded with it, a draw a float over 2^32: 0x579548). The list's length,
+// with `path` the replay (0x1D1340; "" when it is not on the card).
+s32 card_replay_pick(Runtime& rt, std::string& path) {
+    path.clear();
+    std::vector<u64> entries;
+    if (replay_list_of(rt).load(entries) != save::Result::Ok || entries.empty()) return 0;
+    GameState& s = rt.game();
+    GameState::Demonstration& d = s.demonstration;
+    const s32 count = s32(entries.size());
+    if (d.card_at >= count) d.card_at = 0;
+    s32 at = d.card_at++;
+    if (s.option_text("replay_play_mode") == "SHUFFLE") {
+        std::vector<s32> order(static_cast<size_t>(count));
+        for (s32 i = 0; i < count; ++i) order[size_t(i)] = i;
+        save::Mt19937 mt(d.card_seed);
+        for (s32 i = 1; i < count; ++i) std::swap(order[size_t(i)], order[mt.below(u32(i + 1))]);
+        at = order[size_t(at)];
+    }
+    path = replay_of(rt, entries[size_t(at)]);
+    return count;
+}
+
 // The load_replay sequence's play list (0x10CA50 with 0x4349A8 and 0x1D14E0). The sequence reads the card's list each time
-// (the replays' slot, option +0x1148): none or empty, nothing plays. The demonstration's count (MDemonstration +0x64) names the
-// next, from the first again past the end; with replay_play_mode SHUFFLE (option +0x114C) through an order drawn anew each time
-// from its seed (+0x68): 0, 1, .. n - 1, then each place from the second swapped with the one at the draw x (its place + 1)
-// (0x6012C0; the program's Mersenne Twister seeded with it, a draw a float over 2^32: 0x579548). A replay not on the card is
-// passed over and counted; as many as the list holds end it (the count is the sequence's, kept through the list's replays).
-// The list goes on after each replay until the player ends one (the race's end code 2, 0x10CDD4).
+// (card_replay_pick): none or empty, nothing plays. A replay not on the card is passed over and counted; as many as the
+// list holds end it (the count is the sequence's, kept through the list's replays). The list goes on after each replay
+// until the player ends one (the race's end code 2, 0x10CDD4).
 bool play_list_next(Runtime& rt, bool start, bool quit) {
     GameState& s = rt.game();
     if (start) s.replay_list = true, s.replay_list_missed = 0;
     if (!s.replay_list) return false;
     if (quit) return s.replay_list = false;
-    std::vector<u64> entries;
-    if (replay_list_of(rt).load(entries) != save::Result::Ok || entries.empty()) return s.replay_list = false;
-    GameState::Demonstration& d = s.demonstration;
-    const s32 count = s32(entries.size());
     for (;;) {
-        if (d.card_at >= count) d.card_at = 0;
-        s32 at = d.card_at++;
-        if (s.option_text("replay_play_mode") == "SHUFFLE") {
-            std::vector<s32> order(static_cast<size_t>(count));
-            for (s32 i = 0; i < count; ++i) order[size_t(i)] = i;
-            save::Mt19937 mt(d.card_seed);
-            for (s32 i = 1; i < count; ++i) std::swap(order[size_t(i)], order[mt.below(u32(i + 1))]);
-            at = order[size_t(at)];
-        }
-        const std::string path = replay_of(rt, entries[size_t(at)]);
+        std::string path;
+        const s32 count = card_replay_pick(rt, path);
+        if (count == 0) return s.replay_list = false;
         if (!path.empty()) {
             s.replay_file = path, s.next_sequence = "replay";
             return true;

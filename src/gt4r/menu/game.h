@@ -446,6 +446,9 @@ struct DemoStep {
     std::string replay;
 };
 std::optional<DemoStep> autodemo_step(Runtime& rt, bool first);
+// The card's play list's next replay as the play list and the title's time-out pick it (0x4349A8, game_replays.cpp): the
+// list's length (0: no list, or an empty one), `path` the replay ("" when it is not on the card).
+s32 card_replay_pick(Runtime& rt, std::string& path);
 // The Replay Theater's play list played (the load_replay sequence's loop, 0x10CA50, game_replays.cpp): the next replay of
 // the card's list as its sequence picks it (0x4349A8: in order or shuffled, the missing passed over) set to be shown
 // (`replay_file`, `next_sequence` "replay"). `start`: the theater's Play of its PlayList folder; else after a replay of the
