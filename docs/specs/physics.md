@@ -267,7 +267,8 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
 - **Layout 7's motors** (four wheel drive system 5: the Acura DN-X; ours `rules_motors.*`): the converter's 0x355978 makes
   25 floats at 0x8438C0 of the bytes 0x62045A .. 0x620474 (the front motors' and rear motor's ratings 20 / 35 kW, their torque
   caps driving and regenerating, the store's capacity 15 x (2 front + rear), its marks, the charging caps, the idle charge,
-  the yaw split's gains and dead bands, the flow counter's scale); the set-up fills the store (car +0x788, 0x355DC8), the
+  the yaw split's gains and dead bands, the flow counter's scale); the set-up fills the store (car +0x788 = the capacity, 0x8438DC, 0x355DC8; ✔ in Japan's program in the interpreter, the
+  Dualnote of Rdemo16 bit for bit), the
   signed byte car +0x78D counts the flow (0x355E40, -100 .. 100). The motors' demand (0x3561D0): -1 at or below the
   engine's share of the full power (its power over that plus twice the rear rating), above it twice the rest over the rest
   of the range x the store's share between its marks (0x356168), held at 1 outside gears 1 .. 7, less 1. In the torque
@@ -1069,13 +1070,13 @@ With these, our race ends on the program's time in all 73 timed files the progra
 (the three cone tests too; the misses are the program's own three). Its cars' places equal the program's in every bit to the end in
 75; in IB-15 the pace car parts from the program's 57 steps before the end, after its own run is over 🔎.
 
-**The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo12`, 11 with a recorded time): Japan's files keep 0 or 4 in the
-race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last (the
-harness and `RecordedRace::exact` score that too). Japan's program in the interpreter ends **7 of 11** on their times (Rdemo2, 5,
-6 and 12 miss ❓). Our race of each file alone equals the program's in every bit to the end in 11 of 13, and ends **7 of 11** on the
-recorded time, the program's 7 (Rdemo0, 3, 7, 8, 9, 10, 11). Rdemo5 and Rdemo12 (B-spec races) part from the program's at their
-32nd and 36th steps: the computer drivers' speeds in the arcs (D +0x24) and the B-spec driver's ❓; the drivers' check
-(`gt4r_diff <jp> ai`) finds every driver routine equal at Tsukuba (6 cars, 3 laps) and Laguna.
+**The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo16`, 17 files, 15 with a recorded time): Japan's files keep 0 or 4
+in the race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last
+(the harness and `RecordedRace::exact` score that too). Our race of each file alone equals Japan's program's in the interpreter
+in every bit to the end in **all 17**, and ends **8 of 15** on the recorded time, the program's 8 (Rdemo0, 3, 7, 8, 9, 10, 11,
+15). The other 7 end their one lap 12 to 21 s under the file's time (Rdemo2, 5, 12, 13, 14, 16) or 224 ms over it (Rdemo6),
+the program as ours ❓ (not a rule of the drivers or the cars: the program's run is the console's file's, step for step, as
+far as the harness can tell; the clock's start or the file's time word is the open question).
 
 ## 6. The ground
 

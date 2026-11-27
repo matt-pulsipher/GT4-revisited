@@ -11,6 +11,7 @@
 #include "gt4r/sim/program.h"
 
 #include <cstdio>
+#include <utility>
 
 using namespace gt4r;
 
@@ -34,7 +35,7 @@ TEST(japan_demonstrations_on_japan_rules_disc) {
     }
 }
 
-// Japan's Replay Theater races (replay/Rdemo<n>) played by our own race end on their recorded times, the 7 of 11 timed ones
+// Japan's Replay Theater races (replay/Rdemo<n>) played by our own race end on their recorded times, the 8 of 15 timed ones
 // Japan's program in the interpreter ends on them: races whose drivers' lines, arc speeds, spread and decisions are Japan's.
 // Japan's files keep a laps word of 0 or 4: the time is the laps crossed within the recording (Rdemo3's last lap is crossed
 // in the step another car's is).
@@ -51,7 +52,7 @@ TEST(japan_replay_theater_races_disc) {
             return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
         },
         [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
-    for (const char* name : {"Rdemo0", "Rdemo3", "Rdemo7", "Rdemo8", "Rdemo9", "Rdemo10", "Rdemo11"}) {
+    for (const char* name : {"Rdemo0", "Rdemo3", "Rdemo7", "Rdemo8", "Rdemo9", "Rdemo10", "Rdemo11", "Rdemo15"}) {
         const gt3r::Volume::Entry* e = vol->find(std::string("replay/") + name + "/" + name);
         CHECK(e != nullptr);
         if (!e) continue;
@@ -63,5 +64,22 @@ TEST(japan_replay_theater_races_disc) {
         for (size_t k = race.run().steps() + 60; k > 0; --k) race.step();
         std::printf("  %s: %lld ms (recorded %d) %s\n", name, race.laps().empty() ? -1LL : (long long)race.laps().front(), race.run().recorded_ms(), race.exact() ? "exact" : "");
         CHECK(race.exact());
+    }
+    // Races whose cars run as Japan's program runs them in the interpreter, bit for bit, to a lap the program ends on too
+    // (neither on the file's time ❓): two B-spec races (the spreads' switches set after the set-up, the B-spec commands, the
+    // skill after the set-up's plans) and the Dualnote's (layout 7: its motors' store full at the start).
+    const std::pair<const char*, s64> program_laps[] = {{"Rdemo5", 90234}, {"Rdemo12", 93838}, {"Rdemo16", 110360}};
+    for (const auto& [name, ms] : program_laps) {
+        const gt3r::Volume::Entry* e = vol->find(std::string("replay/") + name + "/" + name);
+        CHECK(e != nullptr);
+        if (!e) continue;
+        std::string error;
+        std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(vol->read(*e), program, name, &error);
+        CHECK(run.has_value());
+        if (!run) continue;
+        race::RecordedRace race(*disc, sdb, std::move(*run));
+        for (size_t k = race.run().steps() + 60; k > 0; --k) race.step();
+        std::printf("  %s: %lld ms (the program's %lld)\n", name, race.laps().empty() ? -1LL : (long long)race.laps().front(), (long long)ms);
+        CHECK(!race.laps().empty() && race.laps().front() == ms);
     }
 }
