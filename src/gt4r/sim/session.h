@@ -134,6 +134,13 @@ public:
     // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
     void set_crossings(size_t car, int n);
     int crossings(size_t car) const; // as set, else by the session's own laps
+    // A car's backward crossings of the line not yet taken back (F + 0x4B0, the lap step 0x358608: +1 over the line backwards,
+    // at most 250; a forward crossing takes one back instead of counting a lap): the pits read it (0x343C20). 0 unless set.
+    void set_back_crossings(size_t car, u8 n) {
+        if (back_.size() < cars_.size()) back_.resize(cars_.size());
+        if (car < back_.size()) back_[car] = n;
+    }
+    u8 back_crossings(size_t car) const { return car < back_.size() ? back_[car] : 0; }
     // A car's place in the race (F + 0x4AF, 1 the leader).
     void set_rank(size_t car, int place);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
@@ -438,6 +445,7 @@ private:
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
     bool crossings_set_ = false;
+    std::vector<u8> back_; // (set_back_crossings)
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
     u8 course_kind_ = 0, course_road_ = 0;

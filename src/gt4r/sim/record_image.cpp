@@ -19,4 +19,16 @@ void load_car_record(Record& r, std::span<const gt3r::u8> car) {
     extra_fields(r.x, [&](const char*, int, layout::Block b, u32 off, auto& m) { put({b, off}, m); });
 }
 
+void store_car_record(const Record& r, std::span<gt3r::u8> car) {
+    Record copy = r; // (the field walkers take their records by reference)
+    auto get = [&](const layout::Place& place, auto& m) {
+        using T = std::remove_cvref_t<decltype(m)>;
+        constexpr size_t size = std::is_same_v<T, gt3r::ee::F> ? 4 : sizeof(T);
+        if (!place || place.block != layout::Block::Car || place.offset + size > car.size()) return;
+        std::memcpy(car.data() + place.offset, &m, size);
+    };
+    gt3r::sim::exact::fields(copy.car, [&](const char*, int, u32 off, auto& m) { get(layout::place(off), m); });
+    extra_fields(copy.x, [&](const char*, int, layout::Block b, u32 off, auto& m) { get({b, off}, m); });
+}
+
 } // namespace gt4r::sim

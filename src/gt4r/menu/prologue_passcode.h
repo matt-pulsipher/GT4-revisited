@@ -18,6 +18,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace gt4r::menu {
 
@@ -25,16 +26,33 @@ struct PassFields {
     u32 kind = 11, car = 0, course = 0, flag = 0, test = 0, word14 = 0, word18 = 0, time = 0, word20 = 0, word24 = 0;
 };
 
+// How a game packs its fields: their widths (low bit first), the bytes they fill, the block enciphered (the fields after
+// two zero bytes) and the digits written. Prologue's: 80 bits in 10 bytes, 12, 30 digits. Gran Turismo 4's (0x44B258 ->
+// 0x44B060, 0x44C918): ten fields of 5, 11, 9, 1, 12, 12, 3, 22, 4, 4 bits (83) in 11 bytes, 13 enciphered, 32 digits with
+// no check digit over the first.
+struct PassLayout {
+    std::vector<u32> widths;
+    size_t packed = 10, block = 12, digits = 30;
+    bool check = true;
+    static PassLayout prologue() { return {{5, 9, 8, 1, 12, 12, 3, 22, 4, 4}, 10, 12, 30, true}; }
+    static PassLayout gt4() { return {{5, 11, 9, 1, 12, 12, 3, 22, 4, 4}, 11, 13, 32, false}; }
+};
+
 class PassCoder {
 public:
     // The key from the program's image (Prologue's, loaded at `load`); none when it cannot be read.
     static std::optional<PassCoder> from_program(ByteSpan image, u32 load);
-    PassCoder(const std::array<u8, 8>& key_a, const std::array<u8, 8>& key_b);
+    PassCoder(const std::array<u8, 8>& key_a, const std::array<u8, 8>& key_b, PassLayout layout = PassLayout::prologue());
     // 0x1A31A0: the 30 digits. `seed` the program's word 0x5057C0.
     std::string encode(const PassFields& f, u32 seed = 0) const;
+    // The fields by the layout's widths, in order.
+    std::string encode(const std::vector<u32>& values, u32 seed = 0) const;
+    // The other way: a code's fields (by the layout's widths), none when its digits or its CRC do not hold.
+    std::optional<std::vector<u32>> decode(const std::string& digits) const;
 
 private:
     std::array<u8, 8> key_a_, key_b_;
+    PassLayout layout_;
 };
 
 } // namespace gt4r::menu

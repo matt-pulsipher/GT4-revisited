@@ -151,9 +151,9 @@ F engine_output_torque(ex::Car& c, const DriveExtra& x, F throttle);
 // times the condition's factor, and the friction torque.
 // `limits`: the engine condition's (0x620320, sim::condition_table); the record's condition block F + 0x5D8 (its engine's and
 // oil's distances, +0x14 no wear).
-void engine_torques(ex::Car& c, const DriveExtra& x, const std::array<F, 9>& limits);
-// 0x350868: the condition's factor of the torque.
-F condition_factor(const ex::Car& c, const std::array<F, 9>& limits);
+void engine_torques(ex::Car& c, const DriveExtra& x, const std::array<F, 9>& limits, bool japan = false);
+// 0x350868: the condition's factor of the torque (`japan`: SCPS-17001 v1.05's 0x34AFD0, no loss for old oil).
+F condition_factor(const ex::Car& c, const std::array<F, 9>& limits, bool japan = false);
 // 0x3511A0: the clutch (0x350FB8; a one-speed box 0x351178; kind 4 always locked), each wheel's brake
 // torque by its axle, the handbrake on the wheels behind the center of gravity, the wheels' flags.
 void brakes_and_clutch(ex::Car& c, DriveExtra& x, const WheelLayout& l);

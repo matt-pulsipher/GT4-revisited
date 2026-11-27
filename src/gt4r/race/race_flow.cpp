@@ -174,7 +174,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
     auto units = [&](F share) { return s64(gt3r::ee::to_int((share * fifty).bits)); };
     if (prev <= cur) {
         if (prev + lap * half < cur) { // backwards over the line
-            ++r.back;
+            r.back = r.back < 250 ? u8(r.back + 1) : u8(250); // (0x358608: at most 250)
             return;
         }
         if (r.back != 0 || r.counter == 0 || r.finished) return;
@@ -220,7 +220,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
         const s64 ms = t - r.base_ms;
         r.last_lap_ms = ms;
         if (r.best_lap_ms < 0 || ms < r.best_lap_ms) r.best_lap_ms = ms;
-        ev.lap_done = int(i);
+        ev.laps.push_back(i);
     }
     if (setup_.test_kind != 0) { // the license's (0x3F6588): kinds 3 and 6 end at the laps
         if ((setup_.test_kind == 3 || setup_.test_kind == 6) && setup_.laps == old) end_car(i, at, ev);

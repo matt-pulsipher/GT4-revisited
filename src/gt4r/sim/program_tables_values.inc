@@ -781,6 +781,15 @@ constexpr ChampionshipPoints kChampionshipPoints{
 };
 void pack(Pack& p, const ChampionshipPoints& s) { p(s.points); }
 
+// a ranking entry's pass code's cipher key, two halves (menu/prologue_passcode.h; 0x44B060): 0x6A7C88 .. 0x6A7C98.
+struct PassKey {
+    std::array<u8, 16> key; // +0x000 (0x6A7C88)
+};
+constexpr PassKey kPassKey{
+    .key = {226, 130, 99, 225, 130, 131, 142, 170, 192, 163, 67, 64, 34, 67, 64, 99},
+};
+void pack(Pack& p, const PassKey& s) { p(s.key); }
+
 // ---- the list ----
 #define GT4R_PROGRAM_TABLES(X) \
     X(RaceGlobals, "the race globals", 0x620218, 0x108) \
@@ -796,4 +805,5 @@ void pack(Pack& p, const ChampionshipPoints& s) { p(s.points); }
     X(SteerCurve, "the spec's default steering lock curve", 0x6A4028, 0x10) \
     X(GameNatives, "the screen's figures by monitor size", 0x6A6188, 0x8C) \
     X(UsedCars, "the used-car tables", 0x6A6910, 0xC0) \
-    X(ChampionshipPoints, "a championship's points by place", 0x6A6EF0, 0x8)
+    X(ChampionshipPoints, "a championship's points by place", 0x6A6EF0, 0x8) \
+    X(PassKey, "the ranking pass codes' key", 0x6A7C88, 0x10)

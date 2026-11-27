@@ -647,8 +647,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   a graded run faster than the best takes both): when it ends (Exit, or NEXT_RACE to the next test; 0x110800) the
   diary gets that day (result, note 14, time), or a day with nothing in it when no run was graded: every visit to a
   test's page is a day, as the original's calendar shows. The page has no Replay after a demonstration (0x11CED8) nor
-  after a run that ended under 2 s on the race clock (0x11CE3C; ❓ the test's settings then reloaded, 0x1100D0, not
-  done). **A course visit** is one day of the diary, put when its sequence ends whatever its
+  after a run that ended under 2 s on the race clock (0x11CE3C); both load the test's settings again (0x1100D0, as at the
+  sequence's start: its demonstration file `replay/license/<label>`, the entry's transmission and aids +0x1A0 .. +0x1A4 into the
+  race information, its equipment into the player's entry): here the demonstration's entries leave the race as it ends and
+  every START takes the test's car and the player's choices anew (0x10F880). **A course visit** is one day of the diary, put when its sequence ends whatever its
   runs (none without a run is still a day): RUN_COURSE (0x42F448) with the course, the kind (the free run 1,
   practice 3, photo drive 4, machine test 6), place 15 and note 14, no time; the machine test's at 0x115E90,
   practice's 0x1184DC, photo drive's 0x11B0D8; the free run's (0x1179F8) with the session's best lap (its +0x498, no
@@ -664,8 +666,18 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   run inserts nothing. A machine test the car finished (+0x5B6) inserts its best lap every run (0x1161A0): the 400 m
   test into the machine record's unit 0 (mt400_lasvegas into 3, 0x116268), the 1000 m into 1 (0x116440), the top speed
   into 2 by speed (0x1165B8, 0x433348; not here: the machine test's conductor is not built). ❓ The race's kind (+0xD68
-  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. The pass code (0x10F718 -> 0x44B258: 83 bits
-  of ten fields, the car's place in 11 bits, the course's in 9) is not made: "--------". `game_race.cpp` race_finished.
+  0x10 .. 0x12) is taken from the RACE row's +0x10 (0x16 .. 0x18) less 6. `game_race.cpp` race_finished.
+- **A ranking entry's pass code** (license tests and courses, 0x10F718 -> 0x44B258; `game_race.cpp` ranking_pass_code,
+  `menu/prologue_passcode.*` PassLayout::gt4): ten fields of 5, 11, 9, 1, 12, 12, 3, 22, 4, 4 bits (83) — the kind 17
+  (0x44AC20), the car's place among GENERIC_CAR's row ids and the course's among COURSE's (0x449190), the car as sold (the
+  free run's and machine test's, 0x445B88; ❓ the parts compared judged), the showroom's PS and kg (0x364E90, 0x364FA8), the
+  run's kind (0 time trial, 1 free run, 2 license, 3 / 4 / 5 the 400 m, 1000 m and top-speed tests), the time (the top speed's: the car's +0x6CC x 1000, truncated), the front and rear tires' kinds (0x4462E0,
+  0x446320) or a license test's category (B 0, A 1, IB 2, IA 3, S 4, coffee 5; RaceLicense::vf96 0x3BCB38) and number less
+  one — packed into 11 bytes after two zero bytes, the first four bits a hash of the real clock's seconds (0x44AF40: ❓ taken
+  from 2000-01-01, local), the next twelve the folded CRC-32, enciphered as Prologue's (SAFER SK-128, 13 rounds) under the
+  program's key 0x6A7C88 (a program table, found in all three releases) at each offset of the 13 bytes, written as 32 decimal
+  digits with no check digit (0x44C918). ✔ `gt4r_diff <disc> passcode` (the program's 0x44B258 against ours: 300 of 300); ✔
+  the reference cards' codes (a B-1 bronze, a time trial of the Ka at Tsukuba) decode to the fields ours makes of those runs.
 
 - **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
   best score (+0x230) when higher, at most 255, shown on the course page.

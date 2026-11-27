@@ -453,16 +453,15 @@ void RaceWorld::build_simulation() {
                     pace.strip = cs.strip, pace.start_look = u8(std::max(0, race::start_code_digit(cs.code, 3)));
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, pace);
                     // B-spec: the player's car's driver takes his commands.
-                    if (computer_player_) {
-                        field_->set_bspec(0);
-                        arm_bspec(program);
-                    }
+                    if (computer_player_) field_->set_bspec(0);
                     for (size_t i = 0; i < setup_.entries.size(); ++i)
                         if (players_car(i)) field_->set_shadow(i);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     // (their aids: the player's too, which a car its driver drives in its rolling start takes)
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip);
                     first_lines(program);
+                    // (its record and skill at the race's start, the conductor's virtual 28 0x3F1E60: after the set-up's plans)
+                    if (computer_player_) arm_bspec(program);
                     field_->apply_start_delays(*session_); // (a mission's held places)
                     // Their pit stops (the program's pit pass, request and stop, the fuel, wear and tires the session's).
                     sim::ai::PitHooks pit_hooks;
@@ -495,6 +494,7 @@ void RaceWorld::build_simulation() {
                     }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
+                    pr.mode = computer_player_ ? 1 : 0; // (K +0xCBDC: a B-spec race)
                     pr.limit_minutes = u32(race::row_time_limit_ms(setup_.event_row) / 60000); // (the conductor's +0xF850)
                     pr.pit_menu = setup_.players < 2; // (a two-player battle has no pit menu: 0x32F028 makes none)
                     pit_asked_.assign(setup_.entries.size(), 0);

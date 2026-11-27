@@ -59,7 +59,7 @@ template <class X, class V> void start_fields(X& x, V&& v) {
 // The program's words the set-up reads (its data segment and globals).
 struct StartTables {
     u8 fuel_less = 0;  // 0x620E24: liters a race's fuel starts below the tank
-    F motor_scale;     // 0x8438DC: layout 7's motors' scale (set by their set-up, 0x355C30 ❓ its value; 0 here)
+    F motor_scale;     // 0x8438DC: layout 7's motors' store's capacity (MotorTables::capacity, which 0x355978 makes at the car's conversion)
     u32 steer_mode = 0; // 0x845BF0 (0x3F7C80): 2 puts the steer angle in the wheel's offset (wheel + 0x1C)
 };
 StartTables start_tables(const Program& program);
