@@ -378,12 +378,19 @@ step between Gran Turismo 3's drivers and Gran Turismo 4's:
 | Routine | Prologue | |
 |---|---|---|
 | the lines prepared | 0x4292C8 | Gran Turismo 3's 0x1F92F8 (order 0x5066E8, fallbacks 0x5066F0) |
-| a line's place, the span, the stop line | 0x429CA0, 0x429B90, 0x42A090 | Gran Turismo 3's |
+| a line by its fallbacks | 0x42A330 | the first of the request's row (a request past 7 asks for 6) whose slot is set, -1 none |
+| a line's place, the span, the stop line | 0x429CA0, 0x429B90, 0x42A090 | Gran Turismo 3's arithmetic with the later builds' 2 pi (0x40C90FDA); the place returns the span's first point (-1 none) and, when asked, the two points' road segments |
+| the side map | 0x42A2B0 | the span's first point's kind on line 5 (the hint 0 past its count) |
+| the line's heading | 0x425968 | from the place at s to the first at least 0.2 m on in 0.5 m steps (at most 10), and the place at s |
+| the aim, the look ahead | 0x4257F8, 0x425D20 | the aim at the race distance + look (1 m longer while nearer than 5 m, 9 times at most); the look by the speed |
+| the plan | 0x427E00, 0x427ED0, 0x424C20, 0x424C48 | the next segment, the plan anew from the race distance, a line at once and a line asked for (blended): Gran Turismo 3's |
+| the start hold | 0x424CC8 | Gran Turismo 3's at 13 steps (no 50 Hz rule), constants 0x3E4CCCCC, 0x3ECCCCCC, 0x3B03126E |
+| the speed toward a target | 0x4256A0, 0x425718 | base + gain (v - vt), the difference held to 10 km/h (0x4031C71B) |
 | a line's neighbors | 0x42A3C8, 0x42A408 (the side map 0x42A2B0 changes them over) | 1 → 6 (2 without it), 6 → 2; 2 → 6 (1), 6 → 1 |
 | parameters | 0x427450 on the set (0x4273C0: the course's by class, else 0x5065B0 by its kind), 0x427AA0 | the braking factor is 100 / its byte |
 | the event's percents | 0x427840 | throttle rule +0x0C, braking +0x10, arcs +0x14 + class; a computer's car differs by its grid index (braking - 7 (i % 3) %, arcs - (4 i & 4) %, - 2 (7 i % 5) km/h, the yaw gain x (97 + 3 ((i + 1) % 3)) %) |
-| an arc's speed, the segments | 0x427AE8, 0x427E00, 0x427ED0 | Gran Turismo 3's (no adjustment byte skipped, no draws) |
-| the braking point | 0x424E80 | the front's grip, load, peak and camber as Gran Turismo 3's, the steered wheels' wear, the downforce at both speeds; + 18 m x contact + 2 m; 25 m early for status 1 |
+| an arc's speed, the segments | 0x427AE8, 0x427E00, 0x427ED0 | Gran Turismo 3's (no adjustment byte skipped, no draws, no trim) with the tires of the wheel layout: the front and rear records those of its groups' first wheels (+0x0C / +0x0D) by their axles (0x3C6EA8: P + 0xDE8 + 16 axle + surface), the wear's grip over the layout's wheels by their axles |
+| the braking point | 0x424E80 | the front's grip, load, peak and camber as Gran Turismo 3's (the record of group 0's first wheel, the load over its axle's width), the steered wheels' wear, the downforce at both speeds; + 18 m x contact + 2 m; 25 m early for status 1 |
 | the decision | 0x425F20 | below |
 | traffic | 0x428610 | from 5 s + 0.1 s x rank on; a passing line only where the front cell on its side is under 2; 180 steps' cooldown; back to the main line (a blend anew every step) with nothing around |
 | zones, contact | 0x4281E8, 0x428530 | phase 14's |
@@ -398,6 +405,20 @@ Gran Turismo 3's later builds (turning round to backing out also where the line'
 pursuit's yaw rate by the gain x the share of the peak slip angle the front's mean slip angle (F + 0x424) leaves, the steered
 wheels' mean peak and slip direction; the stretch's speed by its mode, the corner's bonus, the straight's bonus of the static block's
 +0xDC / +0xDD (0 on the disc); the throttle cut and the brake past the peak.
+
+Every routine of the table is Prologue's own in our code (`drivers_prologue.cpp`, `drivers_prologue_plan.cpp`), none of the engine's:
+`gt4r_diff <prologue disc> prologue-ai [course] [cars] [steps]` runs the program's own race with its own drivers and at every call of
+each routine (the set-up's plan 0x424AB8, the step, the decision, braking, traffic, the steering, the segments, the corner speed, the
+line requests, the speed control, the hold, the stop and parked, the look ahead, the aim, the line queries, atan2 0x42A850 and the
+angle difference 0x377620) runs ours on the record as the program has it (the driver's parameters from the conductor), every field
+and result compared; first the prepared lines point by point (`GT4R_AI_HOLD=n` a standing start's countdown, `GT4R_AI_PIT=<step>,<line>`
+the cars asked onto a line by the program's own request, `GT4R_AI_STOP=<step>` told to stop, `GT4R_AI_HUMAN=n` cars by the pad;
+`gt4r_diff <disc> prologue-demo <label>` with `GT4R_DEMO_AI=1` the same in a demonstration). ✔ The lines of all 34 courses equal
+point for point; every call equal on Tsukuba, Fuji, Laguna Seca and Grand Canyon (six cars, 2,400 steps from a standing start's
+hold), New York and Seattle (six cars, 2,400 steps), Akasaka (four cars told to stop: braking to a stand, then parked), Midfield's
+stop line, and through lessons 31 and 35 (four cars, ten laps of Fuji); the test `disc_prologue_drivers_equal`. Asked onto the stop line far from it (a made-up request), the line's heading reads the
+program's stack words where neither evaluation finds a span, which ours cannot know. The math (atan2, sine, cosine, square root) is
+the engine's later builds', equal to the program's at every call.
 
 A player's pad car plans only (0x428AA8: the braking point and the suggested gear). Phase 5 reads every car's controller all the
 same: its steering's prefilter runs, and a pad's car keeps its display's values, while its driver drives.

@@ -477,6 +477,42 @@ TEST(disc_prologue_pairs_pass_equal) {
     CHECK(s.table_values > 0 && s.table_equal == s.table_values);
 }
 
+// Prologue's computer drivers (sim/ai/drivers_prologue.*): the program's own race of six cars with its own drivers, and at every
+// call of each of its driver routines ours on the record as the program has it (gt4r_diff prologue-ai): a standing start's hold,
+// the cars told to stop (braking to a stand, then parked); and on Midfield the stop line (the cars asked onto it at once).
+TEST(disc_prologue_drivers_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const auto check = [&](const char* course, const char* cars, int steps, const diff::prologue::AiOptions& o, std::initializer_list<const char*> used) {
+        std::string err;
+        const std::vector<diff::prologue::AiCount> n = diff::prologue::ai_run(*disc, course, cars, steps, o, false, err);
+        CHECK(err.empty());
+        CHECK(!n.empty());
+        u64 calls = 0, equal = 0;
+        for (const auto& c : n) {
+            calls += c.calls, equal += c.equal;
+            if (c.calls != c.equal) std::printf("  %s: %s %llu of %llu equal\n", course, c.name.c_str(), (unsigned long long)c.equal, (unsigned long long)c.calls);
+            CHECK(c.calls == c.equal);
+        }
+        for (const char* u : used) {
+            bool any = false;
+            for (const auto& c : n) any = any || (c.name.rfind(u, 0) == 0 && c.calls > 0);
+            if (!any) std::printf("  %s: no call of %s\n", course, u);
+            CHECK(any);
+        }
+        std::printf("  %s: %llu of %llu calls equal\n", course, (unsigned long long)equal, (unsigned long long)calls);
+    };
+    diff::prologue::AiOptions start;
+    start.hold = 240, start.stop_at = 1500;
+    check("tsukuba", "civic_r_98,impreza_wrc_03,s2000_03,lancer_evo8_gsr_03,gt_one_race_99,prius_g_touring_03", 2000, start,
+          {"set-up plan", "step", "decision", "braking", "traffic", "steer", "next segment", "corner speed", "request line", "speed control", "hold",
+           "stop", "park", "look ahead", "target", "evaluate", "atan2"});
+    diff::prologue::AiOptions pit;
+    pit.pit_at = 300, pit.pit_line = 4;
+    check("midfield", "civic_r_98,impreza_wrc_03,s2000_03", 1200, pit, {"stop line"});
+    check("laguna", "civic_r_98,impreza_wrc_03,s2000_03,lancer_evo8_gsr_03", 2400, {}, {"side map", "line heading"});
+}
+
 // The race's rules on our session (race_rules.h): lesson 1's speed cap (0x3E1C20: 50 km/h, as the original's lesson 1 drives),
 // and the Lupo cup's penalty: a hit at the wall past its limit, then the cap for ten seconds. Full throttle, no steering.
 #include "gt4r/sim/race_rules.h"

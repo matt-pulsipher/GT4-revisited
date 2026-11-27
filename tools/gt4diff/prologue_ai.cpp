@@ -154,6 +154,8 @@ private:
     std::map<u32, std::vector<P>> pending_;
 };
 
+World w; // (what the taps' ours read)
+
 } // namespace
 
 struct AiCheck {  // (prologue_race.h)
@@ -162,16 +164,13 @@ struct AiCheck {  // (prologue_race.h)
     std::unique_ptr<PureTaps> pure;
 };
 
-std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, Disc& disc, const std::string& course, std::string& err) {
+std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, int cars, Disc& disc, const std::string& course, std::string& err) {
     // Ours: the course's lines prepared from our parse of the course file on its GTRW road, the program's tables.
-    static World w;
     w.race = &r;
-    World& w_ = w;
-    (void)w_;
     const sim::Program program = sim::Program::load(disc);
     w.tables = ap::driver_tables(program);
     w.t = sim::prologue::tables(program);
-    w.parts.assign(size_t(r.cars), {});
+    w.parts.assign(size_t(cars), {});
     const std::optional<course::AiData> data = sim::ai::Field::read(disc, course);
     const gt3r::Volume::Entry* fe = disc.volume().find("crs/" + course);
     if (!data || !fe) return err = "no lines", nullptr;
@@ -182,6 +181,119 @@ std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, Disc& disc, const std::string
     static std::unique_ptr<ex::CourseQuery> query;
     query = std::make_unique<ex::CourseQuery>(*road->gtrw);
     w.course = ap::driver_course(*query, *data, w.tables);
+    auto out = std::make_shared<AiCheck>();
+
+    // The routines with a car.
+    static ex::RaceInputs inputs;
+    out->taps = std::make_unique<PTaps>(ee, r, inputs);
+    PTaps& taps = *out->taps;
+    const auto drv = [](Ee& e) { return u32(e.a(0)) - 0x1C; };
+    static F r_brake, r_corner, r_look, result;
+    static int iresult;
+    using After = std::function<void(Ee&, u32, int, const std::function<void(const char*, u32, u32)>&)>;
+    const auto f0 = [](F& slot) -> After { return [&slot](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) { f("result (f0)", e.fpr[0], slot.bits); }; };
+    const auto v0 = [](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) { f("result (v0)", e.g32(2), u32(iresult)); };
+    taps.add({0x424AB8, "set-up plan 0x424AB8", [](PTapCall& c) { ap::driver_start(c.car, step_of(c.ee, w, c.car_addr, c.car_index), w.tables, int(s32(c.ee.a(1)))); }, {},
+              {}, {}, drv, params_fill});
+    taps.add({0x3E8C98, "step 0x3E8C98", [](PTapCall& c) { ap::step(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, {}, params_fill});
+    taps.add({0x425F20, "decision 0x425F20", [](PTapCall& c) { ap::decide(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x424E80, "braking 0x424E80", [](PTapCall& c) { r_brake = ap::braking(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, f0(r_brake), drv, params_fill});
+    taps.add({0x428610, "traffic 0x428610", [](PTapCall& c) { ap::traffic(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x425B28, "steer 0x425B28", [](PTapCall& c) { ap::steer(c.car, fpr(c.ee, 12)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x425D70, "begin 0x425D70", [](PTapCall& c) { ap::begin(c.car); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x427E00, "next segment 0x427E00", [](PTapCall& c) { ap::next_segment(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x427ED0, "replan 0x427ED0", [](PTapCall& c) { ap::replan(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x427AE8, "corner speed 0x427AE8",
+              [](PTapCall& c) { r_corner = ap::corner_speed(c.car, step_of(c.ee, w, c.car_addr, c.car_index), int(c.ee.a(1))); }, {}, {}, f0(r_corner), drv, params_fill});
+    taps.add({0x424C20, "set line 0x424C20", [](PTapCall& c) { ap::set_line(c.car, step_of(c.ee, w, c.car_addr, c.car_index), int(c.ee.a(1))); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x424C48, "request line 0x424C48",
+              [](PTapCall& c) { iresult = ap::request_line(c.car, step_of(c.ee, w, c.car_addr, c.car_index), int(c.ee.a(1)), c.ee.a(2) != 0); }, {}, {},
+              v0, drv, params_fill});
+    taps.add({0x425718, "speed control 0x425718", [](PTapCall& c) { ap::speed_control(c.car, fpr(c.ee, 12), fpr(c.ee, 13)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x424CC8, "hold 0x424CC8", [](PTapCall& c) { ap::hold(c.car, s32(c.ee.a(1))); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x425BB0, "stop 0x425BB0", [](PTapCall& c) { ap::stop(c.car, fpr(c.ee, 12)); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x425CD8, "park 0x425CD8", [](PTapCall& c) { ap::park(c.car); }, {}, {}, {}, drv, params_fill});
+    taps.add({0x425D20, "look ahead 0x425D20", [](PTapCall& c) { r_look = ap::lookahead(c.car.ai, fpr(c.ee, 12)); }, {}, {}, f0(r_look),
+              [](Ee& e) {
+                  for (int i = 0; i < w.race->cars; ++i)
+                      if (e.r32(w.race->car(i) + 4) + 0x10808 + 0x74 * u32(e.r8(w.race->car(i) + 0xD8 + 0x3EC)) == u32(e.a(0))) return w.race->car(i);
+                  return 0u;
+              },
+              params_fill});
+    {
+        static F dx, dy;
+        static u32 px, py;
+        taps.add({0x4257F8, "target 0x4257F8",
+                  [](PTapCall& c) {
+                      px = c.ee.g32(8), py = c.ee.g32(9); // (the outputs' places, $t0 / $t1)
+                      dx = F::raw(c.ee.r32(px)), dy = F::raw(c.ee.r32(py));
+                      result = ap::target(c.car, w.course, int(c.ee.a(2)), int(c.ee.a(3)), fpr(c.ee, 12), dx, dy);
+                  },
+                  {}, {},
+                  [](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) {
+                      f("result (f0)", e.fpr[0], result.bits);
+                      f("dx", e.r32(px), dx.bits), f("dy", e.r32(py), dy.bits);
+                  },
+                  [](Ee& e) { return u32(e.a(1)) - 0xD8; }, params_fill});
+    }
+
+    // The routines of no car.
+    out->pure = std::make_unique<PureTaps>(ee);
+    PureTaps& pure = *out->pure;
+    pure.add(0x4256A0, "throttle for 0x4256A0", [](Ee& e) -> PureTaps::Check {
+        const F ours = ap::throttle_for(fpr(e, 12), fpr(e, 13), fpr(e, 14), fpr(e, 15));
+        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
+    });
+    pure.add(0x42A330, "resolve 0x42A330", [](Ee& e) -> PureTaps::Check {
+        const int ours = ap::resolve(w.course, int(s32(e.a(1))));
+        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.g32(2), u32(ours)); };
+    });
+    pure.add(0x429CA0, "evaluate 0x429CA0", [](Ee& e) -> PureTaps::Check {
+        F x, y, h;
+        const u32 px = u32(e.a(3)), py = e.g32(8), ph = e.g32(9);
+        x = F::raw(e.r32(px)), y = F::raw(e.r32(py)), h = F::raw(e.r32(ph));
+        const int k = ap::evaluate(w.course, int(e.a(1)), int(e.a(2)), fpr(e, 12), x, y, h);
+        return [=](Ee& q, const std::function<void(const char*, u32, u32)>& f) {
+            f("point", q.g32(2), u32(k));
+            f("x", q.r32(px), x.bits), f("y", q.r32(py), y.bits), f("h", q.r32(ph), h.bits);
+        };
+    });
+    pure.add(0x42A090, "stop line 0x42A090", [](Ee& e) -> PureTaps::Check {
+        F x, y, h;
+        const u32 px = u32(e.a(3)), py = e.g32(8), ph = e.g32(9);
+        x = F::raw(e.r32(px)), y = F::raw(e.r32(py)), h = F::raw(e.r32(ph));
+        const int k = ap::evaluate_stop(w.course, fpr(e, 12), x, y, h);
+        return [=](Ee& q, const std::function<void(const char*, u32, u32)>& f) {
+            f("point", q.g32(2), u32(k));
+            f("x", q.r32(px), x.bits), f("y", q.r32(py), y.bits), f("h", q.r32(ph), h.bits);
+        };
+    });
+    pure.add(0x42A2B0, "side map 0x42A2B0", [](Ee& e) -> PureTaps::Check {
+        const bool ours = ap::side_swapped(w.course, int(e.a(1)), fpr(e, 12));
+        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.g32(2) != 0, ours); };
+    });
+    pure.add(0x425968, "line heading 0x425968", [](Ee& e) -> PureTaps::Check {
+        const u32 px = e.g32(7), py = e.g32(8), ph = e.g32(9);
+        F x = F::raw(e.r32(px)), y = F::raw(e.r32(py)), h = F::raw(e.r32(ph));
+        const F ours = ap::line_heading(w.course, int(e.a(1)), int(e.a(2)), fpr(e, 12), x, y, h);
+        return [=](Ee& q, const std::function<void(const char*, u32, u32)>& f) {
+            f("result", q.fpr[0], ours.bits);
+            f("x", q.r32(px), x.bits), f("y", q.r32(py), y.bits), f("h", q.r32(ph), h.bits);
+        };
+    });
+    pure.add(0x42A850, "atan2 0x42A850", [](Ee& e) -> PureTaps::Check {
+        const F ours = ex::atan2(sim::rules::behaviour(), fpr(e, 12), fpr(e, 13));
+        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
+    });
+    pure.add(0x377620, "angle difference 0x377620", [](Ee& e) -> PureTaps::Check {
+        const F ours = ex::angle_diff(fpr(e, 12), fpr(e, 13), sim::rules::behaviour().rule(gt3r::sim::Rule::AngleWrap));
+        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
+    });
+
+    return out;
+}
+
+void ai_check_lines(Ee& ee, Race& r, AiCheck& out, const std::string& course, bool print) {
     {
         const u32 vt = ee.r32(r.cond + kCondVtable), v33 = vt + 8 * 33, v_kind = 0x3B63B0;
         ee.call(ee.r32(v33 + 4), {Arg::ptr(r.cond + u32(s32(s16(ee.r16(v33)))))}, 10'000'000);
@@ -219,112 +331,12 @@ std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, Disc& disc, const std::string
             }
         }
     }
-    std::printf("prologue-ai: %s, %d cars; the lines: %llu of %llu points equal%s%s\n", course.c_str(), r.cars, (unsigned long long)equal,
+    std::string counts;
+    for (int l = 0; l < 8; ++l) counts += (l ? "/" : "") + std::to_string(w.course.lines[size_t(l)].size());
+    if (print)
+        std::printf("prologue-ai: %s, %d cars; the lines (%s points): %llu of %llu points equal%s%s\n", course.c_str(), r.cars, counts.c_str(), (unsigned long long)equal,
                 (unsigned long long)points, first.empty() ? "" : ": ", first.c_str());
-    auto out = std::make_shared<AiCheck>();
-    out->lines_equal = equal == points;
-
-    // The routines with a car.
-    static ex::RaceInputs inputs;
-    out->taps = std::make_unique<PTaps>(ee, r, inputs);
-    PTaps& taps = *out->taps;
-    const auto drv = [](Ee& e) { return u32(e.a(0)) - 0x1C; };
-    static F r_brake, r_corner, r_look, result;
-    static int iresult;
-    using After = std::function<void(Ee&, u32, int, const std::function<void(const char*, u32, u32)>&)>;
-    const auto f0 = [](F& slot) -> After { return [&slot](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) { f("result (f0)", e.fpr[0], slot.bits); }; };
-    const auto v0 = [](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) { f("result (v0)", e.g32(2), u32(iresult)); };
-    taps.add({0x3E8C98, "step 0x3E8C98", [](PTapCall& c) { ap::step(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, {}, params_fill});
-    taps.add({0x425F20, "decision 0x425F20", [](PTapCall& c) { ap::decide(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x424E80, "braking 0x424E80", [](PTapCall& c) { r_brake = ap::braking(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, f0(r_brake), drv, params_fill});
-    taps.add({0x428610, "traffic 0x428610", [](PTapCall& c) { ap::traffic(c.car, step_of(c.ee, w, c.car_addr, c.car_index)); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x425B28, "steer 0x425B28", [](PTapCall& c) { ex::ai_steer(c.car, fpr(c.ee, 12)); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x425D70, "begin 0x425D70", [](PTapCall& c) { ex::ai_begin(c.car); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x427E00, "next segment 0x427E00", [](PTapCall& c) { ex::ai_next_segment(c.car, w.course, step_of(c.ee, w, c.car_addr, c.car_index).wear); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x427ED0, "replan 0x427ED0", [](PTapCall& c) { ex::ai_replan(c.car, w.course, step_of(c.ee, w, c.car_addr, c.car_index).wear); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x427AE8, "corner speed 0x427AE8",
-              [](PTapCall& c) { r_corner = ex::ai_corner_speed(c.car, w.course, step_of(c.ee, w, c.car_addr, c.car_index).wear, int(c.ee.a(1))); }, {}, {}, f0(r_corner), drv, params_fill});
-    taps.add({0x424C20, "set line 0x424C20", [](PTapCall& c) { ex::ai_set_line(c.car, w.course, step_of(c.ee, w, c.car_addr, c.car_index).wear, int(c.ee.a(1))); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x424C48, "request line 0x424C48",
-              [](PTapCall& c) { iresult = ex::ai_request_line(c.car, w.course, step_of(c.ee, w, c.car_addr, c.car_index).wear, int(c.ee.a(1)), c.ee.a(2) != 0); }, {}, {},
-              v0, drv, params_fill});
-    taps.add({0x425718, "speed control 0x425718", [](PTapCall& c) { ap::speed_control(c.car, fpr(c.ee, 12), fpr(c.ee, 13)); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x424CC8, "hold 0x424CC8", [](PTapCall& c) { ex::ai_hold(c.car, s32(c.ee.a(1))); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x425BB0, "stop 0x425BB0", [](PTapCall& c) { ap::stop(c.car, fpr(c.ee, 12)); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x425CD8, "park 0x425CD8", [](PTapCall& c) { ap::park(c.car); }, {}, {}, {}, drv, params_fill});
-    taps.add({0x425D20, "look ahead 0x425D20", [](PTapCall& c) { r_look = ex::ai_lookahead(c.car.ai, fpr(c.ee, 12)); }, {}, {}, f0(r_look),
-              [](Ee& e) {
-                  for (int i = 0; i < w.race->cars; ++i)
-                      if (e.r32(w.race->car(i) + 4) + 0x10808 + 0x74 * u32(e.r8(w.race->car(i) + 0xD8 + 0x3EC)) == u32(e.a(0))) return w.race->car(i);
-                  return 0u;
-              },
-              params_fill});
-    {
-        static F dx, dy;
-        static u32 px, py;
-        taps.add({0x4257F8, "target 0x4257F8",
-                  [](PTapCall& c) {
-                      px = c.ee.g32(8), py = c.ee.g32(9); // (the outputs' places, $t0 / $t1)
-                      dx = F::raw(c.ee.r32(px)), dy = F::raw(c.ee.r32(py));
-                      result = ex::ai_target(c.car, w.course, int(c.ee.a(2)), int(c.ee.a(3)), fpr(c.ee, 12), dx, dy);
-                  },
-                  {}, {},
-                  [](Ee& e, u32, int, const std::function<void(const char*, u32, u32)>& f) {
-                      f("result (f0)", e.fpr[0], result.bits);
-                      f("dx", e.r32(px), dx.bits), f("dy", e.r32(py), dy.bits);
-                  },
-                  [](Ee& e) { return u32(e.a(1)) - 0xD8; }, params_fill});
-    }
-
-    // The routines of no car.
-    out->pure = std::make_unique<PureTaps>(ee);
-    PureTaps& pure = *out->pure;
-    pure.add(0x4256A0, "throttle for 0x4256A0", [](Ee& e) -> PureTaps::Check {
-        const F ours = ex::ai_throttle_for(fpr(e, 12), fpr(e, 13), fpr(e, 14), fpr(e, 15), true);
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
-    });
-    pure.add(0x42A330, "resolve 0x42A330", [](Ee& e) -> PureTaps::Check {
-        const int ours = w.course.resolve(int(s32(e.a(1))));
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.g32(2), u32(ours)); };
-    });
-    pure.add(0x429CA0, "evaluate 0x429CA0", [](Ee& e) -> PureTaps::Check {
-        F x, y, h;
-        const u32 px = u32(e.a(3)), py = e.g32(8), ph = e.g32(9);
-        x = F::raw(e.r32(px)), y = F::raw(e.r32(py)), h = F::raw(e.r32(ph));
-        const bool ok = w.course.evaluate(int(e.a(1)), int(e.a(2)), fpr(e, 12), x, y, h);
-        return [=](Ee& q, const std::function<void(const char*, u32, u32)>& f) {
-            (void)ok;
-            f("x", q.r32(px), x.bits), f("y", q.r32(py), y.bits), f("h", q.r32(ph), h.bits);
-        };
-    });
-    pure.add(0x42A090, "stop line 0x42A090", [](Ee& e) -> PureTaps::Check {
-        F x, y, h;
-        const u32 px = u32(e.a(3)), py = e.g32(8), ph = e.g32(9);
-        x = F::raw(e.r32(px)), y = F::raw(e.r32(py)), h = F::raw(e.r32(ph));
-        const int k = w.course.evaluate_stop(int(e.a(1)), fpr(e, 12), x, y, h);
-        return [=](Ee& q, const std::function<void(const char*, u32, u32)>& f) {
-            f("point", q.g32(2), u32(k));
-            f("x", q.r32(px), x.bits), f("y", q.r32(py), y.bits), f("h", q.r32(ph), h.bits);
-        };
-    });
-    pure.add(0x42A2B0, "side map 0x42A2B0", [](Ee& e) -> PureTaps::Check {
-        const bool ours = w.course.side_swapped(int(e.a(1)), fpr(e, 12));
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.g32(2) != 0, ours); };
-    });
-    pure.add(0x425968, "line heading 0x425968", [](Ee& e) -> PureTaps::Check {
-        const F ours = ex::ai_line_heading(w.course, int(e.a(1)), int(e.a(2)), fpr(e, 12));
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
-    });
-    pure.add(0x42A850, "atan2 0x42A850", [](Ee& e) -> PureTaps::Check {
-        const F ours = ex::atan2(sim::rules::behaviour(), fpr(e, 12), fpr(e, 13));
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
-    });
-    pure.add(0x377620, "angle difference 0x377620", [](Ee& e) -> PureTaps::Check {
-        const F ours = ex::angle_diff(fpr(e, 12), fpr(e, 13), sim::rules::behaviour().rule(gt3r::sim::Rule::AngleWrap));
-        return [ours](Ee& x, const std::function<void(const char*, u32, u32)>& f) { f("result", x.fpr[0], ours.bits); };
-    });
-
-    return out;
+    out.lines_equal = equal == points;
 }
 
 bool ai_check_print(const AiCheck& c) {
@@ -340,31 +352,60 @@ bool ai_check_print(const AiCheck& c) {
     return all;
 }
 
-int run_ai(Disc& disc, const std::string& course, const std::string& cars, int steps) {
-    if (!is_prologue(disc)) return std::printf("prologue-ai: not Prologue's disc\n"), 1;
+std::vector<AiCount> ai_counts(const AiCheck& c) {
+    std::vector<AiCount> out;
+    out.push_back({"the lines", 1, c.lines_equal ? 1u : 0u});
+    for (const PTapStat& s : c.taps->stats()) out.push_back({s.name, s.calls, s.clean});
+    for (const PureStat& s : c.pure->stats()) out.push_back({s.name, s.calls, s.clean});
+    return out;
+}
+
+std::vector<AiCount> ai_run(Disc& disc, const std::string& course, const std::string& cars, int steps, const AiOptions& o, bool print, std::string& err) {
+    if (!is_prologue(disc)) return err = "not Prologue's disc", std::vector<AiCount>{};
     std::vector<std::string> labels;
     {
         std::stringstream s(cars);
         std::string l;
         while (std::getline(s, l, ',')) labels.push_back(l);
     }
-    const int human = std::getenv("GT4R_AI_HUMAN") ? std::atoi(std::getenv("GT4R_AI_HUMAN")) : 0;
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
     static Race r; // (the pad stub reads it while the race runs)
-    std::string err;
-    if (!setup_race(ee, disc, sdb, course, labels, human, r, err, aids_from_env())) return std::printf("prologue-ai: %s\n", err.c_str()), 1;
-
-    const std::shared_ptr<AiCheck> check = ai_check(ee, r, disc, course, err);
-    if (!check) return std::printf("prologue-ai: %s\n", err.c_str()), 1;
+    const std::shared_ptr<AiCheck> check = ai_check(ee, r, int(labels.size()), disc, course, err);
+    if (!check) return {};
+    if (!setup_race(ee, disc, sdb, course, labels, o.human, r, err, aids_from_env())) return {};
+    ai_check_lines(ee, r, *check, course, print);
     for (int i = 0; i < steps; ++i) {
-        for (int k = 0; k < human; ++k) r.pad[k] = test_drive(i);
+        for (int k = 0; k < o.human; ++k) r.pad[k] = test_drive(i);
+        if (o.hold) ee.w32(r.info + 0x74, u32(std::max(0, o.hold - i)));
+        if (i == o.pit_at) // (the computers' cars sent onto a line there by the program's own request 0x424C48)
+            for (int k = o.human; k < r.cars; ++k) {
+                ee.call(0x424C48, {Arg::ptr(r.car(k) + 0x1C), Arg::integer(o.pit_line), Arg::integer(0)}, 10'000'000);
+                if (print) std::printf("  step %d: car %d asked onto line %d: %u, its line %u\n", i, k, o.pit_line, ee.g32(2), ee.r8(r.car(k) + 0x1C + 0x81));
+            }
+        if (i == o.stop_at) // (the computers' cars told to stop there, driver kinds 6 and 7 by turns)
+            for (int k = o.human; k < r.cars; ++k) ee.w8(r.car(k) + 0xD8 + 0x538, u8(k % 2 ? 6 : 7));
         step(ee, r);
     }
-    const bool all = ai_check_print(*check);
-    for (int i = 0; i < r.cars; ++i)
-        std::printf("  car %d: %.1f m, %.1f km/h\n", i, double(ee.rf(r.car(i) + 0xD8 + 0x3E8)), double(ee.rf(r.car(i) + 0xD8 + 0x48C)) * 3.6);
+    if (print) {
+        ai_check_print(*check);
+        for (int i = 0; i < r.cars; ++i)
+            std::printf("  car %d: %.1f m, %.1f km/h\n", i, double(ee.rf(r.car(i) + 0xD8 + 0x3E8)), double(ee.rf(r.car(i) + 0xD8 + 0x48C)) * 3.6);
+    }
+    return ai_counts(*check);
+}
+
+int run_ai(Disc& disc, const std::string& course, const std::string& cars, int steps) {
+    AiOptions o;
+    const auto num = [](const char* name, int none) { return std::getenv(name) ? std::atoi(std::getenv(name)) : none; };
+    o.human = num("GT4R_AI_HUMAN", 0), o.hold = num("GT4R_AI_HOLD", 0), o.stop_at = num("GT4R_AI_STOP", -1);
+    if (const char* pit = std::getenv("GT4R_AI_PIT")) o.pit_at = std::atoi(pit), o.pit_line = std::strchr(pit, ',') ? std::atoi(std::strchr(pit, ',') + 1) : 3;
+    std::string err;
+    const std::vector<AiCount> n = ai_run(disc, course, cars, steps, o, true, err);
+    if (!err.empty()) return std::printf("prologue-ai: %s\n", err.c_str()), 1;
+    bool all = !n.empty();
+    for (const AiCount& c : n) all = all && c.calls == c.equal;
     return all ? 0 : 1;
 }
 

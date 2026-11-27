@@ -237,7 +237,7 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         if (d && d->line >= 0) {
             const race::CarState& st = session.state(d->car);
             d->s = lines_.wrap_lap(st.course_v);
-            if (prologue_) with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_->course, prologue_->tables, CourseLines::kMain); });
+            if (prologue_) with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_step(*d), prologue_->tables, CourseLines::kMain); });
             else replan(*d);
         }
 }
@@ -317,10 +317,15 @@ void Field::prologue_setup(Driver& d) {
     d.p.aids = d.ai.aids;
 }
 
-void Field::prologue_decide(Driver& d, bool plans_only, race::CarInput& in) {
+prologue::Step Field::prologue_step(const Driver& d) const {
     prologue::Step s;
     s.course = &prologue_->course, s.tables = &prologue_->tables, s.wear = prologue_->wear;
     s.part = session_->prologue_part(d.car);
+    return s;
+}
+
+void Field::prologue_decide(Driver& d, bool plans_only, race::CarInput& in) {
+    prologue::Step s = prologue_step(d);
     s.start_count = s32(hold_count_), s.clock = clock_;
     s.hit_front = d.hit_front, s.hit_rear = d.hit_rear;
     s.dirt = session_->course_kind() == 2, s.start_speed = pace_.start_speed;
@@ -622,7 +627,8 @@ void Field::replan(Driver& d) {
 bool Field::request_line(Driver& d, int line, bool at_once) {
     if (prologue_) { // (0x424C48)
         bool done = false;
-        with_record(d, [&](ex::Car& c) { done = ex::ai_request_line(c, prologue_->course, prologue_->wear, line, at_once); });
+        const prologue::Step s = prologue_step(d);
+        with_record(d, [&](ex::Car& c) { done = prologue::request_line(c, s, line, at_once); });
         d.inc.lane_changes += done;
         return done;
     }
@@ -1106,7 +1112,7 @@ void Field::start_line(size_t car, int line) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
     if (prologue_) { // (0x424AB8)
-        with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_->course, prologue_->tables, line); });
+        with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_step(*d), prologue_->tables, line); });
         return;
     }
     // (0x4639E0 seeds the draws and makes the plan once, on the start's line: the constructor's plan took a draw)

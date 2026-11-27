@@ -75,11 +75,26 @@ bool run_passcode(Disc& disc, int count);
 // The computer drivers (prologue_ai.cpp): the program's own race of `cars`, each of its driver routines against ours at every
 // call; 0 when every call and every prepared line point is equal.
 int run_ai(Disc& disc, const std::string& course, const std::string& cars, int steps);
-// The same check on a race already set up (prologue-demo's with GT4R_DEMO_AI=1): the lines compared and printed now, the taps
-// installed; null with `err` when ours cannot be made. ai_check_print prints the calls; true when all are equal.
+// The same check on another race (prologue-demo's with GT4R_DEMO_AI=1): ai_check installs the taps before the race's set-up
+// (`cars` its cars; null with `err` when ours cannot be made), ai_check_lines after it compares and prints the lines,
+// ai_check_print the calls (true when all are equal).
 struct AiCheck;
-std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, Disc& disc, const std::string& course, std::string& err);
+std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, int cars, Disc& disc, const std::string& course, std::string& err);
+void ai_check_lines(Ee& ee, Race& r, AiCheck& c, const std::string& course, bool print = true);
 bool ai_check_print(const AiCheck& c);
+// A routine's calls and those equal (the first entry: the prepared lines, 1 call, equal or not).
+struct AiCount {
+    std::string name;
+    u64 calls = 0, equal = 0;
+};
+std::vector<AiCount> ai_counts(const AiCheck& c);
+// What a prologue-ai run does beside the race: `human` cars by the test drive's pad, a standing start's countdown `hold`
+// steps long, at step `pit_at` the computers' cars asked onto line `pit_line` (by the program's own request), at `stop_at`
+// told to stop (driver kinds 6 and 7 by turns).
+struct AiOptions {
+    int human = 0, hold = 0, pit_at = -1, pit_line = 3, stop_at = -1;
+};
+std::vector<AiCount> ai_run(Disc& disc, const std::string& course, const std::string& cars, int steps, const AiOptions& o, bool print, std::string& err);
 // Phase 14 (prologue_near.cpp) in a race of `cars` (labels, comma-separated) against the engine's pairs pass.
 int run_near(Disc& disc, const std::string& course, const std::string& cars, int steps);
 struct NearStats {
