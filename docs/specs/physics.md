@@ -292,9 +292,12 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   then x the computer driver's grip for the tire (0x467470: 1 for a player's car; for a car a
   computer drives, a word of its driver's table by the tire record's index ❓). The wheel's
   +0xDD is the record's +0x1DA.
-- **Slip angles** (0x357690 / 0x3575E0): as the engine's 2002 Tokyo-Geneva rule: the fade 0
-  below 1 km/h, 1 above 10 km/h, (|v| - 1 km/h) x 0.4 between, the direction
-  atan2(-vy, vx) where it is not 0.
+- **Slip angles** (0x357690 / 0x3575E0, `rules::slip_angle`): the fade 0 to 1 km/h, 1 from
+  10 km/h, (|v| - 1 km/h) x 0.4 between, the direction atan2(-vy, vx) where it is not 0. The
+  fold of a slip angle (0x352218, `rules::slip_angle_fold`) and TCS's lateral factor (0x3F9C80,
+  `rules::tcs_lateral`) are Gran Turismo 4's own too; all three word for word with both programs'
+  (Prologue's 0x3BF4E8, 0x3BAF48, 0x3E18F0) on drawn inputs (test
+  `disc_slip_angle_and_tcs_factor_equal_the_programs`).
 - **Slip ratios** (0x351778 / 0x3513F8): the hub's speed along the wheel's heading
   (cos steer vx - sin steer vy) against the rim's. A tire record whose byte +0x1D8 is set
   takes the ratio as (along - rim) x P +0xFC8 (its sign turned for a rim turning backwards),

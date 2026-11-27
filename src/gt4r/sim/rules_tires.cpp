@@ -3,6 +3,7 @@
 #include "gt4r/sim/rules_tires.h"
 
 #include "base/ee_math.h"
+#include "sim/exact/build_math.h"
 
 namespace gt4r::sim::rules {
 
@@ -195,6 +196,29 @@ void rolling_resistance(ex::Car& c, const WheelLayout& l, const RoadTables& road
     c.rolling = rr * load;
 }
 
+F slip_angle_fold(F b, F& sign) {
+    const F pi = F::raw(0x40490FDA);
+    sign = kOne;
+    if (b < F::raw(0xBFC90FDA)) return b + pi;
+    if (b < F()) {
+        sign = kMinusOne;
+        return -b;
+    }
+    if (b < F::raw(0x3FC90FDA)) return b;
+    sign = kMinusOne;
+    return pi - b;
+}
+
+F slip_angle(F vx, F vy, F& fade) {
+    const F v = gt3r::ee::sqrt(vy * vy + vx * vx);
+    const F lo = F::raw(0x3E8E38E3); // 1 km/h
+    if (F::raw(0x4031C71B) <= v) fade = kOne; // 10 km/h
+    else if (v <= lo) fade = F();
+    else fade = (v - lo) * F::raw(0x3ECCCCCF); // 0.4
+    if (fade == F()) return F();
+    return ex::atan2(behaviour(), -vy, vx);
+}
+
 void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipForceGlobals& g) {
     const F kPi = F::raw(0x40490FDA), kDegree = F::raw(0x3C8EFA34);
     F sum = F();
@@ -223,7 +247,7 @@ void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipF
             if (v < F()) v = -v, sign = kMinusOne;
             if (!r.x1da && w.rim_speed < F()) sign = -sign;
         } else {
-            v = ex::slip_angle_fold(behaviour(), beta, sign);
+            v = slip_angle_fold(beta, sign);
             if (r.x1da == 1 && w.rim_speed < F()) sign = -sign;
         }
         if (i < l.count && s8(l.fore_aft[size_t(i)]) > 0) sum = sum + v, ++counted;
@@ -267,7 +291,7 @@ void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipF
 void slip_angles(ex::Car& c, const WheelLayout& l) {
     for (int i = 0; i < l.count && i < 4; ++i) {
         ex::Wheel& w = c.w[size_t(i)];
-        w.slip_dir = ex::slip_angle(behaviour(), w.hub_vx, w.hub_vy, w.slip_fade);
+        w.slip_dir = rules::slip_angle(w.hub_vx, w.hub_vy, w.slip_fade);
     }
 }
 

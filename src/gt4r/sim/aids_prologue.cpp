@@ -110,7 +110,7 @@ void tcs(ex::Car& c, const CarPart& x, const AidTables& g, const ex::Aids& a) {
     c.tcs_status = on;
     if (!on) return;
     F lat = kOne;
-    if (g.tcs_mode == 0) lat = ex::tcs_lateral(c.lat_g, a.tcs_lat_a, a.tcs_lat_b); // 0x3E18F0
+    if (g.tcs_mode == 0) lat = rules::tcs_lateral(c.lat_g, a.tcs_lat_a, a.tcs_lat_b); // 0x3E18F0 (= 0x3F9C80)
     if (c.torque_wot <= k0) return;
     if (!(k0 < c.throttle)) return;
     // The most negative slip ratio of the loaded driven wheels (by the driveline's layout: 1 the wheels ahead of the

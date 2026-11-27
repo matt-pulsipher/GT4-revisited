@@ -9,6 +9,8 @@
 #include "prologue_race.h"
 #include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_aids.h"
+#include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/program.h"
@@ -176,4 +178,51 @@ TEST(disc_prologue_grand_canyon_is_dirt) {
     const auto s = sim::Session::open(*disc, "grandcanyon", cars);
     std::printf("  grandcanyon: loose %d, course kind %d\n", int(s->loose()), int(s->course_kind()));
     CHECK(s->loose() && s->course_kind() == 2);
+}
+
+// The slip angle's fold (0x352218; Prologue's 0x3BAF48), a wheel's slip direction and fade (0x3575E0; 0x3BF4E8) and TCS's
+// lateral factor (0x3F9C80; 0x3E18F0): Gran Turismo 4's own against both programs' routines on drawn inputs, word for word.
+TEST(disc_slip_angle_and_tcs_factor_equal_the_programs) {
+    struct At {
+        u32 fold, slip, tcs;
+    };
+    const auto check = [](diff::Ee& ee, const At& at, const char* name) {
+        std::mt19937 rng(777);
+        const auto uni = [&](float a, float b) { return std::uniform_real_distribution<float>(a, b)(rng); };
+        const u32 out = ee.alloc(16);
+        size_t calls = 0, equal = 0;
+        for (int k = 0; k < 6000; ++k) {
+            const F b = k % 50 == 0 ? F::raw(k % 100 ? 0xBFC90FDA : 0x3FC90FDA) : F(uni(-3.3f, 3.3f));
+            const u32 theirs = ee.call(at.fold, {diff::Arg::fbits(b.bits), diff::Arg::ptr(out)}).f0, their_sign = ee.r32(out);
+            F sign;
+            const F ours = sim::rules::slip_angle_fold(b, sign);
+            ++calls, equal += theirs == ours.bits && their_sign == sign.bits;
+            const F vx = F(uni(-4, 4)), vy = F(uni(-4, 4));
+            ee.w32(out, 0x12345678);
+            const u32 dir = ee.call(at.slip, {diff::Arg::fbits(vx.bits), diff::Arg::fbits(vy.bits), diff::Arg::ptr(out)}).f0, fade = ee.r32(out);
+            F our_fade;
+            const F our_dir = sim::rules::slip_angle(vx, vy, our_fade);
+            ++calls, equal += dir == our_dir.bits && fade == our_fade.bits;
+            const F x = F(uni(-30, 30)), a = F(uni(0, 0.5f)), c = F(uni(0, 10));
+            const u32 lat = ee.call(at.tcs, {diff::Arg::fbits(x.bits), diff::Arg::fbits(a.bits), diff::Arg::fbits(c.bits)}).f0;
+            ++calls, equal += lat == sim::rules::tcs_lateral(x, a, c).bits;
+        }
+        std::printf("  %s: %zu of %zu calls equal\n", name, equal, calls);
+        CHECK(equal == calls);
+    };
+    bool any = false;
+    if (Disc* disc = disc_of(Game::GT4)) {
+        any = true;
+        db::SpecDb sdb = diff::open_db(*disc);
+        diff::Ee ee;
+        diff::boot(ee, *disc, sdb);
+        check(ee, {0x352218, 0x3575E0, 0x3F9C80}, "Gran Turismo 4");
+    }
+    if (Disc* disc = disc_of(Game::Prologue)) {
+        any = true;
+        diff::Ee ee;
+        diff::prologue::boot(ee, *disc);
+        check(ee, {0x3BAF48, 0x3BF4E8, 0x3E18F0}, "Prologue");
+    }
+    if (!any) SKIP("needs the Gran Turismo 4 or the Prologue disc (GT4R_DISC)");
 }
