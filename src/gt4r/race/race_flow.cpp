@@ -116,7 +116,7 @@ void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
         return;
     }
     if (setup_.start == StartType::Moving) {
-        if (r.mark == 0) r.base_ms = setup_.mission ? 0 : t;
+        if (r.mark == 0) r.base_ms = setup_.mission || setup_.timed_from_start ? 0 : t;
         if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
         return;
     }
@@ -290,7 +290,7 @@ s64 RaceFlow::lap_ms(size_t car) const {
     if (hold_ > 0 || !clock_running_ || (setup_.player_clock && r.counter == 0)) return 0;
     if (!practice_.empty() && r.counter == 0) return 0; // (a free practice's, vf34 → 0x357830: none before its start is counted)
     // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
-    if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;
+    if (setup_.start == StartType::Moving && !setup_.mission && !setup_.timed_from_start && (r.counter == 0 || r.mark == 1)) return 0;
     if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;
     return clock_ms(clock_) - r.base_ms;
 }

@@ -1,5 +1,7 @@
 #include "gt4r/photo/film.h"
 
+#include "base/ee_float.h"
+
 #include <cmath>
 #include <cstring>
 
@@ -150,6 +152,25 @@ std::optional<Params> read_params(Reader r) {
 }
 
 } // namespace
+
+Bytes gadgets_payload(std::span<const GadgetSlot> slots) {
+    using gt3r::ee::F;
+    Writer w;
+    w.u8_(0), w.u16_(u16(slots.size()));
+    for (const GadgetSlot& g : slots) {
+        w.u8_(g.used ? 1 : 0);
+        if (!g.used) continue;
+        w.u8_(g.moving ? 1 : 0);
+        if (!g.moving) continue;
+        w.u8_(g.kind);
+        // (0x3E55F8: mul.s by 128, div.s by pi 0x40490FDA, cvt.w.s, the low byte)
+        for (float a : g.angles) w.u8_(u8(gt3r::ee::to_int(F(a) * F::raw(0x43000000) / F::raw(0x40490FDA))));
+        w.vec(g.pos);
+    }
+    return w.data();
+}
+
+Bytes no_particles() { return Bytes{0, 0}; }
 
 Bytes Film::encode() const {
     Writer w;

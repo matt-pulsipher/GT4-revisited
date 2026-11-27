@@ -403,6 +403,8 @@ public:
     float lap_length() const; // the road's lap (m)
     // The cars that touched a cone or board in the last step (a bit each, the first 32).
     unsigned gadget_hits() const { return gadget_hits_; }
+    // The cones and boards as bodies (where they are now).
+    const race::GadgetBodies& gadget_bodies() const { return gadget_bodies_; }
     // The cones and boards car `i` met in the last step (each a contact report of kind 2).
     int gadget_contacts(size_t i) const;
     // The strongest impulse |j| of car i's contacts with the course's objects this step (0: none).
