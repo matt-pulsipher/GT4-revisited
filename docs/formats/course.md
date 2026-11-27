@@ -70,8 +70,12 @@ the scenery is decoded with the same options as its own courses: cut-outs by the
 test, the blended decals without depth writes, and the second pass of kind 4 over the road, the
 curbs and the fences (blend 0x58: added where the frame's alpha, written by the pass under it,
 lets it). Left as an ordinary pass that second pass covers what is under it: Tsukuba's noise
-barriers come out black. 🔎 The kind 4 pass is taken to be the shared engine's road sheen (the
-first scene light's specular term); its arithmetic has not been read in this program.
+barriers come out black. The kind 4 pass is the shared engine's road sheen (the first scene light's
+specular term, model.md "Lighting") seen from the camera itself, not from 2 m above it as in Gran
+Turismo 3: with the engine's `DrawOptions::sheen_viewer_up` at 0, Tsukuba's noise barrier at the GS
+dump's eye comes out 128 / 141 / 160 against the original's 140 / 153 / 174 (2 m above: 120 / 133 /
+152), its white frames 203 .. 229 against 255. 🔎 The rest not found (the frame alpha the base pass
+leaves above 0x80, a weight over 1 the engine keeps at 1, is a candidate).
 
 ## Env0 (slot 32)
 

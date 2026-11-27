@@ -29,6 +29,7 @@
 #include "gt4r/race/license_scene.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
+#include "gt4r/race/light_model.h"
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/road_reflection.h"
 #include "gt4r/race/sections.h"
@@ -1200,7 +1201,7 @@ const gt3r::render::DrawStats& RaceWorld::draw_stats() const { return impl_->vie
 
 namespace {
 
-render::DrawOptions draw_options(const race::CourseScene& course, float far) {
+render::DrawOptions draw_options(const race::CourseScene& course, float far, bool gt4_lights) {
     const gt3r::race::SunParams& env = course.env();
     render::DrawOptions o;
     o.frustum_cull = true;
@@ -1208,6 +1209,7 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     o.far_clip = far;
     // The guard band's near plane is the projection's: the screen's 0.1 m (render() sets the camera's own).
     o.guard_near = race::kScreenNear;
+    if (gt4_lights) race::use_gt4_light_model(o); // (Prologue's renderer keeps the shared one's)
     for (int i = 0; i < 3; ++i) o.clear[i] = 0;
     if (env.has_env) {
         // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
@@ -1458,7 +1460,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     }
 
     render::DrawOptions& o = s.options;
-    o = draw_options(*course_, far);
+    o = draw_options(*course_, far, !app_.db()->prologue());
     const float scale = course_->color_scale();
     race::draw_at_picture_scale(o, scale);
     race::light_at_picture_scale(m.items, 0, scale);
@@ -1473,7 +1475,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         const render::Mat4 sky_rot = render::rotate_x(env.sky_pitch * kPi / 180) * render::rotate_y(env.sky_yaw * kPi / 180);
         if (course_->add_env_items(m.env_items, at, sky_rot)) {
             race::light_at_picture_scale(m.env_items, 0, scale);
-            render::DrawOptions eo = draw_options(*course_, far);
+            render::DrawOptions eo = draw_options(*course_, far, !app_.db()->prologue());
             race::draw_below_picture_scale(eo, scale);
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
@@ -1512,7 +1514,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye);
         // (At full strength: the composite's color weighs it, Env0 +0xC10..+0xC1C.)
         race::light_at_picture_scale(m.wet_items, 0, course_->color_scale());
-        render::DrawOptions wo = draw_options(*course_, far);
+        render::DrawOptions wo = draw_options(*course_, far, !app_.db()->prologue());
         race::draw_below_picture_scale(wo, course_->color_scale());
         if (SDL_GPUTexture* t = m.wet.render(view3d, pose.view, proj, pose.eye, m.wet_items, wo)) {
             std::vector<render::DrawItem> frame;
@@ -1713,7 +1715,7 @@ void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel
     std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
     items[0].sphere_map = own_reflection; // (the reflection picture is in the model)
     items[0].lights = lights;
-    render::DrawOptions o = draw_options(*course_, 100);
+    render::DrawOptions o = draw_options(*course_, 100, !app_.db()->prologue());
     o.fog = false;
     o.frustum_cull = false;
     for (float& c : o.clear) c = 0;
@@ -1758,7 +1760,7 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f, &lod_view);
         for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
-    render::DrawOptions o = draw_options(*course_, kDepth);
+    render::DrawOptions o = draw_options(*course_, kDepth, !app_.db()->prologue());
     o.mirrored = true;
     o.far_clip = kDepth; // (the program's far plane: the screen's depth, as the race view's)
     o.post_grade = grade_;
