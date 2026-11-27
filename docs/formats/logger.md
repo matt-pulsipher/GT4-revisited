@@ -102,7 +102,13 @@ left = middle − width / 2 / +0x2E4 .. right, y +0x2D0 .. +0x2D0 + height), the
   right of the middle (`"%.1tm"` of the metres × 10; imperial `"%.1tml"` of metres × 0.00062137 × 1000); each shown
   track's speed at the middle with a leader line (15 across and 30 up or down, then 30 across) to its label `"%.1tkm/h"`
   (`"%.1tmph"`) in `hc_20` x 0.8 in the track's colour: down to the right; with both, the faster's label up (A's to the
-  left), and up when the point is within 30 of the bottom; the middle's red line 2 pixels wide and a red mark under it.
+  left), and up when the point is within 30 of the bottom; the middle's red line 2 pixels wide and a red mark pointing down onto the graph's base (0x120540: base 11 above, point 1 above).
+
+Texts written at the pen (0x490890) stand on their baseline there; those in a box (0x490700) hang from its top. ✔ PCSX2 (the
+logger's pages from the US disc with a saved B-1 best lap loaded into Track A, `~/gt4re-out/analyzer/orig/`): the page,
+the menu and the options as drawn here; the letter `A` standing 16 above the band's base; the readout's distance just above
+the base and the distance's number just under it; the mark pointing down. The emulator's analysis gives no usable laps
+(time 0'00.000, 458 mph: it cannot run recordings again), so the graph's lines are not compared.
 
 The face's picture is drawn into a buffer and put on the screen three times, the second and third one line up and down at
 1/3 and 1/4 (0x120CF0's end).

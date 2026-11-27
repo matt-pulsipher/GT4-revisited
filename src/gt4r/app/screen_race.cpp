@@ -1558,6 +1558,9 @@ public:
     // track's lap again: its car put at the lap's moment, stepped by its records, each picture's distance along the course
     // (its distance in the lap and the laps before it, 0x11E450), speed, throttle, brake and gear.
     const GhostLap* logger_lap(int t) const { return t == 0 ? ghost_best_.get() : logger_b_.get(); }
+    // After a file loaded into Track A (whose car the race's entry 0 took, 0x3EB040): the entry put back and the race's
+    // recorders emptied (0x3EB0D0): no best lap, no ghost, no loaded lap.
+    void forget_laps() { ghost_best_.reset(), logger_b_.reset(), ghost_run_.reset(); }
     bool load_logger_track(const replay::Demonstration& d, int t) {
         std::shared_ptr<GhostLap> lap = ghost_from(d);
         if (!lap) return false;
@@ -4343,7 +4346,7 @@ private:
             menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
         } else if (command == "COMMAND_LOGGER" && !prologue_hud_ && race_) {
             // The Analyzer (0x10FEE8): the project logger with the race's two tracks; CanLogger kept to be put back.
-            logger_ = true, logger_load_ = -1, logger_can_ = w.get("CanLogger");
+            logger_ = true, logger_load_ = -1, logger_can_ = w.get("CanLogger"), logger_loaded_a_ = false;
             open_logger();
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
             // The options, or the car's settings (the project `setting`), then the menus again.
@@ -4405,6 +4408,7 @@ private:
                     const std::optional<replay::Demonstration> d = body && app.disc() ? replay::Demonstration::parse(*body, sim::Program::load(*app.disc()), &why) : std::nullopt;
                     if (d && race_->load_logger_track(*d, t)) {
                         w.set("CanLogger", 1);
+                        if (t == 0) logger_loaded_a_ = true;
                         LOG_INFO("Drive: the Analyzer's Track %c loaded from %s (%d ms)", t == 0 ? 'A' : 'B', path.c_str(), d->time_ms);
                     } else LOG_WARN("Drive: the best lap replay %s does not load%s%s", path.c_str(), why.empty() ? "" : ": ", why.c_str());
                 } catch (const std::exception& e) {
@@ -4425,11 +4429,18 @@ private:
         logger_ = false;
         g.logger.reset();
         w.set("CanLogger", logger_can_);
+        if (logger_loaded_a_) {
+            // (0x10FEE8 after its loop, 0x3EB0D0: the run's replay, best lap and logger gone)
+            logger_loaded_a_ = false;
+            race_->forget_laps();
+            w.set("canSaveGhost", 0), w.set("CanLogger", 0), w.set("canReplay", 0);
+        }
         enter_quick(w.get("canReplay"), false);
     }
     bool logger_ = false;  // the Analyzer's pages (or its card list) are up
     int logger_load_ = -1; // the track the card's list loads into
     s32 logger_can_ = 0;   // CanLogger before it
+    bool logger_loaded_a_ = false; // a file was loaded into Track A
 
     // FREE_QUALIFY (0x119310 .. 0x119420): a free practice of the race's field (RaceFreePractice on the race's information,
     // driven in mode 0: no laps, no hold, the pause's Exit ends it), then every car's best lap sorts the grid (0x3EE808) unless

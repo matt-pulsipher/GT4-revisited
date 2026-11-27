@@ -221,7 +221,8 @@ inline void draw_logger_face(PageDrawer& d, const LiveWidget& face, const Rect& 
         // The middle's red line, two pixels wide, and its mark.
         line(px(mid), py(top), px(mid), py(bottom), {1, 0, 0, 1}, 2.0f);
         const SDL_FColor red = fc({1, 0, 0, 1});
-        quad({px(mid) - 8, py(floor_y + 1)}, {px(mid) + 8, py(floor_y + 1)}, {px(mid), py(floor_y + 11)}, {px(mid), py(floor_y + 11)}, red, red, red, red);
+        // (0x120540: its base 11 above the graph's base, its point 1 above: pointing down)
+        quad({px(mid) - 8, py(floor_y + 11)}, {px(mid) + 8, py(floor_y + 11)}, {px(mid), py(floor_y + 1)}, {px(mid), py(floor_y + 1)}, red, red, red, red);
     }
     flush();
     if (clipped) SDL_SetRenderClipRect(r, &was);
