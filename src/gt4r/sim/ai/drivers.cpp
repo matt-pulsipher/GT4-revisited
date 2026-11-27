@@ -907,7 +907,8 @@ F Field::hold_speed(const Driver& d, F vt) const {
 void Field::set_kind(Driver& d, int kind) {
     const int was = d.kind;
     d.kind = kind;
-    if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
+    // (SCPS-17001 v1.05's 0x45D238: kind 5 after kind 4 too)
+    if (kind == 6 || (kind < 7 && kind == 5 && (was != 4 || tables_.japan))) d.stop_count = 120;
 }
 
 // 0x464E40: the outputs cleared (0x464ED8), the steering straightened.
