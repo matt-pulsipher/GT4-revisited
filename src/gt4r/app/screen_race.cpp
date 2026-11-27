@@ -581,13 +581,52 @@ void load_entries(App& app, Setup& setup) {
     }
     std::fclose(fp);
 }
+// Prologue's recorded race (replay/JP/<name>/<name>, the title's time-out's: formats/replay/demonstration_prologue.h) as a
+// recording of Gran Turismo 4's: its race and course, its entries' cars with the file's parts (Gran Turismo 4's places up to
+// +0xF0), gears (+0xF8, ours +0x110) and settings (+0x108 .. +0x13B, ours 0x20 later) over each car as sold, its places,
+// gearbox and aids, and car 0's records.
+std::optional<sim::ai::DemoRun> prologue_recorded_race(App& app, const Bytes& file, const sim::Program& program, const std::string& name, std::string* error) {
+    db::SpecDb* sdb = app.db();
+    const std::optional<replay::prologue::Run> run = replay::prologue::Run::parse(file, replay::prologue::delta_bases(program), error);
+    if (!run) return std::nullopt;
+    gt3r::Vfs* vfs = app.vfs();
+    const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+    sim::ai::DemoRun r;
+    r.label = name;
+    replay::Demonstration& d = r.demo;
+    d.race_class = run->race_class, d.code_b0 = run->event, d.code_b8 = run->course, d.time_ms = run->time_ms, d.time2_ms = run->time2_ms;
+    std::copy(run->information.begin(), run->information.end(), d.information.begin());
+    const db::Labels* cars = sdb->labels("GENERIC_CAR");
+    for (const replay::prologue::Entry& f : run->entries) {
+        replay::DemoEntry e;
+        const std::string* car = cars ? cars->label(u32(f.code(0))) : nullptr;
+        sim::ai::GridEntry g;
+        g.car = car ? *car : std::string();
+        if (g.car.empty() || !sim::ai::entry_equipment(*sdb, program, events, g, e.equipment)) {
+            if (error) *error = "no car " + std::to_string(f.code(0));
+            return std::nullopt;
+        }
+        std::copy(f.equipment.begin(), f.equipment.begin() + 0xF0, e.equipment.bytes.begin());
+        std::copy(f.equipment.begin() + 0xF8, f.equipment.begin() + 0x108, e.equipment.bytes.begin() + 0x110);
+        std::copy(f.equipment.begin() + 0x108, f.equipment.begin() + 0x13B, e.equipment.bytes.begin() + 0x128);
+        e.condition = f.condition, e.x198 = f.x160, e.grid_place = f.grid_place, e.pedal_style = f.pedal_style, e.driver_kind = f.driver_kind;
+        e.aids = {f.asm_on, f.tcs_on, 0, 0};
+        d.entries.push_back(std::move(e));
+    }
+    d.streams = run->streams;
+    if (!d.streams.empty())
+        for (const replay::PadRecord& p : d.streams[0].frames) r.pads.push_back({p.bytes});
+    return r;
+}
+
 bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file) {
     db::SpecDb* sdb = app.db();
     Disc* disc = app.disc();
     if (!file || !sdb || !disc) return false;
     const sim::Program program = sim::Program::load(*disc);
     std::string error;
-    std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(*file, program, setup.replay_file.substr(setup.replay_file.rfind('/') + 1), &error);
+    const std::string name = setup.replay_file.substr(setup.replay_file.rfind('/') + 1);
+    std::optional<sim::ai::DemoRun> run = sdb->prologue() ? prologue_recorded_race(app, *file, program, name, &error) : sim::ai::DemoRun::load_replay(*file, program, name, &error);
     if (!run || run->demo.entries.empty()) throw FormatError(setup.replay_file + ": " + (error.empty() ? "no entries" : error));
     auto label = [&](const char* table, u64 code) {
         const db::Labels* l = sdb->labels(table);

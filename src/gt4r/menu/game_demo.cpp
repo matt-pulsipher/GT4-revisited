@@ -34,7 +34,12 @@ void install_demonstration(GameNatives& n, Object& game) {
     // initialize(count, replay_time, repeat_time) (0x15DB40 -> 0x4345D8): the list's length, the recorded runs' time, the
     // tries a time-out makes; the list from its start, the card's replays reset (0x434950), the movie's count from the
     // option `demo_movie_interval` less 1.
-    demo->method("initialize", [s, d, np](Vm&, const Value&, Args a) {
+    const bool prologue = n.rt.is_prologue();
+    demo->method("initialize", [s, d, np, prologue](Vm&, const Value&, Args a) {
+        if (prologue) { // Prologue's (0x3FDC40): the list's length and the runs' time; four tries a time-out, the list from its start
+            d->count = arg_int(a, 0), d->replay_time = arg_int(a, 1), d->repeat = d->left = 4, d->index = 0;
+            return Value{};
+        }
         d->count = arg_int(a, 0), d->replay_time = arg_int(a, 1), d->repeat = d->left = arg_int(a, 2);
         d->skip_time = 3, d->index = 0, d->skip_at = 0, d->card_at = 0, d->card_seed = timer_draw(*np);
         d->movie_left = s->option_int("demo_movie_interval", 3) - 1;
@@ -93,6 +98,49 @@ bool next_demonstration(Runtime& rt) {
     return more;
 }
 
+// Prologue's next demonstration (0x3FDD18): the configuration's setNextDemo(index) sets the entry (more while it answers
+// non-zero), the list's index on (from its start past its end), the tries down one; below none the tries anew and this is the
+// last.
+static bool next_prologue_demonstration(Runtime& rt) {
+    GameState::Demonstration& d = rt.game().demonstration;
+    Vm& vm = rt.vm();
+    const Value f = vm.lookup("setNextDemo");
+    Value got;
+    if (f.p && f.p->callable()) try {
+            const Value at[1] = {Value::integer(d.index)};
+            got = vm.call(f, at);
+        } catch (const script::ScriptError& e) {
+            rt.note(std::string("setNextDemo stopped: ") + e.what());
+        }
+    bool more = got.truthy();
+    if (++d.index >= d.count) d.index = 0;
+    if (--d.left < 0) d.left = d.repeat, more = false;
+    return more;
+}
+
+// Prologue's time-out (0x10A1F0): the tries anew (+0x34 from +0x30), then one demonstration after another while setNextDemo
+// says more: kind menu runs its project (0x108D30; prologue_opening, the opening movie) and a skip ("terminate") ends the
+// time-out; kind replay plays the disc's recording replay/JP/<name>/<name> (0x109FB0 by 0x19B030; a key, end code 2, ends
+// it); kind autodemo (an Arcade demo race, 0x109EB8) is in no list of the disc. Then the project the menus were on.
+static std::optional<DemoStep> prologue_autodemo_step(Runtime& rt, bool first) {
+    GameState& s = rt.game();
+    GameState::Demonstration& d = s.demonstration;
+    if (first) d.left = d.repeat, d.more = true;
+    else if (s.menu_result == "terminate") d.more = false;
+    while (d.more) {
+        d.more = next_prologue_demonstration(rt);
+        if (d.type == 2 && !d.name.empty()) return DemoStep{d.name, d.arg, {}};
+        if (d.type == 3 && !d.name.empty()) {
+            const std::string file = "replay/JP/" + d.name + "/" + d.name;
+            if (rt.reader()(file)) return DemoStep{{}, {}, file};
+            rt.note("the demonstration's recording " + file + " is not on the disc");
+            continue;
+        }
+        if (d.type != 0) rt.note("the demonstration's kind " + std::to_string(d.type) + " (" + d.name + ") plays nothing here");
+    }
+    return std::nullopt;
+}
+
 // 0x10BE20: a time-out's demonstrations, one at a time. `first`: the sequence starts (0x434638: the tries anew; with
 // restart_from_beginning, the list and the movie's count from their start). The menu project to run and its argument
 // (the movie), a recorded race to play, or none when the sequence is over (the menus go back to the last project, 0x42FC50).
@@ -103,6 +151,7 @@ bool next_demonstration(Runtime& rt) {
 // disc's recording by the entry's name (0x10BBB0 from the disc). Kinds 1 (with no list, an Arcade demo race, 0x10BA28) and 4
 // are never set.
 std::optional<DemoStep> autodemo_step(Runtime& rt, bool first) {
+    if (rt.is_prologue()) return prologue_autodemo_step(rt, first);
     GameState& s = rt.game();
     GameState::Demonstration& d = s.demonstration;
     if (first) {

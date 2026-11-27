@@ -508,3 +508,49 @@ TEST(disc_prologue_school_lessons) {
     CHECK(signs >= 46); // (and one sign without a lesson)
     CHECK(f.clean() && again.clean());
 }
+
+// The title left alone (its watcher's 30 checks, go_demo: next_sequence "autodemo"): Prologue's time-out (0x10A1F0) plays its
+// own list, the disc's recordings and its opening movie by turns, five a time-out (setNextDemo, 0x3FDD18: four tries), a key
+// ending it, then the project the title is in (not Gran Turismo 4's arcade, which this disc has not).
+TEST(disc_prologue_title_timeout) {
+    Disc* disc = prologue_menu_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    Flow f(*disc, "JP");
+    f.rt->game().card.connected = false;
+    f.rt->boot();
+    f.rt->start_project("prologue");
+    f.rt->settle();
+    CHECK(f.page() == "SchoolRoot");
+    script::Vm& vm = f.rt->vm();
+    const script::Value go = vm.lookup("PrologueProject::SchoolRoot::go_demo");
+    CHECK(go.p && go.p->callable());
+    if (!go.p) return;
+    const script::Value context[1] = {f.rt->context()};
+    vm.call(go, context);
+    f.rt->settle();
+    const std::optional<menu::RaceRequest> r = f.rt->race_request();
+    CHECK(f.rt->finished() && r && r->sequence == "autodemo");
+    CHECK(f.rt->project() && f.rt->project()->name() == "prologue"); // (what the menus go back to)
+    menu::GameState& g = f.rt->game();
+    std::vector<std::string> seen;
+    auto timeout = [&](bool skip) {
+        seen.clear();
+        for (auto step = menu::autodemo_step(*f.rt, true); step; step = menu::autodemo_step(*f.rt, false)) {
+            if (!step->replay.empty()) CHECK(f.rt->reader()(step->replay).has_value());
+            seen.push_back(step->replay.empty() ? step->project : step->replay);
+            g.menu_result = skip ? "terminate" : "";
+        }
+    };
+    timeout(false);
+    std::string line;
+    for (const std::string& s : seen) line += " " + s;
+    std::printf("  a time-out:%s\n", line.c_str());
+    CHECK(seen.size() == 5);
+    if (seen.size() == 5) {
+        CHECK(seen[0] == "replay/JP/demo_evo4_gc/demo_evo4_gc" && seen[1] == "prologue_opening");
+        CHECK(seen[2] == "replay/JP/demo_gt40_as/demo_gt40_as" && seen[3] == "prologue_opening" && seen[4] == "replay/JP/demo_ny_gtr/demo_ny_gtr");
+    }
+    timeout(true); // the list goes on where it was; a key ends the time-out
+    CHECK(seen.size() == 1 && !seen.empty() && seen[0] == "prologue_opening");
+    CHECK(f.clean());
+}
