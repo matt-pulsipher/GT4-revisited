@@ -1455,8 +1455,10 @@ public:
         world_->set_ghost(ghost_car() ? std::optional<race::CarState>(*ghost_car()) : std::nullopt, kGhostAlpha);
     }
     // The ghost's lap as the program saves it (Serialize::GhostData through the race's virtuals 60 .. 62, RaceSolitaire's 61:
-    // the race's header with one entry, +0x958 1; then the best lap's recorder, 0x3EA908: its header of 0x14F4 bytes, the
-    // moment it starts from, 0x35AB08, and its records). Empty without the disc's tables.
+    // the race's header with one entry, +0x958 1; then the best lap's recorder: its header of 0x14F4 bytes, the moment it
+    // starts from, 0x35AB08, and its records). The race keeps two: the best lap's (RaceSolitaire::vf72 with 0x100, 0x3EA8C8:
+    // +0xE48C, RaceFreeRun's +0xE84C) and a loaded file's (vf72 with 1, 0x3EA908: +0xE66C / +0xEA2C, where vf64 loads); ❓ which
+    // of them the save writes is not read (here the ghost's lap). Empty without the disc's tables.
     Bytes ghost_recording() const {
         if (!ghost_best_ || !ghost_best_->seed || !disc_ || !db_) return {};
         race::RecordingSetup rs;
