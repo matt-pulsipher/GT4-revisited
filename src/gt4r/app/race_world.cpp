@@ -30,6 +30,7 @@
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/picture_scale.h"
 #include "gt4r/race/pit_scene.h"
+#include "gt4r/race/road_reflection.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_drive.h"
@@ -40,7 +41,6 @@
 #include "race/sun_disc.h"
 #include "race/sun_glare.h"
 #include "race/tyre_smoke.h"
-#include "race/wet_road.h"
 #include "render/view3d.h"
 
 #include <algorithm>
@@ -119,7 +119,7 @@ struct RaceWorld::Impl {
     gt3r::race::CarLampGlows car_lamps_lit; // a daytime race's: the cars lit whatever the course (CarVisual::lamp_level)
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
-    gt3r::race::WetRoad wet;
+    race::RoadReflection wet; // the road reflection (GT4's blur and composite over the shared engine's picture)
     std::vector<race::CarLight> lights; // the cars', this frame
     // The drivers that move (race/driver_figure.h): a car's figures and what each does.
     struct MovingDriver {
@@ -1509,8 +1509,8 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
         if (m.wet.params().cars && !cars_hidden_)
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye, m.motion(i));
-        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
-        for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
+        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye);
+        // (At full strength: the composite's color weighs it, Env0 +0xC10..+0xC1C.)
         race::light_at_picture_scale(m.wet_items, 0, course_->color_scale());
         render::DrawOptions wo = draw_options(*course_, far);
         race::draw_below_picture_scale(wo, course_->color_scale());
