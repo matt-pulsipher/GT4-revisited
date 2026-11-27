@@ -3693,7 +3693,6 @@ private:
     // ---- The PIT STOP menu (menu/common/pitmenu.strb, 0x3DCC50 .. 0x3DD688): up from the pit lane's start until the choice is
     // made or the car is out again, the race going on. True while it is up.
 
-    static constexpr int kFrontTiresOwned = 0x40, kRearTiresOwned = 0x4D; // (0x43F270: the first owned bit of types 0x19 / 0x1A)
     struct PitChoice {
         bool tires = false, fuel = false;      // what may be chosen (+0xE8, +0xEC)
         bool mode = true;                      // the driving mode may be (+0x100: the race's +0x970, 0x110498: an event only without its license, which its entry asks for)
@@ -3743,7 +3742,9 @@ private:
             if (menus_ && sequence_ != "single_race" && !sequence_.empty())
                 if (const int at = menus_->game().race.garage_slot; at >= 0 && size_t(at) < menus_->game().garage.size() && menus_->game().garage[size_t(at)].record) {
                     const menu::CarRecord& car = *menus_->game().garage[size_t(at)].record;
-                    std::erase_if(kinds, [&](int k) { return k != own && !car.owned((a == 0 ? kFrontTiresOwned : kRearTiresOwned) + k); });
+                    // (the tires' owned bits: 0x43F270's for types 0x19 / 0x1A, by the release)
+                    const int from = menu::parts_owned_from(a == 0 ? 25 : 26, race_->release() == sim::Release::Japan);
+                    std::erase_if(kinds, [&](int k) { return k != own && !car.owned(from + k); });
                 }
             const auto at = std::find(kinds.begin(), kinds.end(), own);
             pit_choice_.tire[size_t(a)] = offer.tires && at != kinds.end() ? int(at - kinds.begin()) : int(kinds.size());

@@ -4,6 +4,7 @@
 #include "menu_run_flow.h"
 #include "natives_check.h"
 
+#include "gt4r/menu/game.h"
 #include "gt4r/sim/program.h"
 
 #include <cstdio>
@@ -110,4 +111,41 @@ TEST(sim_program_calendar_natives_equal) {
     CHECK(r.ran && r.dates > 40000 && r.days > 36000);
     CHECK(r.dates_equal == r.dates && r.days_equal == r.days);
     if (r.dates_equal != r.dates || r.days_equal != r.days) std::printf("  dates %zu of %zu, days %zu of %zu\n", r.dates_equal, r.dates, r.days_equal, r.days);
+}
+
+// Japan's program numbers the parts' owned bits without the suspension and the turbine kit it lacks (its 0x43F270: 94 bits)
+// and offers 4 suspensions and 5 turbine kits; the rest as v1.01's.
+TEST(menu_parts_owned_bits_by_release) {
+    const int us[] = {-1, 0, 2, 4, 9, 11, -1, -1, 13, -1, 17, 19, -1, 23, 27, 33, 35, 37, 39, 41, 44, 48, 52, 56, 58, 64, 77, 90, 92, -1, -1, 94};
+    const int jp[] = {-1, 0, 2, 4, 8, 10, -1, -1, 12, -1, 16, 18, -1, 22, 26, 31, 33, 35, 37, 39, 42, 46, 50, 54, 56, 62, 75, 88, 90, -1, -1, 92};
+    for (int t = 1; t < 32; ++t) CHECK(menu::parts_owned_from(t, false) == us[t] && menu::parts_owned_from(t, true) == jp[t]);
+}
+
+// On Japan's disc the garage car's parts and condition natives are Japan's program's (the same routines as v1.01's, 0x14D850 ..
+// 0x14DC68; its tables): 4 suspensions, 5 turbine kits, old oil at 5,000,000 m (the static block's +0xD7, 50).
+TEST(disc_menu_japan_car_natives) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().serial.rfind("SCPS_170.01", 0) == 0) disc = d.get();
+    if (!disc) SKIP("needs the Japanese Gran Turismo 4 disc (SCPS-17001) in GT4R_DISC");
+    Flow f(*disc);
+    f.gt_mode_with_a_car(); // (the menus up; Japan's map has no Alfa Romeo dealer: the car is given)
+    script::Vm& vm = f.rt->vm();
+    const Value garage = vm.attribute(vm.lookup("main::game"), "garage");
+    if (f.rt->game().garage_count() == 0) {
+        call(vm, vm.attribute(garage, "addNewCar"), {Value::string("panda_super_ie_90"), Value::integer(0)});
+        call(vm, vm.attribute(garage, "changeRidingCar"), {Value::integer(0)});
+    }
+    CHECK(f.rt->game().garage_count() == 1);
+    const Value car = vm.attribute(garage, "riding_car");
+    CHECK(!car.is_nil());
+    if (car.is_nil()) return;
+    auto m = [&](const char* name, std::vector<Value> a = {}) { return call(vm, vm.attribute(car, name), a); };
+    CHECK(m("getPartsTypeMax", {Value::integer(3)}).as_float() == 4 && m("getPartsTypeMax", {Value::integer(14)}).as_float() == 5);
+    CHECK(m("getPartsTypeMax", {Value::integer(24)}).as_float() == 6);
+    m("replaceOil");
+    const float fresh = vm.attribute(car, "oil").as_float();
+    vm.member(car, "oil")->set(vm, Value::number(7000000.0f));
+    std::printf("  fresh oil %g m, past the old oil %g m\n", double(fresh), double(vm.attribute(car, "oil").as_float()));
+    CHECK(vm.attribute(car, "oil").as_float() == 5000000.0f && m("getOilLifeRate").as_float() == 1.0f);
 }

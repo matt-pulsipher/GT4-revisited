@@ -430,6 +430,9 @@ GameState::Unit torque_unit_of(const std::string& option);
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
 // And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
 std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
+// The first of a parts type's owned bits in a car record (0x43F270: -1 for a type without; Japan's program numbers them
+// without the suspension and turbine kit it lacks: game_car.cpp).
+int parts_owned_from(int type, bool japan);
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
 // run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
 std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
