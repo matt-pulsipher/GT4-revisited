@@ -462,6 +462,7 @@ private:
         };
         const auto percent = [](float v) { return std::to_string(int(std::lround(v * 100))) + " %"; };
         rows_.heading("Touch screen");
+        rows_.action("Layout", "", "place, size and hide the controls", [a] { a->push(make_touch_editor_screen()); });
         rows_.choice("On-screen controls", {"Shown after a touch", "Always shown", "Never shown"}, size_t(c.mode), [set](size_t i) { set([&](TC& n) { n.mode = TC::Mode(i); }); });
         rows_.choice("Steering", {"Drag on the left half", "Tilt the device", "Left and right buttons"}, size_t(c.steering),
                      [set](size_t i) { set([&](TC& n) { n.steering = TC::Steering(i); }); });

@@ -624,7 +624,7 @@ SDL_AppResult App::iterate() {
     if (touch_ui_) { // (player 1's pad from the on-screen controls, under what a script presses)
         const Screen* top = screens_.empty() ? nullptr : screens_.back().get();
         if (const bool row = top && !modal && top->touch_top_row(); row != touch_top_row_) place_touch_top(row);
-        touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), false, *input_);
+        touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), !modal && top && top->touch_fades(), *input_);
     }
     gt3r::PadState scripted = scripted_keys();
     if (back_pressed_) { // (Android's back button, this frame only)

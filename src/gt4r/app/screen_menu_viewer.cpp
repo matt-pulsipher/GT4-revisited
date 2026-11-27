@@ -20,6 +20,7 @@
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/logger_face.h"
 #include "gt4r/app/menu_painter.h"
+#include "gt4r/app/menu_pointer.h"
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/photo_faces.h"
@@ -442,6 +443,8 @@ private:
             for (const auto& [button, key] : keys)
                 if (keys_on && !typing_keys && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
             if (keys_on && typing_on_) typing_.step(*runtime_);
+            // The mouse and fingers on the shown page (app/menu_pointer.h), where it was drawn last.
+            if (keys_on && !key_page && live_drawer_) menu_pointer_frame(app, *runtime_, boxes_, drag_, page_x_, page_scale_);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
@@ -608,8 +611,10 @@ private:
                 SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
                 SDL_RenderClear(r);
             }
+            boxes_.clear(), live_drawer_->boxes = &boxes_, page_x_ = x, page_scale_ = scale; // (what the pointer is over)
             for (const auto& page : runtime_->open_pages())
                 if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, ox, 0, ps, 0, grown, tp.page_opacity);
+            live_drawer_->boxes = nullptr;
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
@@ -894,6 +899,9 @@ private:
     std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
     bool advertise_on_ = false;
     MenuCursor cursor_;
+    std::vector<menu::DrawnBox> boxes_; // the pages' widgets as last drawn, and where (app/menu_pointer.h)
+    menu::PointerDrag drag_;
+    float page_x_ = 0, page_scale_ = 0;
     SDL_Texture* page_picture_ = nullptr; // the pages as a picture, while something needs it
     SDL_Texture* held_ = nullptr; // a block transition's screen
     SDL_Texture* trail_ = nullptr; // a cross transition's last picture

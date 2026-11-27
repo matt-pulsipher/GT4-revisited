@@ -682,6 +682,20 @@ LiveWidget* list_cursor_row(LiveWidget& list) {
     return item.widget ? item.widget.get() : item.drawn.get();
 }
 
+// The pointer's moves (menu/pointer.cpp), as the keys make them: a list box's focus on row `i` (0x2B3AF8), an open option
+// menu's index on row `i` with the focus on it (0x2C98F0, the list scrolled when the row is out of the band).
+void list_set_focus(LiveWidget& list, int i) { lb_set_focus(list, i); }
+bool option_point(Runtime& rt, LiveWidget& menu, int i) {
+    const std::vector<W> items = option_items(menu);
+    if (!popup_open(menu) || i < 0 || i >= int(items.size()) || items[size_t(i)]->insensitive()) return false;
+    if (i == menu.index()) return false;
+    menu.set_property("index", Value::integer(i));
+    option_move(menu, 0);
+    om_play(rt, "cursor");
+    if (LiveWidget* page = menu.page()) rt.set_focus(*page, items[size_t(i)]);
+    return true;
+}
+
 namespace {
 
 // ---- the scroll window: its content moved so the focused widget shows -----------------------
@@ -1167,7 +1181,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
         const W focus = page ? page->focus.lock() : nullptr;
         LiveWidget* content = scroll_content(w);
         float tx = 0, ty = 0;
-        if (focus && content && scroll_window_target(w, *focus, tx, ty)) {
+        if (focus && content && w.data.number("pointer_pan") == 0 && scroll_window_target(w, *focus, tx, ty)) { // (ours: held by a drag, pointer.cpp)
             const float ratio = w.data.has("interpolate_ratio") ? w.data.number("interpolate_ratio") : 0.3f;
             const float x = content->get("x").as_float(), y = content->get("y").as_float();
             if (x != tx || y != ty) {
