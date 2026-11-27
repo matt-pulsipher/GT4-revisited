@@ -2,8 +2,12 @@
 
 #include "test_framework.h"
 
+#include <cmath>
+#include <cstring>
+
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/display_mode_prologue.h"
+#include "gt4r/race/glow_filter.h"
 #include "gt4r/race/picture_settings.h"
 
 using gt3r::race::HudMode;
@@ -75,4 +79,23 @@ TEST(race_correction_levels) {
     // The grade: off for the plain correction, the saturation held to 1.
     CHECK(!race::correction_grade(plain, 0, 1, 1, 255).on);
     CHECK(race::correction_grade(plain, 0, 1, 1.5f, 255).saturation == 1.0f);
+}
+
+// The glow filter's values (Env0 +0x1750; 0x33F1C8 / 0x3BADF8 / 0x4A2808's fixed weights).
+TEST(race_glow_filter_values) {
+    Bytes env(0x1800, 0);
+    auto put = [&](size_t at, float v) { std::memcpy(env.data() + at, &v, 4); };
+    CHECK(!race::GlowFilter::from_env(env)); // (switch off)
+    const u32 on = 1, n = 5;
+    std::memcpy(env.data() + 0x1750, &on, 4), std::memcpy(env.data() + 0x1764, &n, 4);
+    put(0x1754, 0.73f), put(0x1758, 1.9f), put(0x175C, 1.9f), put(0x1760, 30.0f); // (ss_shibuya's)
+    const std::optional<race::GlowFilter> g = race::GlowFilter::from_env(env);
+    CHECK(g.has_value());
+    if (!g) return;
+    CHECK(g->samples == 5 && std::fabs(g->threshold - 0.73f) < 1e-6f);
+    CHECK(std::fabs(g->radius - 30.0f / 781.2196f) < 1e-6f);
+    CHECK(std::fabs(g->sum - 25.0f * 36.0f / 128.0f) < 1e-5f); // trunc(128 x 1.9 / (0.27 x 25)) = 36
+    CHECK(std::fabs(g->gain - 65.0f / 128.0f) < 1e-5f);        // trunc(128 x 0.27 x 1.9) = 65
+    put(0x1754, -0.1f);
+    CHECK(!race::GlowFilter::from_env(env));
 }

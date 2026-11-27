@@ -9,6 +9,7 @@
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/app/app.h"
 #include "base/ee_float.h"
+#include "gt4r/race/glow_filter.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/dive_camera.h"
@@ -535,6 +536,7 @@ private:
     std::vector<Command> commands_;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
+    std::optional<race::GlowFilter> glow_; // the course's glow filter (race/glow_filter.h)
     bool snapshot_ = false, keep_last_ = false;
     float dissolve_ = 0, trail_ = 0;
     race::ReplayEffects effects_;
