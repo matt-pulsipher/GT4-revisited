@@ -58,3 +58,19 @@ TEST(picture_scale_lights_and_stored_colors) {
     CHECK(items[2].light_scale[0] == 1.0f);
     CHECK(race::stored_color_scale(2.0f) == (race::engine_multiplies_picture() ? 1.0f : 2.0f));
 }
+
+TEST(picture_scale_scenery_multiply) {
+    // The frame's second multiply (Env0 +0x3C) on the items before the cars, where the engine has it (DrawItem::pre_fix); late
+    // items never; 128 (none) changes nothing.
+    struct WithPreFix { int pre_fix = 128; bool late = false; };
+    struct Without { bool late = false; };
+    std::vector<WithPreFix> items(4);
+    items[1].late = true;
+    race::scenery_multiply(items, 0, 3, 127);
+    CHECK(items[0].pre_fix == 127 && items[1].pre_fix == 128 && items[2].pre_fix == 127 && items[3].pre_fix == 128);
+    std::vector<WithPreFix> same(2);
+    race::scenery_multiply(same, 0, 2, 128);
+    CHECK(same[0].pre_fix == 128 && same[1].pre_fix == 128);
+    std::vector<Without> old(2);
+    race::scenery_multiply(old, 0, 2, 127);
+}

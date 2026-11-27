@@ -10,6 +10,7 @@
 #include "formats/model/gtm1.h"
 #include "render/view3d.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace gt4r::race {
@@ -18,6 +19,8 @@ namespace gt4r::race {
 // models' fog colors (gtm1::Options::node_fog).
 template <class O> inline constexpr bool kHasPictureScale = requires(O& o) { o.picture_scale; };
 template <class O> inline constexpr bool kHasNodeFog = requires(O& o) { o.node_fog; };
+// Whether this build's engine multiplies an item's pixels before the picture's scale (DrawItem::pre_fix).
+template <class I> inline constexpr bool kHasPreFix = requires(I& i) { i.pre_fix; };
 inline constexpr bool kEngineMultipliesPicture = kHasPictureScale<gt3r::render::DrawOptions>;
 
 // Whether the race view draws at the picture's scale and lets the engine multiply it.
@@ -53,6 +56,20 @@ inline void light_at_picture_scale(std::vector<gt3r::render::DrawItem>& items, s
     for (size_t k = first; k < items.size(); ++k)
         if (!items[k].late)
             for (float& l : items[k].light_scale) l /= scale;
+}
+
+// The frame's second multiply (Env0 +0x3C, docs/formats/course.md "The picture's scale"): the program multiplies the frame by it
+// after the sky, the backdrop, the scenery and the road's reflection and before the cars (0x342580: the GS blend (Cd x FIX) >> 7,
+// FIX course::scenery_multiply_fix, 127 on the disc's courses: a level below at half strength, two in the finished picture). Where
+// the engine has it, on the items [first, last) (DrawItem::pre_fix, done as each pixel is drawn); without it, nothing.
+template <class I = gt3r::render::DrawItem> void scenery_multiply(std::vector<I>& items, size_t first, size_t last, int fix) {
+    if constexpr (kHasPreFix<I>) {
+        if (fix == 128) return;
+        for (size_t k = first; k < std::min(last, items.size()); ++k)
+            if (!items[k].late) items[k].pre_fix = fix;
+    } else {
+        (void)items, (void)first, (void)last, (void)fix;
+    }
 }
 
 // The models' own fog colors: a node program's op 0x21 sets the GS fog color for the draws after it

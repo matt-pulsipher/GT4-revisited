@@ -74,6 +74,10 @@ struct ModelOptions {
 // The factor the scenery's stored vertex colours are drawn with: Env0 +0x38 (2.0 on every course
 // seen; 1 when the block has none). Not yet compared with the original running.
 float scenery_color_scale(ByteSpan env);
+// The fixed weight of the second multiply of the frame, on what is drawn before the cars: Env0 +0x3C as the program makes a blend's
+// weight of it (0x342580 -> 0x4A2808: trunc(min(max(f x 128, 0), 255))). The files hold 0.9999977 (0x3F7FFFDA), so 127; 128 (none)
+// when the block has none.
+int scenery_multiply_fix(ByteSpan env);
 // The course's scenery as one model, a mesh per model of each set ("world/...", "far/...").
 gt3r::scene::Model build_course_model(ByteSpan data, const ModelOptions& opt = {}, const std::string& name = {});
 

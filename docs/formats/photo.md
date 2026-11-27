@@ -102,8 +102,14 @@ level each time, so a photo comes out about 8 levels darker than its pictures (`
 The course's animations run on over a second during it (0x397568; here a picture, 1/60 s, a sample).
 
 **Correction** (0x3C7DA8, 0x3EFC10, 0x4A8CB8): per channel a gamma of 2^(brightness / 8), red and blue
-moved by the white balance (x (1 -/+ balance x 400 x 0.2 / 2000)), white 1 - 0.1 contrast, saturation 1,
-0.6 (Mature) or 0 (Monotone). **Vignette** (0x3C7CD8, 0x3BBBC0): a black ring from radius 200 to 420 of
+moved by the white balance (x (1 -/+ balance x 400 x 0.2 / 2000)), white 1 - 0.1 contrast, saturation 1; then the
+color filter's own record (0x3EFCE8) combined with it (0x3EFD80: the gains and saturations multiplied, the black levels
+added, the white levels added less 1): Mature {gains 1, black 0, white 1, saturation 0x3F199999}, so the saturation x 0.6
+in the EE's multiply (0x3F199998 from 1); black and white sets the saturation to 0 with no record; a fourth record (gains
+1.5 / 0.95 / 0.6, saturation x 0.3, filter 4) is in all three callers (the finder 0x3C58C0, this page 0x3C7DA8, a film's
+picture 0x334B28) but no page reaches it (the finder steps 0 .. 2, this page's names are none / mature / monochrome,
+table 0x618AE8). Ours: `race::photo_filter` in the EE's arithmetic (the same levels as the earlier 0.6 / 0: trunc(128 s)
+is 76 either way). 🔎 Not compared with an original photo taken with a filter (none captured). **Vignette** (0x3C7CD8, 0x3BBBC0): a black ring from radius 200 to 420 of
 a 640 x 448 frame, alpha vignetting x 0.007 at its outer edge.
 
 **JPEG**: quality 50, 80 or 95 by the option `photo_quality`; baseline, 4:2:0, the standard tables;

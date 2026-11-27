@@ -72,6 +72,14 @@ float scenery_color_scale(ByteSpan env) {
     return f >= 0.25f && f <= 8.0f ? f : 1.0f;
 }
 
+int scenery_multiply_fix(ByteSpan env) {
+    if (env.size() < 0x40 || !gt3r::has_magic(env, "Env0")) return 128;
+    float f;
+    std::memcpy(&f, env.data() + 0x3C, 4);
+    if (!(f == f)) return 128;
+    return int(std::min(std::max(f * 128.0f, 0.0f), 255.0f)); // (cvt.w.s: toward zero)
+}
+
 gt3r::scene::Model build_course_model(ByteSpan data, const ModelOptions& opt, const std::string& name) {
     const CourseFile file = CourseFile::parse(data);
     gt3r::scene::Model model;

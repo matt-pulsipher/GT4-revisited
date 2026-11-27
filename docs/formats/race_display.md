@@ -174,7 +174,15 @@ plain draw uses 0):
 - bits 2-3: 0 the pen is on the baseline; 4 the pen is the top of the line; 12 the pen is the
   middle of the line (top = y - line height / 2).
 
-So 2 = right-aligned on the baseline, 15 = centered both ways. Text colors are the GS colors
+So 2 = right-aligned on the baseline, 15 = centered both ways. The pen's place: an element hands its place (x, y, z) to
+0x44DCC0 (through 0x44DD98 / 0x44DDF8 / 0x44DE40), which puts it through VU0's matrix vf24 .. vf27 (the display's: x / 320,
+-y / 240, -z and the element's own translation, e.g. (-0.64375, 0.225) for a display at (114, 186); the matrix ops each
+chopped) and divides by w, then on the FPU x = (ndc x + 1) x W x 0.5 and y = (1 - ndc y) x H x 0.5 (W, H the renderer's
++0x30 / +0x34, ❓ 640 x 448 not read from a state); 0x44E1E0 then takes trunc of it for every alignment: the box [0, trunc x] right-aligned, the pen
+at trunc x left-aligned, trunc x - 320 centered, the line at trunc y. So, as in Prologue (prologue.md part 11), a place can
+land a hair under its whole pixel and draw a pixel left or up, but by other arithmetic (no fixed point with 4 fraction
+bits). 🔎 Ours draws GT4's elements at their layout places as they are: the per-display translations are not read.
+Text colors are the GS colors
 above, used as the shared engine's race display uses them: the RGB as it is, alpha 0x80
 opaque. Setting a color also sets the outlined fonts' outline: black, with alpha
 (A / 128 - 0.25) x 4/3 kept in 0 .. 1.
