@@ -9,6 +9,10 @@
 #include "prologue_race.h"
 #include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/equipment.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/formats/db/car_parts.h"
 
 #include <cstdio>
 #include <random>
@@ -92,4 +96,48 @@ TEST(disc_bump_wave_and_low_speed_hold_equal_the_programs) {
         CHECK(wave.equal == wave.calls && hold.equal == hold.calls && hold.nonzero > 1000 && hold.nonzero < hold.calls);
     }
     if (!any) SKIP("needs the Gran Turismo 4 or the Prologue disc (GT4R_DISC)");
+}
+
+// Prologue's made gearboxes (sim::computed_gears: its 0x406190 over the generator 0x3E0BE0) against the program's own 0x406190
+// on the equipment its 0x407A08 makes for the car, word for word at every slider, on every car whose gearbox is made.
+TEST(disc_prologue_gear_ratios_equal_the_programs) {
+    Disc* disc = disc_of(Game::Prologue);
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    db::SpecDb sdb = diff::open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    diff::Ee ee;
+    diff::prologue::boot(ee, *disc);
+    std::printf("  the double at 0x572CB8: %016llX\n", (unsigned long long)ee.r64(0x572CB8));
+    CHECK(ee.r64(0x572CB8) == 0x3F50624DD2F1A9FBull);
+    const u32 eq_at = ee.alloc(0x400, 64);
+    size_t cars = 0, checked = 0, equal = 0;
+    for (const db::CarEntry& c : sdb.cars()) {
+        sim::Equipment eq;
+        if (!sim::stock_equipment(sdb, c.label, eq)) continue;
+        sim::Equipment probe = eq;
+        if (!sim::computed_gears(sdb, program, probe)) continue;
+        sim::Spec s;
+        sim::build_spec(sdb, program, eq, 0, s);
+        const int n = s.gears();
+        ++cars;
+        for (int slider = 10; slider <= 50; slider += 2) {
+            eq.set_b(sim::Equipment::GearSlider, u8(slider));
+            sim::Equipment ours = eq;
+            sim::computed_gears(sdb, program, ours);
+            for (u32 o = 0; o < 0x400; o += 4) ee.w32(eq_at + o, 0);
+            ee.call(0x407A08, {diff::Arg::ptr(eq_at), diff::Arg::integer(s64(db::part_id(0, c.id)))}, 50'000'000);
+            ee.w8(eq_at + 0x10A, u8(slider));
+            ee.call(0x406190, {diff::Arg::ptr(eq_at)}, 50'000'000);
+            bool same = true;
+            for (int i = 0; i <= n; ++i) same &= ee.r16(eq_at + 0xF8 + 2 * u32(i)) == ours.h(sim::Equipment::GearRatios + 2 * u32(i));
+            if (!same && checked - equal < 4) {
+                std::printf("  %s slider %d:", c.label.c_str(), slider);
+                for (int i = 0; i <= n; ++i) std::printf(" %d/%d", s16(ee.r16(eq_at + 0xF8 + 2 * u32(i))), s16(ours.h(sim::Equipment::GearRatios + 2 * u32(i))));
+                std::printf("\n");
+            }
+            ++checked, equal += same;
+        }
+    }
+    std::printf("  %zu cars with a made gearbox, %zu car and slider pairs checked, %zu equal\n", cars, checked, equal);
+    CHECK(cars > 10 && equal == checked);
 }

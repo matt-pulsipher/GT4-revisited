@@ -801,6 +801,7 @@ ConvertData convert_data(const Program& program) {
     for (u32 r = 0; r < d.special.size(); ++r)
         for (u32 k = 0; k < d.special[r].size(); ++k) d.special[r][k] = program.b(PrologueProgram::kSpecialBodies + 0x78 * r + k);
     for (u32 k = 0; k < 8; ++k) d.lsd[k] = program.b(PrologueProgram::kLsdLetters + k);
+    for (u32 k = 0; k < d.gear_steps.size(); ++k) d.gear_steps[k] = program.b(0x504AF0 + k);
     d.awd3_gain = program.b(PrologueProgram::kAwd3), d.awd3_cap = program.b(PrologueProgram::kAwd3 + 1);
     d.kind7_tire = program.b(PrologueProgram::kKind7Tire);
     d.air_density = cvt(d.statics[0]) * kTenth;
@@ -896,6 +897,40 @@ void core_spec(const Spec& s, const std::string& label, int course_kind, const C
         for (u32 i = 0; i < 16; ++i)
             if (out[B + 0x4B + i] == 0) out[B + 0x4B + i] = out[0x18D + i];
     }
+}
+
+void gear_ratios(const ex::Spec& spec, const ConvertData& d, int slider10, gt3r::s16 out[8]) {
+    ex::Spec copy = spec;
+    std::array<u8, 0x10> drive{};
+    const ConvertIn in{};
+    Ctx c{Img{copy.data()}, Img{drive.data()}, d, in, 0};
+    layout(c, 0); // (only the driven axle, D +3, is read)
+    F radius, width, side;
+    tire_size(c, c.p.b(3), radius, width, side);
+    const int n = c.s.b(0xC8);
+    const u32 row = 6 * u32((n < 5 ? 5 : n) - 5);
+    auto step = [&](u32 k) { return k200 / cvt(row + k < d.gear_steps.size() ? d.gear_steps[row + k] : 0); };
+    const F t = cvt(slider10 - 150) / F::raw(0x437A0000);
+    const gt3r::sim::Behaviour h = rules::behaviour();
+    const F final_drive = ex::narrow(h, ex::mul(h, ex::widen(h, cvt(c.s.sh(0xC6))), D::raw(0x3F50624DD2F1A9FBull))); // (0x572CB8: 0.001, a unit low)
+    F r = cvt(100 * s32(c.s.b(0x6F))) * kRpm;
+    r = r * radius;
+    r = r / (cvt(slider10) * kKmh);
+    r = r / final_drive;
+    auto eased = [&](u32 a, u32 b) {
+        const F lo = step(b);
+        return lo + t * (step(a) - lo);
+    };
+    F q1 = eased(0, 1), q2 = eased(2, 3);
+    const F q3 = eased(4, 5);
+    for (int i = n; i > 0; --i) {
+        if (i == 1) r = r * q3;
+        const F v = r * F::raw(0x447A0000);
+        r = r * q1, q1 = q1 * q2;
+        if (i < 8) out[i] = gt3r::s16(u16(u32(to_int(v)))); // (the low 16 bits)
+    }
+    const int rev = 3 * int(out[1]) + int(out[2]);
+    out[0] = gt3r::s16(rev / 4); // (toward zero)
 }
 
 void convert(ex::Spec& spec, const ConvertData& d, const ConvertIn& in, u32 base, Block& block) {

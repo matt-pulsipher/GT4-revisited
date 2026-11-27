@@ -3,9 +3,11 @@
 
 #include "gt4r/sim/car_spec.h"
 
+#include "gt4r/sim/convert_prologue.h"
+
 #include "base/ee_float.h"
 #include "gt4r/sim/convert.h"
-#include "sim/car_spec.h" // (the shared engine's gear ratio generator: Prologue's for now)
+#include "gt4r/sim/exact_bridge.h"
 
 #include <cstring>
 
@@ -424,12 +426,12 @@ bool computed_gears(db::SpecDb& db, const Program& program, Equipment& eq) {
     if (n < 1 || n > 7) return false;
     gt3r::s16 out[8] = {};
     if (program.known()) gear_ratios(s, program, 10 * int(eq.b(E::GearSlider)), out);
-    else { // ❓ Prologue: the shared engine's generator (Gran Turismo 3's 0x1E28A8) until Prologue's own is placed
-        const int axle = s.drive() == 1 || (s.drive() == 2 && s.b(0x129) == 0) ? 0 : 1;
-        const int rim = s.b(0x1CA + u32(axle));
-        gt3r::sim::generate_gear_ratios(n, s.b(0xBD), s.h(0x150), rim < 61 ? rim : (rim + 5) / 10, s.b(0x1C8 + u32(axle)), s.b(0x1CC + u32(axle)),
-                                        eq.b(E::GearSlider), out, s.drive(), s.b(0x129));
-    }
+    else if (program.prologue_values()) { // (Prologue's 0x406190: its generator 0x3E0BE0 on the inner builder's spec)
+        gt3r::sim::exact::Spec core{};
+        sim::core_spec(s, core);
+        core[0xC8] = u8(n); // (the row's gear count: the core's counts only the ratios the equipment holds)
+        prologue::gear_ratios(core, prologue::convert_data(program), 10 * int(eq.b(E::GearSlider)), out);
+    } else return false;
     for (int i = 0; i <= n; ++i) eq.set_h(E::GearRatios + 2 * u32(i), u16(out[i]));
     return true;
 }

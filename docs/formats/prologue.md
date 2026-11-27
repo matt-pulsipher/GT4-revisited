@@ -227,6 +227,14 @@ and the converter (0x3C74B8) are ported whole (`convert_prologue.*`); `GT4R_CONV
 program's builder and converter in the interpreter on all 83 cars of its database and ours on the same: every spec byte and
 every word of the parameter block equal (test `disc_prologue_converter_equal`).
 
+- *A made gearbox* (`sim::computed_gears` on a Prologue program, `prologue::gear_ratios`): 0x406190 (Gran Turismo 4's
+  0x443240) builds the equipment's spec (0x404620) and calls 0x3E0BE0 (Gran Turismo 4's 0x354FF8) with the slider (equipment
+  +0x10A) x 10, the ratios into the equipment's +0xF8. 0x3E0BE0 is Gran Turismo 4's rule on the core's layout: the gears +0xC8,
+  the rev byte +0x6F, the driven axle's (0x3DFFD0's D +3) tire radius (0x3DFE98), the steps table 0x504AF0 (rows of 5, 6, 7
+  gears; fewer take 5's), but the final drive (+0xC6) x 0.001 in the soft doubles (0x4B5AC0, 0x4B5E20 with the double at
+  0x572CB8, 0x3F50624DD2F1A9FB, 0x4B63C0: the later builds', toward zero). The builder's own 0x3DF1C8 makes a spec's ratios the
+  same way when its +0xCA and +0xCB (the slider; 0xFF reads as 255 km/h) are set. ✔ word for word with the program's
+  0x406190 on all 23 made gearboxes at sliders 10 .. 50 (test `disc_prologue_gear_ratios_equal_the_programs`).
 - *The spec* (`prologue::core_spec`): ours is Gran Turismo 4's builder on the database in Gran Turismo 4's layout, read into
   the core's layout (`core_spec`), with the inner builder's own bytes where they differ: no byte +0x0F, the pitch and roll
   inertia bytes +0x2F / +0x30 as the chassis row has them, the gearbox's kind +0xE1 (our spec's +0x158), no controller bytes
