@@ -362,8 +362,9 @@ void terrain(ex::Car& c, const CarPart& x);
 // it, by the wheel layout; Gran Turismo 4's axes; the downward speed held to the ground plane's.
 void bump_nudge(ex::Car& c, const CarPart& x);
 
-// 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
-// (0x377310: the pitch before the roll).
+// 0x3C4D80 (the layout's kind 0): the ground's pitch from the axles' mean heights over the wheelbase, its roll and height from
+// the sides' heights at the center of gravity (by the rear weight) over the track, its axes as Gran Turismo 4's (0x377310: the
+// pitch before the roll). (Its kinds 1 .. 3, the layout rows of the special kinds 4 .. 6, are not ported: no car has them.)
 void ground_frame(ex::Car& c);
 
 } // namespace gt4r::sim::prologue

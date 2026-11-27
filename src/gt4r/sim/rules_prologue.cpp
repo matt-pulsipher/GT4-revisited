@@ -717,7 +717,7 @@ void one_speed_gear(ex::Car& c) {
     } else if (walk < c.speed || F() < c.throttle) {
         if (c.gear == 0) g = 1;
     } else if (c.speed < -walk && c.gear != 0) g = 0;
-    if (g >= 0) ex::set_gear(c, u8(g));
+    if (g >= 0) c.gear = u8(g);
 }
 } // namespace
 
@@ -1416,8 +1416,16 @@ void bump_nudge(ex::Car& c, const CarPart& x) {
 }
 
 void ground_frame(ex::Car& c) {
-    ex::ground_frame(c);
-    rules::body_axes(c.ground_pitch, c.ground_roll, c.heading, c.ground_fwd, c.ground_lat, c.ground_up);
+    // (the layout's kind 0, the only one Prologue's cars have: its row 0, the special kinds 4 .. 6 that pick the others none)
+    const F g0 = c.w[0].ground, g1 = c.w[1].ground, g2 = c.w[2].ground, g3 = c.w[3].ground;
+    const F w = c.p.rear_weight, half = F::raw(0x3F000000);
+    c.ground_pos.x = c.pos.x, c.ground_pos.y = c.pos.y;
+    const F rise = ((g0 + g1) - (g2 + g3)) * half;
+    const F u = g0 + (g2 - g0) * w, v = g1 + (g3 - g1) * w;
+    c.ground_pitch = ex::atan2(c.behaviour, rise, c.p.wheelbase);
+    c.ground_roll = ex::atan2(c.behaviour, u - v, c.p.track);
+    c.ground_pos.z = (u + v) * half;
+    rules::body_axes(c.ground_pitch, c.ground_roll, c.heading, c.ground_fwd, c.ground_lat, c.ground_up); // (0x377310)
 }
 
 } // namespace gt4r::sim::prologue
