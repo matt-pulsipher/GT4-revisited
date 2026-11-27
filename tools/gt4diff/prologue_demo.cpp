@@ -85,8 +85,11 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
     };
     std::vector<std::string> labels;
     for (size_t i = 0; i < run->entries.size() && i < pool.size(); ++i) labels.push_back(pool[i].car);
+    std::shared_ptr<AiCheck> ai; // (GT4R_DEMO_AI=1: the computer drivers' routines checked call by call, prologue_ai.cpp)
+    if (std::getenv("GT4R_DEMO_AI") && labels.size() > 1 && !(ai = ai_check(ee, r, int(labels.size()), disc, ev->course, err))) std::printf("  ai: %s\n", err.c_str());
     if (!setup_race(ee, disc, sdb, ev->course, labels, 1, r, err, true, &lesson)) return std::printf("%s\n", err.c_str()), 1;
     if (lesson.row.empty()) std::printf("  (no RACE row %u)\n", u32(run->event));
+    if (ai) ai_check_lines(ee, r, *ai, ev->course);
     const bool rolling = ee.r8(r.cond + 0x107CE) != 0; // (no start hold)
     std::printf("  rules: start %d km/h at %d m\n", ee.r8(r.cond + 0x107CE), s16(ee.r16(r.cond + 0x107D4)));
     ee.w32(r.info, std::max(1, ev->laps)), ee.w32(r.info + 4, 1);
@@ -125,6 +128,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
             std::printf("  step %zu: %d fields differ%s\n", i, n, diff.c_str());
         }
     }
+    if (ai) ai_check_print(*ai);
     return 0;
 }
 

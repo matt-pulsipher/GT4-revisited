@@ -1,6 +1,7 @@
 #include "gt4r/sim/program.h"
 
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/program_tables_prologue.h"
 
 #include "base/log.h"
 #include "disc/core_image.h"
@@ -10,6 +11,7 @@
 #include <exception>
 #include <map>
 #include <mutex>
+#include <set>
 
 namespace gt4r::sim {
 
@@ -33,6 +35,25 @@ std::shared_ptr<const TableCheck> checked(const std::shared_ptr<const gt3r::Core
     }
     slot = {core, c};
     return c;
+}
+
+// A Prologue disc's program against Prologue's tables, once per image (logged).
+void prologue_checked(const std::shared_ptr<const gt3r::CoreImage>& core, bool recognized) {
+    static std::mutex m;
+    static std::map<const gt3r::CoreImage*, std::weak_ptr<const gt3r::CoreImage>> done;
+    std::lock_guard<std::mutex> lock(m);
+    auto& slot = done[core.get()];
+    if (!slot.expired()) return;
+    slot = core;
+    const TableCheck c = check_prologue_tables(core->program, core->load_address, recognized);
+    for (const TableCheck::Row& r : c.rows)
+        if (!r.found) LOG_WARN("Prologue's tables: %s (0x%06X in SCPS-15055 v1.01): not placed in this program; ours serve", r.table->what, r.table->address);
+        else if (r.differing)
+            LOG_WARN("Prologue's tables: %s (0x%06X): %u of %zu bytes unlike ours, the first at +0x%X; ours serve", r.table->what, r.table->address, r.differing,
+                     r.table->bytes.size(), r.first_differing);
+    const size_t equal = c.rows.size() - c.differ() - c.not_found();
+    if (equal == c.rows.size()) LOG_INFO("Prologue's tables: %zu of %zu equal to the disc's program", equal, c.rows.size());
+    else LOG_WARN("Prologue's tables: %zu of %zu equal to the disc's program, %zu differ, %zu not placed", equal, c.rows.size(), c.differ(), c.not_found());
 }
 
 } // namespace
@@ -60,10 +81,14 @@ Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core, bool pro
     p.base_ = p.core_->load_address;
     if (PrologueProgram::locate(p).recognized()) {
         p.issue_ = kPrologue;
+        p.prologue_ = true;
+        prologue_checked(p.core_, true);
         return p;
     }
-    if (prologue_disc) { // (never Gran Turismo 4's tables, nor the shared engine's, for a Prologue build not placed)
+    if (prologue_disc) { // (never Gran Turismo 4's tables, nor the shared engine's, for a Prologue build not placed: Prologue's)
         p.issue_ = "a Gran Turismo 4 Prologue build whose tables are not placed";
+        p.prologue_ = true;
+        prologue_checked(p.core_, false);
         return p;
     }
     p.known_ = p.ours_ = true;
@@ -94,6 +119,13 @@ u8 Program::b(u32 addr) const {
             if (told.fetch_add(1) < 8) LOG_WARN("Program tables: a read at 0x%06X, outside Gran Turismo 4's tables (0)", addr);
         }
         return 0;
+    }
+    if (prologue_) {
+        if (const ProgramTable* t = prologue_table_at(addr)) return t->bytes[addr - t->address];
+        static std::mutex m; // (each 256 bytes read outside them told once, at most 64)
+        static std::set<u32> told;
+        std::lock_guard<std::mutex> lock(m);
+        if (told.size() < 64 && told.insert(addr >> 8).second) LOG_WARN("Prologue's tables: a read at 0x%06X, outside them (the image's)", addr);
     }
     if (!core_ || addr < base_ || addr - base_ >= core_->program.size()) return 0;
     return core_->program[addr - base_];

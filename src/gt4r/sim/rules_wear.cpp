@@ -233,7 +233,7 @@ std::array<u8, 0x6C> wear_rules_block(const u8* r, bool second_on, const Program
     std::array<u8, 0x6C> b{};
     auto put = [&](u32 o, F v) { std::memcpy(&b[o], &v.bits, 4); };
     const F milli = F::raw(0x3A83126E), centi = F::raw(0x3C23D70A), tenk = F::raw(0x461C4000), hundred = F::raw(0x42C80000);
-    if (second_on && program.b(0x620B60) != 0) {
+    if (second_on && program.known() && program.b(0x620B60) != 0) { // (Gran Turismo 4's second set: none on a Prologue program)
         for (u32 k = 0; k < 7; ++k) put(0x30 + 4 * k, int_to_f(s16(program.h(0x620B62 + 2 * k))) * milli);
         put(0x4C, (int_to_f(s16(program.h(0x620B70))) * milli) * F::raw(0x38D5FEC0));
         put(0x50, int_to_f(program.b(0x620B72)) * F::raw(0xBC23D70A));

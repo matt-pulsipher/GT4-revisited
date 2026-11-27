@@ -133,7 +133,7 @@ void PTaps::add(PTap tap) {
 }
 
 void PTaps::enter(size_t tap) {
-    const u32 car = u32(ee_.a(0));
+    const u32 car = taps_[tap].car_of ? taps_[tap].car_of(ee_) : u32(ee_.a(0));
     int index = -1;
     for (int i = 0; i < race_.cars; ++i)
         if (race_.car(i) == car) index = i;
@@ -143,6 +143,7 @@ void PTaps::enter(size_t tap) {
     p.before.behaviour = sim::rules::behaviour();
     ex::load_image(p.before, im.data());
     p.before.later.ratio = gt3r::ee::F::raw(ee_.r32(car + 0xD8 + 0x3A4)); // (a stepless gearbox's ratio word)
+    if (taps_[tap].fill) taps_[tap].fill(ee_, car, p.before);
     p.mine = p.before;
     PTapCall call{ee_, car, index, p.mine, inputs_};
     taps_[tap].ours(call);
@@ -163,6 +164,7 @@ void PTaps::leave(u32 ra) {
     after.behaviour = p.before.behaviour;
     const std::vector<u8> im = gt3_image(ee_, p.car);
     ex::load_image(after, im.data());
+    if (taps_[p.tap].fill) taps_[p.tap].fill(ee_, p.car, after);
     if (taps_[p.tap].at_exit) { // (ours on the record as the program leaves it: only what ours writes is compared)
         p.mine = after;
         PTapCall call{ee_, p.car, p.index, p.mine, inputs_};
