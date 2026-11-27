@@ -704,9 +704,11 @@ Gran Turismo mode sequences copy the block back into the riding car's record aft
 not the license tests', missions' or Arcade's, whose cars are not the garage's), so Car Wash's
 gauge (`dirtiness`) shows the dirt (`RaceResult::condition`, ✔ test `disc_car_gets_dirty`: 20 s
 of Grand Canyon 0.016, Tsukuba's road 0). A run without Gran Turismo 4's step (no block kept) has
-its distance added once instead (`add_distance`). ❓ The car's drawing does not read the dirt
-through its scripts (no body script on the US disc reads `dirtiness`, one of the model scripts'
-values, 0x6AAB70); whether the race draws dirt on the car otherwise is not read.
+its distance added once instead (`add_distance`). The race draws no dirt: the race car's dirt
+(+0x6E8) has one reader, `RaceCarParamSponsor::vf22` (0x3D75B0 -> 0x344A70), the model scripts'
+value `dirtiness` (0x6AAB70), and no car model's script on the US, European, Japanese or Prologue
+disc reads that value (`gt4tool car-scripts`: the values read are brake, engineRPM, pedalLeft,
+pedalRight and time).
 
 **The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
@@ -1037,14 +1039,27 @@ entry (+0x48, round), the count down one. A try that spends the time-out's tries
 answered 0, is the last; the movie skipped (`menu_result` "terminate") ends it too; then the last
 project again (0x42FC50: the title, focus on Arcade Mode). The kinds by name (0x622D90): none,
 autodemo (an Arcade demo race, 0x10BA28), menu (a project), replay (the card's replays 0x4349A8,
-then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text, so
-the US and European lists' `Demo(2, "Rdemo0")` .. (a number) are kind none and play nothing: with
-the option at 3 every time-out plays the movie once (✔ reference 01-boot, 28's attract cycle: the
-movie, no demo race), at 5 every other time-out, at 1 three times running, at 0 never.
-`resetMovieCount` (the Misc options' OK) sets the count to 0: the movie at the next time-out.
-Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ test
-`disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
-kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
+then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text. The
+configuration's list holds `Demo(2, "Rdemo0")` .. `Demo(2, "Rdemo12")` (Europe `Rdemo0p` ..
+`Rdemo10p`, Korea four `Rdemo<n>k`; Japan its own 17), and `setNextDemo` sets `demonstration.type =
+demo.getType()`, which names 0 autodemo, 1 menu, 2 replay: every Gran Turismo 4 disc's list is kind
+replay (`gt4tool adc <disc> config/config-main.adc`; checked on the US, European and Japanese discs;
+no list gives 0 or 1, and skip_replay is never set). The jump table at 0x68D000 sends replay (and
+autodemo) to 0x10BEF0: the card's replays first (0x4349A8), else the disc's recording by its name
+(0x10BBB0, the file read from the disc, a RaceReplayInformation race run); a key that ends that
+replay (end code 2) ends the time-out. So on the console a time-out with the option at 3 plays two
+recorded races and then the movie (the count 2, 1, 0). PCSX2 cannot read the disc's recordings
+(the Replay Theater's "Data is corrupted", reference 28), so its attract cycle (reference 01-boot,
+28) shows the movie and then the title. With the option at 5 the movie every other time-out, at 1
+three times running, at 0 never. `resetMovieCount` (the Misc options' OK) sets the count to 0: the
+movie at the next time-out. Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's
+time-out (✔ test `disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title:
+the movie): a recorded race of the list (replay/Rdemo0/Rdemo0 ..) plays as the Replay Theater's
+Demo tab plays it (the sequence "replay", `RaceStart::attract`), the game's mark over it; any button
+ends it and the time-out (its `menu_result` "terminate"), the title again with its wait from that
+key (✔ by pictures: a new game, the title left 20 s: Rdemo0, George V Paris, the Bentley; Cross:
+the title, Arcade Mode; 20 s later Rdemo1, El Capitan). ❓ The card's replays, which 0x4349A8 plays
+before the disc's, are not played here.
 
 ❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace` (the Analyzer's course map too), `EyetoyFace`, `VirtualFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).

@@ -4,17 +4,20 @@
 
 #include "menu_run_flow.h"
 
+#include "orig.h"
 #include "save_check.h"
 
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/menu/save_editor.h"
 #include "gt4r/menu/save_editor_prologue.h"
+#include "gt4r/save/codec.h"
 #include "gt4r/save/memory_card.h"
 #include "gt4r/save/prologue_data.h"
 #include "gt4r/save/save_edit.h"
 
 #include <cstdio>
 #include <filesystem>
+#include <random>
 
 using menu::SaveEditor;
 namespace fs = std::filesystem;
@@ -255,6 +258,73 @@ TEST(disc_save_edit_events_and_prizes) {
     CHECK(e.write() && e.program_reads());
     ed.win_all(false);
     CHECK(!ed.won(sunday) && !ed.entered(sunday) && ed.completion() < 100);
+}
+
+// A garage slot's coding (save/codec.h encode_slot) as the disc's program reads it back (0x1CEEC0's steps), for 403 slots of
+// random keys, places, stamps and records: the bit shuffle's draws on the EE's multiplier, which now and then gives one less
+// than the chopped product (about one slot in 200 came out wrong while the shuffle took the exact product).
+TEST(disc_save_slot_coding) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    using diff::Arg;
+    db::SpecDb sdb = diff::open_db(*disc);
+    diff::Ee ee;
+    diff::boot(ee, *disc, sdb);
+    ee.hle(0x5B8450, [](diff::Ee& e) { e.set_v0(12345); }, "clock"); // (as check_save: the timer and the locks' kernel calls)
+    for (u32 call = 0x5AD880; call < 0x5ADF70; call += 16) ee.hle(call, [](diff::Ee& e) { e.set_v0(1); }, "kernel");
+    const u32 slot = ee.alloc(save::kSlotSize, 64), mt = ee.alloc(0x9D0, 64), lcg = ee.alloc(16, 64);
+    std::mt19937 random(20261126);
+    int bad = 0;
+    // (First three that came out wrong: on the exact product, and with the multiplication's operands the other way round.)
+    const u32 known[3][3] = {{0xE9E064EB, 422, 0x751C9383}, {0xBFA8DE34, 173, 0x5DE34173}, {0x0FA3A624, 201, 0x55322BF3}};
+    for (int n = 0; n < 403; ++n) {
+        const u32 key = n < 3 ? known[n][0] : random(), index = n < 3 ? known[n][1] : random() % 1000, stamp = n < 3 ? known[n][2] : random();
+        Bytes record(0x4B8);
+        for (u8& b : record) b = u8(random());
+        const Bytes coded = save::encode_slot(ByteSpan(record.data(), record.size()), key, index, stamp);
+        std::memcpy(ee.host_ptr(slot, save::kSlotSize), coded.data(), save::kSlotSize);
+        ee.call(0x579420, {Arg::ptr(mt), Arg::integer(s32(key + index))});
+        ee.call(0x1D4BA0, {Arg::ptr(slot), Arg::integer(s32(save::kSlotSize)), Arg::ptr(mt)});
+        const u32 t = ee.r32(slot), crc = ee.r32(slot + 4);
+        ee.call(0x579420, {Arg::ptr(mt), Arg::integer(s32(key ^ t))});
+        ee.call(0x5792E8, {Arg::ptr(lcg), Arg::integer(s32(crc))});
+        ee.call(0x5D2750, {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotSize - 8)), Arg::ptr(mt), Arg::ptr(lcg)});
+        const bool good = t == stamp && u32(ee.call(0x572C90, {Arg::ptr(slot + 8), Arg::integer(s32(save::kSlotChecked))}).v0_s32()) == crc &&
+                          std::memcmp(ee.host_ptr(slot + 8, 0x4B8), record.data(), 0x4B8) == 0;
+        if (!good && bad++ < 5) std::printf("  key 0x%08X, slot %u, stamp 0x%08X: the program reads another record\n", key, index, stamp);
+    }
+    std::printf("  403 slots, %d read wrong\n", bad);
+    CHECK(bad == 0);
+}
+
+// A new game and a garage car as our writer makes them, read by each release's own program (US v1.01 and Japan's v1.05; the
+// interpreter has no map for Europe's): its decoder's payload size, its check and read, its write giving back the same bytes,
+// the garage header. Japan's options block is longer (save/game_data.h Layout): the Japanese program refuses the US layout.
+TEST(disc_save_layout_each_release) {
+    int checked = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4 || d->info().region == "uk") continue;
+        const fs::path dir = fs::temp_directory_path() / ("gt4r-test-save-layout-" + d->info().region);
+        fs::remove_all(dir);
+        db::SpecDb sdb(reader(*d), config(*d).list, "american");
+        save::GameSave card((dir / "memorycard").string(), save::database_codes(sdb), reader(*d), d->info().product);
+        menu::GameState s;
+        s.option_defaults(d->info().region);
+        s.username = "Driver", s.money = 123'456;
+        s.monitor_params.assign(0x2C, 1);
+        const bool saved = card.save_new(s, "Game Data") == save::Result::Ok;
+        CHECK(saved);
+        const auto place = save::edit_place((dir / "memorycard").string(), d->info().product);
+        const auto files = saved && place ? save::read_files(*place, d->info().product) : std::nullopt;
+        CHECK(files.has_value());
+        if (!files) continue;
+        const diff::SaveCheck r = diff::check_save(*d, files->game, files->garage, {});
+        std::printf("  %s: decoded %d (0x%zX bytes), valid %d, %zu bytes written differently, garage %d, money %lld\n",
+                    d->info().product.c_str(), r.decoded, r.payload, r.valid, r.differ, r.garage, static_cast<long long>(r.money));
+        CHECK(r.ok() && r.money == s.money);
+        ++checked;
+    }
+    if (!checked) SKIP("set GT4R_DISC to a Gran Turismo 4 disc (US or Japan)");
 }
 
 TEST(disc_save_edit_garage) {

@@ -779,10 +779,12 @@ void RaceHud::Impl::draw_words(const HudState& s) {
     }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48", s.split ? 75 : 100), race::place_x(*p, true), float(p->y), kCentered, kTextGray, s.message_opacity, s.message);
-    // The A-spec points (members 0x267C and 0x27CC).
+    // The A-spec points (members 0x267C and 0x27CC): at their rows where the tables have them (Japan's), else 320, 264 and 304.
     if (s.points_opacity > 0) {
-        draw_text(font("hb_24", 100, 1), 320, 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
-        draw_text(font("hb_24", 130, 1), 320, 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
+        const DisplayPlace* title = cur->find(element::kPointsTitle);
+        const DisplayPlace* line = cur->find(element::kPointsLine);
+        draw_text(font("hb_24", 100, 1), title ? race::place_x(*title, true) : 320, title ? float(title->y) : 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
+        draw_text(font("hb_24", 130, 1), line ? race::place_x(*line, true) : 320, line ? float(line->y) : 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
     }
 }
 
@@ -1156,6 +1158,17 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).
         if (!split_ready() || (s.replay && !s.replay_display)) return;
         const OriginScope scope(s.split == 1 ? SDL_FPoint{0, s.half == 0 ? 10.0f : 240.0f} : SDL_FPoint{s.half == 0 ? 0.0f : 320.0f + game_area::side(), 0});
+        // (Side by side wider than 16:9: each half's top parts as at 16:9, at the half's sides and middle, clear of the in-car mirror.)
+        struct HalfScope {
+            bool on;
+            explicit HalfScope(bool side_by_side) : on(side_by_side && game_area::side() > 320.0f / 3 + 0.01f) {
+                if (on) race::set_wide_push(96), race::set_half_extra(game_area::side() - 320.0f / 3);
+            }
+            ~HalfScope() {
+                if (on) race::set_wide_push(race::anchor_push(game_area::side())), race::set_half_extra(0);
+            }
+        };
+        std::optional<HalfScope> half_scope(std::in_place, s.split == 2); // (the top parts and the words; the panel has its own form)
         impl_->cur = &impl_->split[s.split - 1];
         if (faded) return impl_->draw_words(s);
         if (s.replay)
@@ -1171,6 +1184,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_map(s);
         impl_->draw_top(s);
         edge.reset();
+        half_scope.reset();
         if (s.split == 1 && s.half == 1) edge.emplace(1);
         if (s.show_meter) impl_->draw_chase_panel(s);
         return;

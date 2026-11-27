@@ -438,8 +438,14 @@ std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int ga
 // without the suspension and turbine kit it lacks: game_car.cpp).
 int parts_owned_from(int type, bool japan);
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
-// run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
+// run and its argument (the movie), or a recorded race of the disc to play (`replay`: its file, "replay/Rdemo0/Rdemo0"); none
+// when the sequence is over. `first` at the time-out, then after each one played; a played one left with a key sets the
+// game's menu_result "terminate", which ends the sequence (0x10BBB0's end code 2).
+struct DemoStep {
+    std::string project, arg;
+    std::string replay;
+};
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first);
 // The Replay Theater's play list played (the load_replay sequence's loop, 0x10CA50, game_replays.cpp): the next replay of
 // the card's list as its sequence picks it (0x4349A8: in order or shuffled, the missing passed over) set to be shown
 // (`replay_file`, `next_sequence` "replay"). `start`: the theater's Play of its PlayList folder; else after a replay of the

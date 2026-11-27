@@ -95,10 +95,12 @@ bool next_demonstration(Runtime& rt) {
 
 // 0x10BE20: a time-out's demonstrations, one at a time. `first`: the sequence starts (0x434638: the tries anew; with
 // restart_from_beginning, the list and the movie's count from their start). The menu project to run and its argument
-// (the movie), or none when the sequence is over (the menus go back to the last project, 0x42FC50). Kinds 1, 3 and 4
-// (the card's replays, a recorded race, an Arcade demo race: 0x4349A8, 0x10BBB0, 0x10BA28) are not set by the disc's
-// scripts (their list gives the number 2, which names no kind) and play nothing here.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first) {
+// (the movie), the disc's recorded race (kind 3, replay: the jump table 0x68D000 sends it to 0x10BEF0, the card's replays
+// first by 0x4349A8, else the recording by the entry's name through 0x10BBB0), or none when the sequence is over (the menus
+// go back to the last project, 0x42FC50). Every disc's list is kind replay (setNextDemo: Demo(2, "RdemoN").getType() names 2
+// "replay"); kinds 1 (an Arcade demo race, 0x10BA28) and 4 are never set. ❓ The card's replays before the disc's are not
+// played here.
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first) {
     GameState& s = rt.game();
     GameState::Demonstration& d = s.demonstration;
     if (first) {
@@ -109,11 +111,17 @@ std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bo
         }
         d.more = true;
     } else if (s.menu_result == "terminate") {
-        d.more = false; // (the movie skipped: 0x10C008)
+        d.more = false; // (the movie skipped: 0x10C008; a recorded race left with a key: 0x10BBB0's end code 2)
     }
     while (d.more) {
         d.more = next_demonstration(rt);
-        if (d.type == 2) return std::make_pair(d.name, d.arg);
+        if (d.type == 2) return DemoStep{d.name, d.arg, {}};
+        if (d.type == 3 && !d.name.empty()) {
+            const std::string file = "replay/" + d.name + "/" + d.name;
+            if (rt.reader()(file)) return DemoStep{{}, {}, file};
+            rt.note("the demonstration's recording " + file + " is not on the disc");
+            continue;
+        }
         if (d.type != 0) rt.note("the demonstration's kind " + std::to_string(d.type) + " (" + d.name + ") plays nothing here");
     }
     return std::nullopt;
