@@ -212,6 +212,7 @@ price = 31500                ; credits (the donor's when left out)
 category = tuning            ; normal | racing | tuning | concept
 donor = impreza_wrx_sti_00   ; needed: every part the file leaves out is the donor's (gt4tool car <disc> lists the labels)
 model = rx8_03               ; optional: another car of the disc whose body and paints it has (else the donor's)
+fit_body = yes               ; that body stretched to the dimensions below (no: drawn as it is)
 [body]
 weight_kg = 1180             ; also front_weight_pct, length_mm, width_mm, height_mm, wheelbase_mm,
 front_track_mm = 1500        ;   rear_track_mm, ride_height_mm, cd, frontal_area_m2;
@@ -230,6 +231,12 @@ grip_pct = 105               ; its tires as sold
 [dealer]
 for_sale = yes               ; at its maker's dealer in Gran Turismo mode
 thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's; logo = the name's artwork (PNG)
+[model]
+file = models/my_coupe.glb   ; a body of its own (binary glTF, as GT3 Revisited's MODDING.md "Car models" says); also
+                             ;   menu = (the dealers' and showrooms'), race =, day =, eve =, night = (a race's by the time
+                             ;   of day), each falling back to the others; lower_mm = moves it down
+[paints]                     ; a body of its own's colors, in the menus' order: name = #RRGGBB
+Carmine Red = #9B1B24
 [opponent]
 races = am_sunday_*          ; Gran Turismo mode's races whose opponents it may be drawn among (gt4tool ai <disc> events
                              ;   lists the labels; * at the end: every race whose label starts so), as sold
@@ -238,8 +245,11 @@ races = am_sunday_*          ; Gran Turismo mode's races whose opponents it may 
 ```
 
 The car is made of the donor's rows of the game's own database (docs/formats/database.md "Mod cars"), so it races,
-is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model and pictures, or
-the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
+is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model stretched to its
+length, wheelbase, width and height (the wheel arches over its wheels), or with a body of its own in that model's place
+(the body car's wheels, lamps, shadow, driver and camera places; glTF's metres, +Y up, the car facing +Z, the origin on
+the ground at the wheelbase's middle; materials by name as GT3 Revisited reads them, the paint ones in the [paints]
+color chosen), and with its body car's pictures or the mod's. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
 there). The Mods page lists each mod's cars, and why one is not in the game; `gt4tool modcar <disc> <mods folder>
 [disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
 gives: with its mod removed (or switched off) the garage leaves the car out and the save keeps it as it was, the car driven
@@ -247,8 +257,7 @@ too (no car is driven meanwhile); with the mod back the car is there again. A mo
 page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod removed while the game runs
 leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
-their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
-mods' makers (`makers/`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
+their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: mods' makers (`makers/`), another rim for a body of its own (`[model] wheel`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
 the Priuses', the Insight's and the DN-X's, each work beside one; a car made from one of them keeps it), and a drive of
 ours would behave as no car of the game does; one gear and a curve of your own come closest.
 

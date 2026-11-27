@@ -3,6 +3,7 @@
 #include "gt4r/formats/db/mod_cars.h"
 
 #include "base/file.h"
+#include "formats/model/gltf.h"
 #include "formats/png_reader.h"
 
 #include <algorithm>
@@ -25,11 +26,10 @@ std::string lower_ext(const std::string& p) {
     return e;
 }
 
-// The files of a car file a package carries, as written (paths from the mod's folder): its pictures. (Its bodies of its own,
-// [model], are not drawn by this game yet: a package neither carries nor takes them.)
+// The files of a car file a package carries, as written (paths from the mod's folder): its pictures and its bodies of its own.
 std::vector<std::string> named_files(const db::ModCarDef& d) {
     std::vector<std::string> out;
-    for (const std::string* s : {&d.thumb, &d.picture, &d.logo})
+    for (const std::string* s : {&d.thumb, &d.picture, &d.logo, &d.model_file, &d.model_menu, &d.model_race, &d.model_time[0], &d.model_time[1], &d.model_time[2]})
         if (!s->empty() && std::find(out.begin(), out.end(), *s) == out.end()) out.push_back(*s);
     return out;
 }
@@ -149,6 +149,15 @@ bool validate_package(const gt3r::game::ModPackage& p, db::SpecDb& db, const std
             if (!size || size->first == 0 || size->second == 0 || size->first > 2048 || size->second > 2048) return fail(error, f.path + " is not a picture of at most 2048 a side");
             try {
                 gt3r::decode_png(f.data, 2048);
+            } catch (const std::exception& ex) {
+                return fail(error, f.path + ": " + ex.what());
+            }
+        } else if (e == "glb") {
+            // A body: one the loader reads whole, its pictures at most 2048 a side.
+            try {
+                gt3r::GlbOptions o;
+                o.max_texture_dim = 2048;
+                if (gt3r::load_glb(f.data, o).meshes.empty()) return fail(error, f.path + " has nothing to draw");
             } catch (const std::exception& ex) {
                 return fail(error, f.path + ": " + ex.what());
             }
