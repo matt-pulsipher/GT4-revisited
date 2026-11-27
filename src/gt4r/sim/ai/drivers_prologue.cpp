@@ -2,9 +2,11 @@
 
 #include "base/ee_double.h"
 #include "base/ee_math.h"
+#include "gt4r/sim/ground.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/rules_build.h"
+#include "gt4r/sim/rules_input.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/tick.h"
 
@@ -125,7 +127,7 @@ void road_under(const gt3r::sim::Behaviour& bh, const ex::CourseQuery& q, ex::Ai
     if ((m1 && m2) || (m3 && m4)) return;
     p.slope = m1 ? ex::atan2(bh, at - h2, kHalf) : m2 ? ex::atan2(bh, h1 - at, kHalf) : ex::atan2(bh, h1 - h2, kOne);
     p.bank = m3 ? ex::atan2(bh, at - h4, kHalf) : m4 ? ex::atan2(bh, h3 - at, kHalf) : ex::atan2(bh, h3 - h4, kOne);
-    p.height = at, p.surface = s8(ex::surface_index(g)), p.x13 = u8(g.x32);
+    p.height = at, p.surface = s8(sim::surface_index(g.material, g.flags)), p.x13 = u8(g.x32); // (0x3B46C8)
 }
 
 } // namespace
@@ -159,7 +161,7 @@ ex::AiCourse driver_course(const ex::CourseQuery& q, const course::AiData& data,
             ex::AiPoint& a = p[i];
             if (file_segments) seg = a.seg;
             else if (l == 4 && i == 0) { // 0x4291A8: the first of the main line's points' segments, from its last back, the road is met from
-                const int m = k.resolve(6);
+                const int m = resolve(k, 6);
                 if (m >= 0)
                     for (size_t j = k.lines[size_t(m)].size(); j-- > 0;) {
                         s32 hint = k.lines[size_t(m)][j].seg;
@@ -225,27 +227,32 @@ void driver_event(ex::Driver& d, int throttle, int brake, int corner, int contro
     if (off != 0) d.speed_offset = d.speed_offset + int_f(off) * kKmh;
 }
 
-void driver_start(ex::Car& c, const ex::AiCourse& k, const DriverTables& t, int line) {
+void driver_start(ex::Car& c, const Step& in, const DriverTables& t, int line) {
     ex::Driver& d = c.ai;
+    const ex::AiCourse& k = *in.course;
     d.state = 0;
     d.v_cur = d.v_next = c.p.top_speed;
     if (line == -1) { // 0x4249A8: the nearest of the three within 100 m
         F best = kHundred;
         line = 6;
         for (const s32 want : t.nearest) {
-            const int r = k.resolve(want);
+            const int r = resolve(k, want);
             if (r != want) continue;
             F x, y, h;
-            k.evaluate(r, 0, c.f3e4, x, y, h);
+            evaluate(k, r, 0, c.f3e4, x, y, h);
             const F dx = x - c.pos.x, dy = y - c.pos.y;
             const F dist = gt3r::ee::sqrt(dx * dx + dy * dy);
             if (dist < best) best = dist, line = r;
         }
     }
-    const int r = k.resolve(line);
-    if (r >= 0) ex::ai_set_line(c, k, ex::WearParams{}, r);
+    // (the line resolved twice: a line the course has none of the row of asks for line 6's row; with none of that either
+    // the program's line byte would be 0xFF, which no course here has)
+    const int r = resolve(k, resolve(k, line));
+    Step at = in;
+    at.wear = {}; // (the set-up's plan: no wear)
+    if (r >= 0) set_line(c, at, r);
     d.pit_limit = 0, d.arc_ticks = 0, d.zone = {}, d.contact = kZero;
-    ex::ai_gear_hint_clear(d);
+    d.gear_braking = 0, d.gear_hint = -1; // (0x4289E8: no suggested gear)
     d.cooldown = 0, d.stop = 0;
 }
 
@@ -255,13 +262,13 @@ int lane_left(const ex::AiCourse& k, int line, int hint, F s) {
     const auto has = [&](int l) { return !k.lines[size_t(l)].empty(); };
     // 0x42A3C8 / 0x42A408: the left of line 1 is the main line (line 2 without it), of the main line line 2; the right of line
     // 2 the main line (line 1 without it), of the main line line 1.
-    if (k.side_swapped(hint, s)) return line == 2 ? (has(6) ? 6 : has(1) ? 1 : -1) : line == 6 && has(1) ? 1 : -1;
+    if (side_swapped(k, hint, s)) return line == 2 ? (has(6) ? 6 : has(1) ? 1 : -1) : line == 6 && has(1) ? 1 : -1;
     return line == 1 ? (has(6) ? 6 : has(2) ? 2 : -1) : line == 6 && has(2) ? 2 : -1;
 }
 
 int lane_right(const ex::AiCourse& k, int line, int hint, F s) {
     const auto has = [&](int l) { return !k.lines[size_t(l)].empty(); };
-    if (!k.side_swapped(hint, s)) return line == 2 ? (has(6) ? 6 : has(1) ? 1 : -1) : line == 6 && has(1) ? 1 : -1;
+    if (!side_swapped(k, hint, s)) return line == 2 ? (has(6) ? 6 : has(1) ? 1 : -1) : line == 6 && has(1) ? 1 : -1;
     return line == 1 ? (has(6) ? 6 : has(2) ? 2 : -1) : line == 6 && has(2) ? 2 : -1;
 }
 
@@ -281,15 +288,15 @@ F braking(ex::Car& c, const Step& in) {
     else if (n == count && c.f3e4 < k.lap_length * kHalf) d.next = 0;
     else if (n != 0 && c.f3e4 < p[size_t(n - 1)].dist) d.next = u8(n - 1);
     else changed = false;
-    if (changed) ex::ai_next_segment(c, k, in.wear);
+    if (changed) next_segment(c, in);
     const F vn = d.v_next;
     if (d.mode == 3 || d.mode == 4) d.status = 2;
     else if (d.next_kind != 0 && vn < c.speed) {
         const F v = c.speed, kb = d.brake_factor;
         const ex::AiPoint& q = p[size_t(int(d.next) != count ? d.next : 0)];
         const rules::WheelLayout& l = in.part->layout;
-        const ex::TireRecord& rf = ex::tire_record(c.p, 0, u8(q.surface));
-        F mu = rf.mu[size_t(q.surface) & 15] * ex::lookup_bisect(rf.load_curve, (c.p.weight * kHalf) / c.p.width[0]);
+        const ex::TireRecord& rf = tire(c.p, l, l.group_first[0], q.surface);
+        F mu = rf.mu[size_t(q.surface) & 15] * ex::lookup_bisect(rf.load_curve, (c.p.weight * kHalf) / c.p.width[size_t(l.group_axle[0] & 1)]);
         mu = (mu * rf.brake_peak) * c.p.cam_offset[0];
         if (!(c.x535 & 0x10)) {
             F sum;
@@ -333,7 +340,7 @@ F braking(ex::Car& c, const Step& in) {
 
 void speed_control(ex::Car& c, F vt, F gain) {
     ex::Driver& d = c.ai;
-    const F thr = ex::ai_throttle_for(c.speed, vt - kmh2, F::raw(0x3F400000), gain, true);
+    const F thr = throttle_for(c.speed, vt - kmh2, F::raw(0x3F400000), gain);
     d.throttle = thr;
     if (!(d.mode == 3 || d.mode == 4)) vt = vt + kmh20;
     if (thr == kZero && vt < c.speed) d.brake = kOne;
@@ -344,8 +351,8 @@ void speed_control(ex::Car& c, F vt, F gain) {
 
 void stop(ex::Car& c, F steer) {
     ex::Driver& d = c.ai;
-    ex::ai_begin(c);
-    ex::ai_steer(c, steer);
+    begin(c);
+    prologue::steer(c, steer);
     d.throttle = kZero;
     const F v = gt3r::ee::sqrt(c.vel.x * c.vel.x + c.vel.y * c.vel.y + c.vel.z * c.vel.z);
     const F w = gt3r::ee::sqrt(c.yaw_rate * c.yaw_rate + c.roll_rate * c.roll_rate + c.pitch_rate * c.pitch_rate);
@@ -358,8 +365,8 @@ void stop(ex::Car& c, F steer) {
 }
 
 void park(ex::Car& c) {
-    ex::ai_begin(c);
-    ex::ai_steer(c, kZero);
+    begin(c);
+    steer(c, kZero);
     c.ai.throttle = c.ai.brake = kZero;
 }
 
@@ -390,7 +397,7 @@ void traffic(ex::Car& c, const Step& in) {
         else if (d.next_kind == 2 && right >= 0) pick = right;
         else pick = left >= 0 && d.status != 3 ? left : right_ok;
         if (pick >= 0) {
-            ex::ai_request_line(c, k, in.wear, pick, false);
+            request_line(c, in, pick, false);
             d.cooldown = 180;
             contact = kZero;
         }
@@ -399,14 +406,14 @@ void traffic(ex::Car& c, const Step& in) {
     if (!lanes) return;
     const int l = z(3), r = z(4);
     if (z(0) + r + (z(2) + z(1)) + l == 0) {
-        ex::ai_request_line(c, k, in.wear, 6, false);
+        request_line(c, in, 6, false);
         return;
     }
     if ((l != 0) == (r != 0)) return;
     if (l != 0 && d.status != 4) {
-        if (const int to = lane_right(k, d.line, d.next, c.f3e4); to != -1) ex::ai_request_line(c, k, in.wear, to, false);
+        if (const int to = lane_right(k, d.line, d.next, c.f3e4); to != -1) request_line(c, in, to, false);
     } else if (r != 0 && d.status != 3) {
-        if (const int to = lane_left(k, d.line, d.next, c.f3e4); to != -1) ex::ai_request_line(c, k, in.wear, to, false);
+        if (const int to = lane_left(k, d.line, d.next, c.f3e4); to != -1) request_line(c, in, to, false);
     }
 }
 
@@ -416,7 +423,7 @@ void decide(ex::Car& c, const Step& in) {
     ex::Driver& d = c.ai;
     const ex::AiCourse& k = *in.course;
     const DriverTables& t = *in.tables;
-    ex::ai_begin(c);
+    begin(c);
     if (c.driver_kind == 7) return stop(c, kZero);
     const F scale = braking(c, in);
     const F nsin = -gt3r::ee::sin(c.heading), cosh = gt3r::ee::cos(c.heading);
@@ -429,16 +436,16 @@ void decide(ex::Car& c, const Step& in) {
         if (!(c.speed < kmh30)) look = F::raw(0x41A00000);
     } else if (d.state != 0) look = F::raw(d.state == 1 ? 0x41200000u : 0x42200000u);
     else {
-        look = ex::ai_lookahead(d, c.speed);
+        look = lookahead(d, c.speed);
         const bool far = c.control == 2 && !in.dirt && in.start_speed < 30;
         const s32 left = (far ? 5000 : 2000) - s32(in.clock / 3u);
         if (left > 0) look = look + (far ? int_f(left) * F::raw(0x43480000) / F::raw(0x459C4000) : int_f(left) * F::raw(0x42200000) / F::raw(0x44FA0000));
     }
     F x, y;
-    look = ex::ai_target(c, k, d.line, d.next, look, x, y);
+    look = target(c, k, d.line, d.next, look, x, y);
     if (kZero < d.blend) {
         F xo, yo;
-        ex::ai_target(c, k, d.prev_line, d.next, look, xo, yo);
+        target(c, k, d.prev_line, d.next, look, xo, yo);
         const F w = d.blend;
         x = x + (xo - x) * w, y = y + (yo - y) * w;
     }
@@ -466,7 +473,8 @@ void decide(ex::Car& c, const Step& in) {
     } else if (st == 2) {
         if (aeps < deg40 && kmh30 < v) d.state = 0;
         else if (in.hit_front) {
-            F dh = ex::ai_line_heading(k, d.line, d.next, c.f3e4) - c.heading;
+            F lx, ly, lh;
+            F dh = line_heading(k, d.line, d.next, c.f3e4, lx, ly, lh) - c.heading;
             if (dh < kZero) dh = -dh;
             if (deg60 < dh || deg60 < aeps) d.state = 1;
         }
@@ -477,21 +485,21 @@ void decide(ex::Car& c, const Step& in) {
     const int moving = kmh2 < v ? 1 : v < -kmh2 ? -1 : 0;
 
     // The steering's target; `over`: how far past the steered wheels' peak slip angle it asked to go.
-    F target, over;
+    F aim_steer, over;
     if (moving != 0) {
         if (drive == 1) {
             const rules::WheelLayout& l = in.part->layout;
             F amax, dirs;
             int wheels = 0;
             for (int w = 0; w < 4; ++w)
-                if (steered(l, w)) amax = amax + ex::tire_record(c.p, w, c.w[size_t(w)].surface).peak_slip, dirs = dirs + c.w[size_t(w)].slip_dir, ++wheels;
+                if (steered(l, w)) amax = amax + tire(c.p, l, w, gt3r::s8(c.w[size_t(w)].surface)).peak_slip, dirs = dirs + c.w[size_t(w)].slip_dir, ++wheels;
             F dir;
             if (wheels) amax = amax / int_f(wheels), dir = dir + dirs / int_f(wheels);
             if (d.state != 0) {
-                if (deg80 < eps) target = amax;
-                else if (eps < -deg80) target = -amax;
+                if (deg80 < eps) aim_steer = amax;
+                else if (eps < -deg80) aim_steer = -amax;
             }
-            if (target == kZero) {
+            if (aim_steer == kZero) {
                 const F vx = c.vel.x, vy = c.vel.y;
                 const F vxy = gt3r::ee::sqrt(vx * vx + vy * vy), p2 = x * x + y * y;
                 F cs = cosh, ns = nsin;
@@ -511,28 +519,28 @@ void decide(ex::Car& c, const Step& in) {
                 }
                 if (kZero < rd) {
                     if (r < rd) {
-                        target = target + (rd - r) * ky;
-                        if (amax < target) {
-                            over = target / amax;
-                            if (!in.dirt) target = amax;
+                        aim_steer = aim_steer + (rd - r) * ky;
+                        if (amax < aim_steer) {
+                            over = aim_steer / amax;
+                            if (!in.dirt) aim_steer = amax;
                         }
                     }
                 } else if (rd < kZero && rd < r) {
-                    target = target - (r - rd) * ky;
-                    if (target < -amax) {
-                        over = (-target) / amax;
-                        if (!in.dirt) target = -amax;
+                    aim_steer = aim_steer - (r - rd) * ky;
+                    if (aim_steer < -amax) {
+                        over = (-aim_steer) / amax;
+                        if (!in.dirt) aim_steer = -amax;
                     }
                 }
             }
-            target = target + dir;
-            if (deg45 < target) target = deg45;
-            else if (target < -deg45) target = -deg45;
-        } else target = eps < -deg20 ? -deg30 : deg20 < eps ? deg30 : eps * F::raw(0x3FBFFFFE);
-        if (moving == -1) target = -target;
+            aim_steer = aim_steer + dir;
+            if (deg45 < aim_steer) aim_steer = deg45;
+            else if (aim_steer < -deg45) aim_steer = -deg45;
+        } else aim_steer = eps < -deg20 ? -deg30 : deg20 < eps ? deg30 : eps * F::raw(0x3FBFFFFE);
+        if (moving == -1) aim_steer = -aim_steer;
     }
-    if (c.driver_kind == 6) return stop(c, target);
-    if (c.control == 1 || c.control == 2 || c.driver_kind != 0) ex::ai_steer(c, target);
+    if (c.driver_kind == 6) return stop(c, aim_steer);
+    if (c.control == 1 || c.control == 2 || c.driver_kind != 0) steer(c, aim_steer);
 
     // Throttle and brake.
     if (drive == 1) {
@@ -599,8 +607,8 @@ void step(ex::Car& c, const Step& in) {
         return decide(c, in);
     }
     if (c.race_hold != 0 || c.hold != 0) {
-        ex::ai_hold(c, c.race_hold != 0 ? in.start_count : s32(c.hold));
-        ex::set_brake_pedal(c, kZero);
+        hold(c, c.race_hold != 0 ? in.start_count : s32(c.hold));
+        rules::brake_pedal(c, in.part->layout, kZero); // (0x3B2338: Gran Turismo 4's 0x343D60 in its layout)
         c.steer_cmd = kZero;
         return;
     }

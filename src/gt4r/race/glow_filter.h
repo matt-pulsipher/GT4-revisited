@@ -15,6 +15,10 @@ struct GlowFilter {
     int samples = 0;     // +0x1764: n, the box's points across and down
     float sum = 0;       // n^2 x the GS weight of each of the n^2 copies, min(trunc(128 c / ((1 - a) n^2)), 255) / 128
     float gain = 0;      // the weight the sum is added with, min(trunc(128 (1 - a) b), 255) / 128
+    // Where the copies' sum sits: each place gets the picture around half a pixel of the 640 x 448 frame right of and
+    // below it, as fractions of the diagonal (docs/formats/course.md "Glow filter"); the copies' points reach the radius
+    // on each side, weighted down linearly (each copy is stretched back linearly from points a radius apart).
+    float offset_x = 0, offset_y = 0;
     // Env0 (slot 32); none when its switch (+0x1750 bit 0) is off or its values draw nothing (a < 0, no radius or points).
     static std::optional<GlowFilter> from_env(ByteSpan env0);
 };
@@ -24,6 +28,9 @@ template <class Options> void apply_glow(Options& o, const std::optional<GlowFil
     if constexpr (requires { o.glow.on; o.glow.samples; }) {
         o.glow.on = g.has_value();
         if (g) o.glow.threshold = g->threshold, o.glow.radius = g->radius, o.glow.samples = g->samples, o.glow.sum = g->sum, o.glow.gain = g->gain;
+        // (An engine with the copies' placement and their linear weights; an older one centres an even box.)
+        if constexpr (requires { o.glow.tent; o.glow.offset[1]; })
+            if (g) o.glow.tent = true, o.glow.offset[0] = g->offset_x, o.glow.offset[1] = g->offset_y;
     }
 }
 

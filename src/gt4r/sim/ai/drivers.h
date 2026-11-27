@@ -31,6 +31,10 @@ class Disc;
 
 namespace gt4r::sim::ai {
 
+namespace prologue {
+struct Step;
+}
+
 // A driver's parameters (0x466C20: the conductor's per-car block, from the course's set for the car's
 // driveline class, then the event's changes 0x467148).
 struct Params {
@@ -166,7 +170,7 @@ public:
     bool finished(size_t i) const override { return s_->gt4_record(i).phases.finished != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
-        if (const prologue::Collision* p = s_->prologue_collision()) front = p->body(i).front, rear = p->body(i).rear;
+        if (const sim::prologue::Collision* p = s_->prologue_collision()) front = p->body(i).front, rear = p->body(i).rear;
         else front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
         return true;
     }
@@ -440,6 +444,7 @@ private:
     template <class Fn> void with_record(Driver& d, Fn fn);
     void prologue_setup(Driver& d);
     void prologue_decide(Driver& d, bool plans_only, race::CarInput& in);
+    prologue::Step prologue_step(const Driver& d) const; // (the course, the tables, the wear, the car's wheel layout)
     void suggest(Driver& d);
     Tables tables_;
     bool spread_live_ = true; // the spreads' switches set (SCPS-17001 v1.05: by the race's preparation, after the set-up)

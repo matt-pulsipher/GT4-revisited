@@ -50,6 +50,12 @@ struct PTap {
     // When set: called at the routine's exit to compare what ours keeps outside the engine's mirror (fields Prologue
     // keeps elsewhere) with the program's memory: `field(name, program's bits, ours)` counts a difference.
     std::function<void(Ee&, u32 car, int index, const std::function<void(const char*, u32, u32)>& field)> after = {};
+    // When set: the car's record from the registers at the entry (else $a0), e.g. a driver routine's ($a0 the driver at
+    // car + 0x1C).
+    std::function<u32(Ee&)> car_of = {};
+    // When set: what the mirror takes from elsewhere than the record, at the entry and the exit alike (e.g. the driver's
+    // parameters, which Prologue keeps in the conductor).
+    std::function<void(Ee&, u32 car, ex::Car&)> fill = {};
 };
 struct PFieldStat {
     u64 off = 0;

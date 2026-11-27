@@ -26,6 +26,10 @@ std::optional<GlowFilter> GlowFilter::from_env(ByteSpan env0) {
     g.samples = n;
     g.sum = float(n * n) * fix(c / ((1 - a) * float(n * n)));
     g.gain = fix((1 - a) * b);
+    // The copies' sum at a place holds the picture around half a pixel right of and below it: copy (i, j)'s texel (c, d)
+    // samples the frame at (x0 + 0.5 + (c + 0.5) r, ...) (the UVs' + 0.5; the sprites' places half a pixel up and left, as
+    // every 2D draw of the program's), stretched back over the sum from (x0, y0) (a GS dump of ss_shibuya's photo page).
+    g.offset_x = g.offset_y = 0.5f / 781.2196f;
     return g;
 }
 
