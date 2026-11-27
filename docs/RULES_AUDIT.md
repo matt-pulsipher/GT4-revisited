@@ -37,8 +37,10 @@ Captures named are under the reference's folders (`INDEX.md`).
 | 19 | **Arcade's penalty "Passing pit lane"**: the mark is set (rule +0x4A 0xFF → F +0x62E); what it asks of the driver (a drive through the pit lane) and how it clears are not read. | 0x34CA20 | **ported**: the mark (F +0x62E) is the pit pass's pad visit (`Session::pit_mark`, `PitHooks::mark`): a drive-through, cleared at the lane's end; ✔ in a race (`GT4R_RACE="course=tsukuba,race=sample_entry_6,cars=2,laps=3,penalty=2,drive=pad,auto_after=1500"`, full throttle into turn 1's wall): the mark 1 at the hit (236.9 m, 10.5 s), 2 at 1362.9 m, the car down the lane (stage 1 at 1738 m, out at stage 5) without a stop, the mark 0 at 147.5 m after the lane's end, the crossing counted (lap 2, 1'26.186); ❓ the display's line while marked | low |
 | 20 | **`setReturnToLastMenuProject`** (0x166398: the next project the last one, 0x42FC50), how the option, memory card, logger, network and slide projects leave when `major_menu_project` is empty. | 0x166398 | does nothing; ❓ whether our fallback lands on the same page is not checked | low |
 
-Lower: Arcade's event per car (`MCarData.GetRaceCode`, `IsTireNormal`, `IsDirtRunnable`, 0x12E150: the tire and dirt checks
-judged; they choose which opponents an Arcade race draws and whether a car may enter a dirt race); a new game's screen shape
+Lower (items 21 on, in rank order; done ones say so): Arcade's event per car (`MCarData.GetRaceCode`, `IsTireNormal`,
+`IsDirtRunnable` 0x12E150 / 0x12E388 / 0x12E498 through 0x448AD0) **ported ✔**, with the cars' dirt and snow versions
+(`ShiftCarCode` 0x12F3E0: every Arcade entry on a dirt or snow course raced as its ARCADEINFO row's ENEMY_CARS row, menu.md
+"Arcade's dirt and snow versions"); a new game's screen shape
 (`MSystem.GetStaticWideMode` 0x1ACA90 answers 0: 4:3); the slide show's and Photo Lab's music seen as ended at once
 (`MSound.isPlayingStream` 0x23EA18, `MMusic.isPlaying`: 0); the pause's idle time-out (end code 3, `timeout_count_to_topmenu`
 600 s copied at 0x3B5070; ❓ its reader); the car's distance added once after a race, not each step (0x35DE20; the oil's run-in
@@ -96,7 +98,7 @@ script's calls into the program's classes (US): **1,194 members used, 22,133 use
 |---|---|---|
 | implemented | 985 | most are the game's state as plain values (the rules live in the scripts and run as written); 177 cite the program's routine beside them, the rest are not compared with the program |
 | implemented, compared here | 7 | `MRaceRecord.isLicensePassed`, `isLicenseAllSilver`, `isLicensePerfect` (0x1A63A0, 0x1A6120, 0x1A5FE0 → 0x4312B0, 0x431288, 0x431260: tests 1 .. 16 through the region's label then "jp" 0x430E58; per test 0x430C50, 0x430BC0, 0x430B58), and four with nothing in them |
-| partial | 5 | `MGame.setOption` (gap 4), `MCarData.GetRaceCode` / `IsTireNormal` / `IsDirtRunnable` (judged tire and dirt checks), `MCourseRecord.getMTUnit` (gap 15) |
+| partial | 2 | `MGame.setOption` (gap 4), `MCourseRecord.getMTUnit` (gap 15); `MCarData.GetRaceCode` / `IsTireNormal` / `IsDirtRunnable` now compared (0x12E150, 0x12E388, 0x12E498), and `ShiftCarCode` / `GetDirtCarCode` / `GetSnowCarCode` (0x12F3E0, 0x12F8B8, 0x12FBB0) the program's (they answered the car itself) |
 | stub | 23 | by design: the card's failure and swap states (`isAutoSaveDisabled`, `isChanged`), the printer, the 480p / 1080i modes, the official service; rule-bearing: `setReturnToLastMenuProject` (gap 20), `MDemonstration`'s counts (gap 14), `isPlayingStream` / `isPlaying`, `GetStaticWideMode`, `SetUnitSystemByLanguage` |
 | missing | 168 | the official online service 129 (MNetwork's account, lobby, buddies and news, MHttp, MDnas, MNetConf, MComm, MXml, the stats), the Analyzer 19 (gap 8), EyeToy 13, and 7 single uses (`MDatabase.getAllTunerList`, `MGame.checkExistValidGameData`, `MManager.loadProject` / `unloadProject`, `MStorage.getDir`, `MRunViewer.setRaceDebugFlag`, `MSystem.SetLocale`) |
 

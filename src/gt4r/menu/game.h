@@ -55,6 +55,11 @@ struct RaceRequest {
     // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
     std::vector<std::string> entries;
     std::vector<int> entry_paints;
+    // An entry the scripts set to an ENEMY_CARS row's label (Arcade's dirt and snow versions, MCarData.ShiftCarCode):
+    // that label ("" none); its car's GENERIC_CAR label is in `entries` (and `car` for entry 0), and the race takes the
+    // row's parts and settings for it (the program's entry holds the row's code, 0x4307D0 through 0x447BB8).
+    std::vector<std::string> entry_enemies;
+    std::string car_enemy;
     // The "replay" sequence (the Replay Theater's Play): the saved replay to show, a file of the
     // data folder's replays/ (race/replay_file.h).
     std::string replay_file;

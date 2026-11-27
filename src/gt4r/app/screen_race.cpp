@@ -361,12 +361,14 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
         // ("" none), their paints in entry_paints.
         menu::RaceRequest asked = q;
         std::vector<int> paints;
+        std::vector<std::string> rows; // an entry's ENEMY_CARS row (Arcade's dirt and snow versions, MCarData.ShiftCarCode)
         asked.entries.clear();
         const size_t last = q.overwrite_enemy_num > 0 ? std::min(q.entries.size(), size_t(q.overwrite_enemy_num) + 1) : q.entries.size();
         for (size_t i = 1; i < last; ++i)
             if (!q.entries[i].empty() && q.entries[i] != "nil") {
                 asked.entries.push_back(q.entries[i]);
                 paints.push_back(i < q.entry_paints.size() ? q.entry_paints[i] : -1);
+                rows.push_back(i < q.entry_enemies.size() ? q.entry_enemies[i] : std::string());
             }
         // (grid_for reads the table as the scripts leave it: entry 0 the player's, the opponents from 1)
         if (!asked.entries.empty()) {
@@ -381,8 +383,10 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
         std::vector<sim::ai::GridEntry> grid;
         if (!training) grid = sim::ai::grid_for(events, asked, random);
         if (!asked.entries.empty())
-            for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
+            for (size_t i = 0; i < grid.size() && i < paints.size(); ++i) {
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
+                if (!grid[i].player && !rows[i].empty()) grid[i].enemy = rows[i]; // (its parts and settings: sim::ai::entry_equipment)
+            }
         // A test or mission with other cars: its pool in order (RaceTrainingInformation 0x3ECB68: car i entry min(i, the pool's last),
         // without a paint of its own paint 0), entry 0 the player's car, on the grid the others in that order and the player last
         // (0x3ECC70; Prologue's 0x3E1C20).
@@ -453,6 +457,25 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
         LOG_INFO("Drive: the test's car %s as %s (%s, %s)", g.car.c_str(), g.enemy.c_str(), g.parts.c_str(), g.param.c_str());
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the test's car: %s", e.what());
+    }
+}
+
+// The player's car when the scripts set entry 0 to an ENEMY_CARS row (Arcade's dirt and snow versions, MCarData.ShiftCarCode;
+// the program's entry holds the row's code): the row's parts and settings, the paint chosen.
+void entry_row_car(App& app, Setup& setup, const menu::RaceRequest& q) {
+    db::SpecDb* sdb = app.db();
+    if (!sdb || !app.disc() || q.car_enemy.empty() || q.garage_slot >= 0 || setup.player_equipment) return;
+    try {
+        gt3r::Vfs* vfs = app.vfs();
+        const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+        sim::ai::GridEntry g;
+        g.car = q.car, g.enemy = q.car_enemy, g.paint = q.paint, g.player = true;
+        sim::Equipment eq;
+        if (!sim::ai::entry_equipment(*sdb, sim::Program::load(*app.disc()), events, g, eq)) return;
+        setup.player_equipment = eq;
+        LOG_INFO("Drive: the player's car %s as %s", q.car.c_str(), q.car_enemy.c_str());
+    } catch (const std::exception& e) {
+        LOG_WARN("Drive: the player's car: %s", e.what());
     }
 }
 
@@ -2664,6 +2687,7 @@ public:
                 if (sequence_ == "race_view") setup_.auto_drive = true;
                 setup_.opponents.clear();
                 test_car(app, setup_, q);
+                entry_row_car(app, setup_, q);
                 draw_grid(app, setup_, q);
                 arcade_tires(app, setup_, q);
                 if (sequence_ == "single_race") apply_arcade_options(setup_);

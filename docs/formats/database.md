@@ -146,7 +146,7 @@ accessors' addresses are the US program's, v1.01). Code: `src/gt4r/menu/game_nat
 | | +0x24 u8 x 3 | The paint's color, red, green, blue |
 | `COURSE` (110 x 22) | +0x10 u8 | The surface: 0 dry, 1 wet, 2 dirt, 3 snow (0x1B2F10) |
 | | +0x11 u8 | The most cars on it (0x1B3030) |
-| `ARCADEINFO_NORMAL` (721 x 65) | 8 x {u32 row, u32 table 0x26}, 1 byte | The car's Arcade events, rows of `RACE`: entry [difficulty 0 to 2] on a dry course, [3 + difficulty] otherwise (0x12E150) |
+| `ARCADEINFO_NORMAL` (721 x 65) | 8 x {u32 row, u32 table}, 1 byte | Entries 0 .. 5: the car's Arcade events, rows of `RACE`: entry [difficulty 0 to 2] on a dry course, [3 + difficulty] otherwise (`GetRaceCode` 0x12E150; the level 2 when 3 or more). Entries 6, 7: the car's dirt and snow versions, `ENEMY_CARS` rows (`GetDirtCarCode` 0x12F8B8, `GetSnowCarCode` 0x12FBB0, `ShiftCarCode` 0x12F3E0 by the course's surface; `IsDirtRunnable` 0x12E498: entry 6 not all 0xFF). +0x40: `IsTireNormal` (0x12E388). The natives read the row through 0x448AD0 (the label as a GENERIC_CAR or ENEMY_CARS row, 0x447BB8; the copy puts +0x40 before entries 6 and 7, 0x448B48); a car without a row answers 0 or nothing |
 | `DEFAULT_PARTS` | the pairs of table 12, 10, 6 | The car's `ENGINE`, `DRIVETRAIN`, `CHASSIS` rows |
 | `CHASSIS` | +0x08, +0x0A u16 | The length and height the menus write, mm (0x446038, 0x446068); the width is of another part ❓ |
 
