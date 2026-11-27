@@ -128,7 +128,7 @@ bool online_setup(App& app) {
     if (!d.builder) return false;
     if (loopback_only()) Session::set_advertise_lan(false);
     l.session().set_disc(*disc);
-    net::name_the_game(l.session()); // (the game tag for the relay server, where the shared engine has it: net/version_check.h)
+    net::name_the_game(l.session()); // (the game tag for the relay server: net/version_check.h)
     net::CarBuilder* b = d.builder.get();
     l.digest_car = [b](const net::CarChoice& c) { return b->digest(c); };
     l.check_car = [b](const net::CarChoice& c, const net::LobbyLimits& limits) { return net::limits_problem(*b, c, limits, power_unit().factor, power_unit().name); };
