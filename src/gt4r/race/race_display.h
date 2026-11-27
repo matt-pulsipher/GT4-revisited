@@ -62,6 +62,12 @@ struct DisplayLayout {
 // are read at the addresses of the release this was read on (SCUS-97328 v1.01) and checked for
 // the tables' shape; empty when the program is another one.
 DisplayLayout read_single_race_layout(ByteSpan program, u32 load_address);
+// The single race's layout with the total time (the tables 0x6A09A8 and 0x6A08F0: "Total Time" and the race's time where the best
+// lap is, "Best Lap" and the best lap where the last is), which RaceDisplay::vf34 takes for the race's kind 2 or when the display's
+// flag +0x38 is set: a race of 10 laps or more, or one with a time limit (RaceDisplay::vf9 0x39B5F0 .. 0x39B638).
+DisplayLayout read_total_race_layout(ByteSpan program, u32 load_address);
+// Whether a race shows that layout: `laps` its laps, `limit_ms` its time limit (0 none).
+inline bool total_time_display(int laps, s64 limit_ms) { return laps >= 10 || limit_ms != 0; }
 // The layout of display mode 1 (the table 0x6A0BA0: the place, laps, map, the lap's time and the
 // total time, the message lower): the B-spec race's display here.
 DisplayLayout read_mode1_layout(ByteSpan program, u32 load_address);

@@ -96,7 +96,7 @@ and network races set (0 otherwise):
 |---|---|
 | Kind 8 (two players, one above the other) | 0x6A0DE0, panel layout 1 |
 | Kind 9 (two players side by side) | 0x6A0FD8, panel layout 3 |
-| Mode 0 (the single race) | 0x6A09A8, then 0x6A0838 (or 0x6A08F0 when the kind is 2 or the display's "total time" flag is set), then the panel layout |
+| Mode 0 (the single race) | 0x6A09A8, then 0x6A0838 (or 0x6A08F0 when the kind is 2 or the display's "total time" flag is set), then the panel layout. The flag (the display's byte +0x38, `RaceDisplay::vf9` 0x39B5F0 .. 0x39B638): the race's laps (the conductor's virtual +0x128) 10 or more, or a time limit (0x34C140 not 0). Here `race::total_time_display`, `read_total_race_layout` (Japan's table 0x696DD0) |
 | Mode 1 | 0x6A0BA0, then the panel layout |
 | Modes 2, 3 | As mode 0; the panel layout only while a replay-side counter is set |
 | Mode 4 | 0x6A0D50 only |
@@ -703,4 +703,12 @@ test's three target times (its RACE row's gold, silver and bronze) each by its t
 `mark_2nd`, `mark_3rd`; RaceLicenseDisplay::vf9 names them and `pylon`). ❓ Drawn here at the
 picture's places: trophies centred at x 485, y 100 / 128 / 156, the times ending at x 608 on
 baselines 8 below; the pylon count is not drawn.
+
+### The endurance words
+
+The display's word table (102 names at 0x621540, loaded by 0x3AE9A0 into the table at 0x621870) names `EnduranceFinal` (14)
+and `EnduranceLaps` (15) beside `TimeLimit` (0) and `TimeLimitCount` (83); ✔ nothing in the US program reads entries 14 and
+15 (no load of the table's +0x38 or +0x3C, and no reckoned index reaches them). A timed endurance race shows what its display's
+flag gives: the lap count without a number of laps (`"%d"`), "Total Time" with the race's time and "Best Lap" with the best
+(table 0x6A08F0). `TimeLimit` and `TimeLimitCount` are the arcade's own time limit's count (0x39D500), not the endurance races'.
 

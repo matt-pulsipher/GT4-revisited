@@ -51,6 +51,9 @@ struct PitHooks {
     std::function<void(size_t car, u16 hold)> hold;
     // The pass's flags (F +0x4B1) handed to the session after each step.
     std::function<void(size_t car, u8 flags)> flags;
+    // F +0x62E as the session keeps it (the hits' penalty mark), read before the pass and written back after it (pad_state).
+    std::function<u8(size_t car)> mark;
+    std::function<void(size_t car, u8 value)> set_mark;
     // The tire change (0x35C0B8) with a kind chosen below 0xFE (F +0x64E / +0x64F, 0xFF none, 0xFE as fitted): at the stop's
     // 645th step from its end the chosen kinds fitted and the car's tire records rebuilt for the axles served (1 front, 2
     // rear, 3 both), at the 644th their base grips (sim/ai/pit_tire_change.h fills them from a session).
