@@ -72,7 +72,7 @@ curbs and the fences (blend 0x58: added where the frame's alpha, written by the 
 lets it). Left as an ordinary pass that second pass covers what is under it: Tsukuba's noise
 barriers come out black. The kind 4 pass is the shared engine's road sheen (the first scene light's
 specular term, model.md "Lighting") seen from the camera itself, not from 2 m above it as in Gran
-Turismo 3: with the engine's `DrawOptions::sheen_viewer_up` at 0 (GT3 Revisited PR #521, tried on a build against that branch), Tsukuba's noise barrier at the GS
+Turismo 3: with the engine's `DrawOptions::sheen_viewer_up` at 0 (as the race draws it), Tsukuba's noise barrier at the GS
 dump's eye comes out 128 / 141 / 160 against the original's 140 / 153 / 174 (2 m above: 120 / 133 /
 152), its white frames 203 .. 229 against 255. 🔎 The rest not found (the frame alpha the base pass
 leaves above 0x80, a weight over 1 the engine keeps at 1, is a candidate).
