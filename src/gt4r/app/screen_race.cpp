@@ -1417,7 +1417,7 @@ public:
             start = !hold && !ghost_lap_open_ && !ghost_run_done_;
         } else if (c.counter != ghost_counter_) {
             // A crossing of the line: the lap just completed kept when it is the best so far; a new lap begins.
-            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done == 0 && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
+            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done(0) && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
                 auto lap = std::make_shared<GhostLap>();
                 lap->states = std::move(ghost_lap_), lap->ms = c.last_lap_ms;
                 ghost_best_ = std::move(lap);
