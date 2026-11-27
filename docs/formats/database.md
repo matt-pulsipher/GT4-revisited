@@ -250,6 +250,11 @@ Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `sr
   the body car's label (so the car's model files are the body car's), the donor's `ARCADEINFO_NORMAL` row with its dirt and
   snow `ENEMY_CARS` rows made the car's, the donor's `TUNER_LIST` row, and a `CARS/` file of the donor's parts (its clones
   in their places).
+- `[paints]` (a body of its own's): the paint group's rows are one per paint, the body car's first row as the pattern, +0x04
+  the paint's number + 1, +0x0C its name (each language's pool), +0x24 its color (one color).
+- The body: not in the tables. The race and the menus draw the body car's model (`race/mod_car_body.*`): stretched from the
+  body car's length, wheelbase, height (its stock `CHASSIS`) and width (its paints' box) to the car's, or a body of the mod's
+  own (the engine's glTF loader) in its place.
 - `[opponent] races`: an `ENEMY_CARS` row of the car as sold (its `GENERIC_CAR` set, no settings: the pools' own cars have
   none) at the end of each named race's pool (`RACES/<35, row>`, `SpecDb::race_file`), which the race draws from as it draws
   the disc's.
