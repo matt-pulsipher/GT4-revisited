@@ -54,12 +54,14 @@ added each step by the step (0x35DD00 in 0x35DE20, `sim/rules_speeds.cpp`) and t
 (`game_car.cpp`: getOilLifeRate 0x3437F0, oil 0x343698, replaceOil 0x343928 on the engine condition's limits 0x350678;
 getBodyLifeRate 0x343A80 -> 0x366300, bodyLife 0x343978 on the body's table 0x366100 from 0x620AF4 / 0x620AF6; dirtiness at
 most 0x3F4CCCCC, 0x3438A0; the US disc's values as the constants were, the body's setter now without a least and the rates in
-the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list **missing**: the
-Play List folder (labomode `initCommands` folder 2: Play, Trash, PlayMode) keeps a list of the card's replays in the card's
-`replaylist` file (ToListMov adds the selected, `autoloadPlayList.save`), Play hands the list to the sequence
-(`menu_result` "list", `MMemoryCardManager.setAction(1)`), PlayMode switches `replay_play_mode` STRAIGHT / SHUFFLE and restarts
-the count (`MDemonstration.resetPlayListCounter` 0x15E488); ours: the list's object answers an empty list and `save` OK, so
-ToListMov adds nothing (`game_replays.cpp` `install_replay_list`); the time trial's `ranking` project **not met**: the
+the EE's arithmetic; `disc_menu_car_condition_natives`); the Replay Theater's play list **ported** (menu.md "The Replay Theater", save.md "The Replay Theater's play list"): the card's
+`LSTRPLAY` file (FileGT4ReplayList, the program's layout: 400 u64 entries, a card folder's letters with its letter on top),
+ToListMov adding to it (asked to make it first), the PlayList folder listing it (missing replays taken out, 0x1D2EA8), Trash,
+order, PlayMode (`resetPlayListCounter`: the count and a new seed, 0x434950), and Play playing it one replay after another
+until the player ends one (0x10CA50 over 0x4349A8: in order from the demonstration's count, or shuffled by 0x6012C0's draws
+from the seed; the missing passed over, as many as the list holds end it); ✔ by test (`disc_menu_replay_play_list`,
+`save_replay_list_layout`) and in the app (the list made, its folder's row, its Play showing the replay); ❓ the original's
+PlayList folder has no capture; the time trial's `ranking` project **not met**: the
 sequence goes there after a run (0x108354) only when `MGame.last_record` (Status +0x3A43C) holds a time, and the program only
 ever sets it to no time (359,999,999 at 0x111504, 0x112688; no script writes it), so it never opens (it is a show machine's
 online leaderboard: `svo::LoginE3`); the event Preview: `race_view` (0x10BB80) runs 0x10BA28 with no demo arguments, a
@@ -170,7 +172,7 @@ dealers, the presents): they run as written on our natives. The program's side:
 | 2 Player Battle | the sequence, the options' rules, handicap, boost, finish, gaps, results, pause, views, picture, sound | race_flow.md | `split_battle.*`, `screen_split.cpp` | ported (❓ no capture) |
 | LAN | the lobby, the barrier, the settings, RaceLanBattle | 0x1E4B20 .., 0x161F28 | `menu/game_network.*`, `net/*` | ported on our transport |
 | Photo Travel, Photo Lab | the places, camera, lens, picture, card files, the slide show | photo.md | `photo/`, `screen_photo.cpp` | ported ✔; films gap 13; the slide show's music gap (lower list) |
-| Replay Theater | lists, play, rename, delete, the Demo tab (13 recordings) | 0x10CA50, 0x42FC98 | `game_replays.cpp`, `load_recorded_race` | ported ✔; the play list empty |
+| Replay Theater | lists, play, rename, delete, the Demo tab (13 recordings), the play list (in order or shuffled) | 0x10CA50, 0x42FC98, 0x4349A8 | `game_replays.cpp`, `save/replay_list.*`, `load_recorded_race` | ported ✔ (the play list by test and app run; no capture of the original's) |
 | Saved replays | a full replay where the page offers SAVE_REPLAY | race_flow.md "Saved replays" | our own `.gt4rrep` for every run; the program's stream for Arcade's single race and the license tests | ours by design |
 | Options | laps, tire damage, penalty, the gearbox, aids, views, the display's parts, replay mode, the 2P options, vibration, force, steering assist | 0x3BFB10, 0x10F770, 0x10F848, 0x10F880 | `game_settings.cpp` into the race | ported; Cancel gap 4 |
 | Boot, title | the check, the name entry, the new game, the logo, the movie, the title | `boot` scripts | `no_card.cpp` | script |

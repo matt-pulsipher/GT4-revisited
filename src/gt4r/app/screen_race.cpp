@@ -3069,7 +3069,7 @@ public:
             race_->world().license_result(prize_level() < 3);
         // A replay: Start ends it.
         if (race_->replaying()) {
-            if (m.pressed(PadButton::Start)) race_->stop_replay();
+            if (m.pressed(PadButton::Start)) race_->stop_replay(), replay_quit_ = true;
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
             if (is_license(sequence_)) race_->license_sound(prize_level());
@@ -4590,6 +4590,8 @@ private:
             g.during_quick_menu = false;
             g.next_sequence.clear();
             g.last_sequence = sequence_;
+            // The Replay Theater's play list: its next replay, unless the player ended this one (menu::play_list_next).
+            if (sequence_ == "replay") menu::play_list_next(*menus_, false, replay_quit_ || !saved_replay_);
             if (g.next_menu_project.empty()) g.next_menu_project = g.major_menu_project;
             if (!menus_->finished()) menus_->finish();
         }
@@ -5114,6 +5116,7 @@ private:
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
+    bool replay_quit_ = false;  // the player ended it (Start)
     std::string last_saved_;
     menu::GameSettings settings_; // the game's options as the race reads them
     App& app_;

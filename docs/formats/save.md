@@ -257,6 +257,18 @@ lists the best lap folders; MODE_LOAD_BESTLAP_REPLAY those of the race's course 
 course's codes, 0x11CF30; ❓ the manager's own filter not read). The original's default title `"B" License1` is the page's own (✔ ours
 the same). ❓ A best lap the original made on a console has not been loaded here (PCSX2's files do not decipher, replay.md).
 
+### The Replay Theater's play list
+
+The folder `<product>LSTRPLAY` (FileGT4ReplayList: its name 0x1D1228, the icon `icon/GT4_Playlist_replay.ico` 0x1D1270)
+holds the data file named like it, icon0.ico and icon.sys. The data is FileGT4PlayList's (vf3 0x1D0F38, the slide show's
+`LSTSLIDE` the same): 400 entries of u64, the count (u32) at 0xC80, zeros to 0xCC0 bytes, not scrambled; the scripts are told
+76 KB. An entry is a card folder: the seven letters after the product's letter as a number (0x1CBEB0: from the name's 14th
+character, the first letter the lowest six bits) with that letter in the top byte, 0 for a name without the product
+(0x1CD860, 0x1D1478): `R` a full replay, `B` a best lap's. The list's natives (MMemoryCardPlayList 0x17DDF8) keep entries:
+`append` adds at the end below 400 (0x1D1280), `search` compares entries (0x1D13A0), `remove` closes the gap (0x1D12D8),
+`order` takes the table's places (0x17DC78), `rotate(n)` turns the first n to the end (0x17DD78). A replay of the list is
+found again by its folder's name made from the entry (0x1D1340 -> 0x1CD8A0). `save/replay_list.*`, `game_replays.cpp`.
+
 ### A replay's particulars
 
 A replay's or a photo's folder holds a 256-byte `thumbnail` beside the data (0x1CF400 writes it, 0x1CF628 reads it): the 0xE8

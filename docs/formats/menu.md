@@ -845,7 +845,20 @@ shows the picture, time, title, date, course, car, A or B and KB: save.md "A rep
 replays"). Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
 the project ends, and `race_request()` answers the sequence `replay` with `replay_file` (the
 path); after it the theater comes back (the sequence's loop). The pen renames (`writeInfo`). Exit returns to the title.
-❓ The play list is empty; `labo_folder` / `labo_list_index` start at -1.
+The **play list** (the PlayList folder; the card's `LSTRPLAY` file, save.md "The Replay Theater's play list"): ToListMov puts the
+chosen replays at the list's top (`append`, then `rotate` by the count before), asking first to make the list when the card has
+none ("no playlist slot n create?", then the KB it takes); the Replay folder's rows of the list show their icon lit
+(`ListCheck`). The PlayList folder lists the list (MODE_REPLAY_PLAYLIST: an entry whose replay is gone is taken out as it is
+listed, 0x1D2EA8); Trash takes rows off the list, the rows drag into another order (`order`), PlayMode switches
+`replay_play_mode` STRAIGHT / SHUFFLE and restarts the count (`resetPlayListCounter`). Its Play (`menu_result` "list") plays
+the list one replay after another (game_replays.cpp `play_list_next`: 0x10CA50's loop over 0x4349A8): from the
+demonstration's count (MDemonstration +0x64, kept across visits; past the end the first again), shuffled through an order
+drawn from the count's seed (+0x68, drawn anew by resetPlayListCounter and initialize: the timer and the small generator,
+0x579358): 0 .. n - 1, each place from the second swapped with the one at the Mersenne Twister's draw x (its place + 1)
+(0x6012C0). A replay not on the card is passed over; as many passed over as the list is long end it. Each replay's end plays
+the next until the player ends one with Start (the race's end code 2, 0x10CDD4: ❓ that Start is that code is not read), then
+the theater again. Ours: the race's own replay files have no card folder: their entries are the letter 0 and their file's
+name hashed (FNV-1a) into the 42 bits of a folder's letters. `labo_folder` / `labo_list_index` start at -1.
 Save Replay (the race's menus) is the same project on `SaveReplayRoot` with MODE_SAVE_FULL_REPLAY: `getNewFile()` is the run
 (`GameState::pending_replay`), `saveNew` writes it. The card's free KB: 8,000 less a KB, the game's save and Gran Turismo 4's
 own replays on it (the scripts take 8,000 for an unformatted card); the race's own replays are in the data folder and take

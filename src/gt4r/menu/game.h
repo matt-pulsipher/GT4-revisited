@@ -331,6 +331,7 @@ struct GameState {
         s32 skip_at = 0;       // +0x5C
         s32 restart = 0;       // +0x60 restart_from_beginning
         s32 card_at = 0;       // +0x64 the card's replays' next
+        u32 card_seed = 0;     // +0x68 their shuffled order's seed (0x434950)
         s32 movie_left = 0;    // +0x6C demonstrations until the movie
         bool more = false;     // the time-out's sequence goes on after the project it ran
     } demonstration;
@@ -391,6 +392,9 @@ struct GameState {
     // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
     int card_action = 0;
     std::string replay_file;
+    // The play list under way (the load_replay sequence's "list"), and the replays of it not found so far (0x10CA50's count).
+    bool replay_list = false;
+    int replay_list_missed = 0;
     // The run the race's menus save (labomode with MODE_SAVE_FULL_REPLAY: the card manager's new file), and what writes it.
     struct PendingReplay {
         std::string course, car; // labels
@@ -429,5 +433,10 @@ std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int ga
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
 // run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
 std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
+// The Replay Theater's play list played (the load_replay sequence's loop, 0x10CA50, game_replays.cpp): the next replay of
+// the card's list as its sequence picks it (0x4349A8: in order or shuffled, the missing passed over) set to be shown
+// (`replay_file`, `next_sequence` "replay"). `start`: the theater's Play of its PlayList folder; else after a replay of the
+// list (`quit`: the player ended it, which ends the list). False when nothing more plays.
+bool play_list_next(Runtime& rt, bool start, bool quit = false);
 
 } // namespace gt4r::menu

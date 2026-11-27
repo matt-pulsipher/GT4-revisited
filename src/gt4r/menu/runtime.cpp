@@ -663,6 +663,8 @@ void Runtime::finish() {
     if (sequence_ == "load_replay" && game_->next_sequence.empty() && game_->next_menu_project.empty()) {
         // (a demo replay is a path on the disc: replay/<name>/<name>)
         if (game_->card_action == 1 && !game_->replay_file.empty()) game_->next_sequence = "replay";
+        // (its PlayList folder's Play: menu_result "list", the card's play list one replay after another)
+        else if (game_->card_action == 1 && game_->menu_result == "list") play_list_next(*this, true);
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
     }
