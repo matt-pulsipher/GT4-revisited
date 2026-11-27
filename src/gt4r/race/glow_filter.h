@@ -28,10 +28,8 @@ struct GlowFilter {
 template <class Options = gt3r::render::DrawOptions> void apply_glow(Options& o, const std::optional<GlowFilter>& g) {
     o.glow.on = g.has_value();
     if (g) o.glow.threshold = g->threshold, o.glow.radius = g->radius, o.glow.samples = g->samples, o.glow.sum = g->sum, o.glow.gain = g->gain;
-    // (An engine with the copies' placement and their linear weights, Glow::tent / offset: not in the shared engine yet; without
-    // them it centres an even box of n points.)
-    if constexpr (requires { o.glow.tent; o.glow.offset[1]; })
-        if (g) o.glow.tent = true, o.glow.offset[0] = g->offset_x, o.glow.offset[1] = g->offset_y;
+    // The copies' placement and their linear weights (the engine's Glow::tent / offset).
+    if (g) o.glow.tent = true, o.glow.offset[0] = g->offset_x, o.glow.offset[1] = g->offset_y;
 }
 
 } // namespace gt4r::race

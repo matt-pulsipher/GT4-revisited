@@ -18,6 +18,7 @@ namespace gt4r::diff {
 int run_posture(Disc& disc, const std::vector<std::string>& paths); // posture.cpp
 int run_gear(Disc& disc, const std::vector<std::string>& paths);    // gear.cpp
 int run_course_script(Disc& disc, const std::string& course, const std::vector<std::string>& paths); // course_script.cpp
+bool run_grade(Disc& disc); // grade.cpp
 }
 
 namespace gt4r::diff::prologue {
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
         if (test == "prologue-near") // gt4r_diff <prologue disc> prologue-near [course] [car,car,...] [steps]
             return gt4r::diff::prologue::run_near(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_r_98,impreza_wrc_03,civic_r_98", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "save" && argc > 3) return gt4r::diff::run_save_check(*disc, argv[3]); // gt4r_diff <disc> save <folder or card image> (save_check.cpp)
+        if (test == "grade") return gt4r::diff::run_grade(*disc) ? 0 : 1; // gt4r_diff <disc> grade: the race picture's correction (grade.cpp)
         if (test == "passcode") return gt4r::diff::run_passcode(*disc, argc > 3 ? std::atoi(argv[3]) : 200) ? 0 : 1; // gt4r_diff <disc> passcode [n] (passcode.cpp)
         if (test == "prologue-ai") // gt4r_diff <prologue disc> prologue-ai [course] [car,car,...] [steps] (prologue_ai.cpp)
             return gt4r::diff::prologue::run_ai(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_r_98,impreza_wrc_03,civic_r_98", argc > 5 ? std::atoi(argv[5]) : 1200);
