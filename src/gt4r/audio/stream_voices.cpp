@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "formats/ads.h"
+#include "gt4r/audio/sound_driver.h"
 #include "gt4r/formats/sound/inst_bank.h"
 #include "vfs/vfs.h"
 
@@ -103,7 +104,7 @@ bool StreamVoices::play(const std::string& path, bool repeat, float level) {
         p.reverb = false;
         p.priority = 0; // (the stream's voices are its own, never another sound's)
         p.bus = gt3r::VoiceBus::Music;
-        voice_[c] = mixer_.key_on(p);
+        voice_[c] = key_stream_voice(mixer_, int(c), p);
     }
     if (!voice_[0].valid()) {
         stop();

@@ -55,6 +55,7 @@ AppSound::AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs)
     // The game's output level on the app's mixer while a disc is open (the shared engine's own
     // screens keep its half level).
     with_output_level(audio_.voices());
+    with_levels_at_once(audio_.voices());
     // The game's surround cue while a disc is open; the shared engine's screens get their own
     // setting back.
     surround_cue_before_ = audio_.voices().surround_cue();
@@ -73,6 +74,7 @@ AppSound::~AppSound() {
     gt3r::AudioEngine& audio = audio_;
     audio.voices().set_master_volume(gt3r::VoiceMixer::kOutputTrim);
     audio.voices().set_surround_cue(surround_cue_before_);
+    with_levels_at_once(audio.voices(), false);
     audio.voices().set_tick_hook([&audio] { audio.sequencer().update(audio.voices()); }, audio.sequencer().samples_per_update());
     driver_.stop_all();
 }
