@@ -238,7 +238,7 @@ void PitCheck::leave() {
     if (lap_state_ >= 0) {
         sim::ai::LapStateInputs ls;
         const u32 Fc = o_.car(car_) + kF;
-        ls.finished = ee_.r8(Fc + 0x4B0) != 0;
+        ls.back = ee_.r8(Fc + 0x4B0);
         ls.clock_ms = ee_.r32(o_.cond + 0xF898) / 3;
         ls.limit_minutes = ee_.r16(o_.cond + 0xF850);
         ls.laps = int(ee_.r32(ee_.r32(o_.cond)));

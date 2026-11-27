@@ -864,12 +864,12 @@ public:
         menu_scene_ = false;
         prev_cars_.clear();
         flow_.begin(flow_setup(), world_->cars());
-        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         // A recorded free run starts at its lap's line (the recorder's state: the clock two steps on, its times from the line, 0x359D40).
         if (demo && demo_run_ && setup_.solo && !demo_run_->demo.streams.empty())
             if (const std::optional<replay::RecorderState> st = replay::recorder_state(demo_run_->demo.streams[0]); st && world_->resume(*st)) {
                 flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, world_->cars()[0].course_v);
-                world_->set_crossings(0, flow_.car(0).counter);
+                world_->set_crossings(0, flow_.car(0).counter), world_->set_back_crossings(0, flow_.car(0).back);
             }
         license_failed_ = false, cones_met_ = 0, graded_place_ = 0, run_ended_ = run_driven_ = false;
         wrong_way_ = false, wrong_prev_ = -1;
@@ -934,7 +934,7 @@ public:
             preview_hold_ = preview_start();
             if (preview_pads_) { // (its crossings of the line: the car let go by the driver that brings it there, the places)
                 preview_flow_.begin(flow_setup(), world_->cars());
-                for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
+                for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_back_crossings(i, preview_flow_.car(i).back), world_->set_rank(i, preview_flow_.place(i));
                 release_past_line();
             }
             camera_.reset(world_->cars()[0]);
@@ -1069,7 +1069,7 @@ public:
                 world_->step(inputs_, hold, false, u32(std::max(0, preview_hold_)));
                 const race::RaceFlow::Events ev = preview_flow_.step(world_->cars());
                 for (const size_t i : ev.started) world_->release_start(i);
-                for (size_t i = 0; i < preview_flow_.car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
+                for (size_t i = 0; i < preview_flow_.car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_back_crossings(i, preview_flow_.car(i).back), world_->set_rank(i, preview_flow_.place(i));
             } else world_->step(inputs_, hold, true);
             if (preview_pads_ && preview_at_ > preview_pads_->pads.size() && guide_ == 0) { // (the recording has run out: again)
                 stand();
@@ -1201,7 +1201,7 @@ public:
         if (net_) step_online(ev);
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
-        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_back_crossings(i, flow_.car(i).back), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         for (const size_t i : ev.finished)
             if (i != 0 || !is_license(setup_.sequence) || gt3_road_) world_->finish_car(i, i == 0 && is_license(setup_.sequence)); // (a test's player's: end_test)
@@ -1786,16 +1786,11 @@ public:
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
 
     // What the race display shows now.
-    // The top speed on the lap line: the speed in the display's unit x 10 (0x472940: km/h v x 3.6, mph v x 3.6 x 0.6214),
-    // truncated, at most 9,999 (RaceDisplaySpeedEvent::vf2 0x3A36E0). ❓ How the display writes it (its word, decimals) is not
-    // read: here "<whole>.<tenth> <unit>".
-    std::string machine_speed_text(const RaceHud& hud) const {
-        using gt3r::ee::F;
-        F v = machine_speed_ * F::raw(0x40666666);
-        if (hud.mph()) v = v * F::raw(0x3F1F136A);
-        const int tenths = std::clamp(int(gt3r::ee::to_int((v * F::raw(0x41200000)).bits)), 0, 9999);
-        return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + (hud.mph() ? " mph" : " km/h");
-    }
+    // The top speed on the lap line (0x35E7C0 → RaceDisplay::vf2 → 0x3A0600 → 0x3A12A0): the speed in the display's unit
+    // (0x472940: km/h v x 3.6, mph v x 3.6 x 0.6214) kept x 10, truncated, 0 .. 9,999 (RaceDisplaySpeedEvent::vf2 0x3A36E0),
+    // read back x 0.1 (vf3 0x3A3778), then written by 0x3B0230: three digits, a point and the tenth ("085.3"; at or under 0
+    // "\x7F\x7F\x7F.\x7F"), the unit's name joined with no space (0x472680: "km/h", "mph"). No word of the display's.
+    std::string machine_speed_text(const RaceHud& hud) const { return race::machine_speed_line(machine_speed_, hud.mph()); }
     void fill(HudState& h, const RaceHud& hud) const {
         const std::span<const race::CarState> cars = shown();
         const bool demo = demo_run_.has_value();
@@ -2688,13 +2683,32 @@ private:
         }
     }
 public:
-    // Car a gaining on car b (0x3FA508): a's section now (F +0x4AE: the split points it is past on this lap).
-    bool pace_up(size_t a, size_t b) const {
-        if (a >= world_->car_count()) return false;
-        const float v = world_->cars()[a].course_v;
+    // A car's section now (F +0x4AE: the split points it is past on this lap).
+    int car_section(size_t car) const {
+        if (car >= world_->car_count()) return 0;
+        const float v = world_->cars()[car].course_v;
         int section = 0;
         for (const float s : splits_) section += s <= v;
-        return pace_lists_.pace_up(int(a), int(b), section, flow_.car(a).counter);
+        return section;
+    }
+    // Car a gaining on car b (0x3FA508).
+    bool pace_up(size_t a, size_t b) const {
+        if (a >= world_->car_count()) return false;
+        return pace_lists_.pace_up(int(a), int(b), car_section(a), flow_.car(a).counter);
+    }
+    // The Race Monitor's sector bars (0x3DC7B0): the lap's sections, and car `car`'s bar colour in section k, its best there
+    // ranked among every car's (race::sector_color).
+    int sections() const { return pace_lists_.sections(); }
+    u32 sector_color(size_t car, int k) const {
+        const s64 mine = pace_lists_.best(int(car), k);
+        int faster = 0;
+        const int cars = int(world_->car_count());
+        if (mine >= 0)
+            for (int c = 0; c < cars; ++c) {
+                const s64 b = pace_lists_.best(c, k);
+                faster += b >= 0 && u32(b) < u32(mine);
+            }
+        return race::sector_color(k, mine >= 0, faster, cars);
     }
 private:
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
@@ -3345,6 +3359,31 @@ public:
                     const size_t at = size_t(e.name.back() - 'A');
                     if (at < race_->flow().order().size()) icons.push_back({race_->flow().order()[at], e.x, e.y, e.opacity});
                 }
+                // A row's sector bars (0x3D7930 "sector": the external's box cut in the lap's sections, each in its colour, a
+                // 0x80C8C8C8 strip over the box's lowest fifth under the car's section now). Under the map's panel while it
+                // is shown (the panel's black covers that column in the original's).
+                if (e.name == "sector" && !monitor_map_) {
+                    const size_t row = size_t(std::clamp(int(std::lround((e.y - 200) / 32)), 0, 5));
+                    const int n = race_->sections();
+                    if (row < race_->flow().order().size() && n > 0)
+                        for (const race::StrobeMovie::External& x : monitor_movie_->externals)
+                            if (x.name == "sector") {
+                                using gt3r::ee::F;
+                                const size_t car = race_->flow().order()[row];
+                                const float x0 = e.x + x.x0 * e.scale, y0 = e.y + x.y0 * e.scale, y1 = e.y + x.y1 * e.scale;
+                                const F w = F(x.x1 * e.scale) - F(x.x0 * e.scale), nf = gt3r::ee::int_to_f(n), step = w / nf;
+                                const int now = race_->car_section(car);
+                                for (int k = 0; k < n; ++k) {
+                                    const float left = x0 + (w * gt3r::ee::int_to_f(k) / nf).host();
+                                    hud_->draw_box(left, y0, step.host(), y1 - y0, race_->sector_color(car, k), e.opacity);
+                                    if (k == now) {
+                                        const float top = y0 + (y1 - y0) * F::raw(0x3F4CCCCC).host();
+                                        hud_->draw_box(left, top, step.host(), y1 - top, 0x80C8C8C8u, e.opacity);
+                                    }
+                                }
+                                break;
+                            }
+                }
                 if (e.name == "chip") {
                     const size_t row = size_t(std::clamp(int(std::lround((e.y - 189) / 32)), 0, 5));
                     if (row < race_->flow().order().size()) hud_->draw_chip(e.x - 5, e.y - 16, 10, 32, race_->world().paint_chip(race_->flow().order()[row]));
@@ -3527,7 +3566,7 @@ private:
             text(bar + ".DIFF", r == 1 || gap < 0 ? "" : race::format_lap_time(gap));
             m.call(bar + ".GRID", "gotoAndStop", {V::number(letter(car))});
             m.call(bar, "gotoAndStop", {V::number(car == me ? 2 : 1)}); // (the followed car's row lit: 0x3DAF60, the monitor's +0x64)
-            // L, P, Best (0x3DA7C8; under the map, shown with Show Map): the lap (0x343B50: the crossings, at least 1, one less once
+            // L, P, Best (0x3DA7C8; under the map's panel, seen with Show Map): the lap (0x343B50: the crossings, at least 1, one less once
             // finished), the pit stops (0x3FA498), the best lap; the best's mark when the lap last completed made a new best (when
             // the lap changes: the best below the one kept then, unsigned, and kept).
             if (monitor_race_ != &f) monitor_race_ = &f, monitor_lap_.clear(), monitor_best_.clear(), monitor_mark_.clear(); // (the race's own)
@@ -3542,8 +3581,9 @@ private:
             text(bar + ".LAP", std::to_string(lap));
             text(bar + ".PIT", std::to_string(race_->pit_stops(car)));
             text(bar + ".BEST", best > 0 ? race::format_lap_time(best) : "--'--.---");
-            for (const char* part : {".LAP", ".PIT", ".BEST"}) show(bar + part, !monitor_map_);
-            show(bar + ".BESTMARK", !monitor_map_ && monitor_mark_[car]);
+            // (0x3DA7C8 fills and shows them whatever Show Map says: the map's panel covers that column while it is up)
+            for (const char* part : {".LAP", ".PIT", ".BEST"}) show(bar + part, true);
+            show(bar + ".BESTMARK", monitor_mark_[car] != 0);
         }
         show("MAP_PANEL", monitor_map_);
         fill_gap_strip(order, me);

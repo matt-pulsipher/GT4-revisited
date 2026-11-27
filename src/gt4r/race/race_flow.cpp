@@ -174,7 +174,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
     auto units = [&](F share) { return s64(gt3r::ee::to_int((share * fifty).bits)); };
     if (prev <= cur) {
         if (prev + lap * half < cur) { // backwards over the line
-            ++r.back;
+            r.back = r.back < 250 ? u8(r.back + 1) : u8(250); // (0x358608: at most 250)
             return;
         }
         if (r.back != 0 || r.counter == 0 || r.finished) return;
