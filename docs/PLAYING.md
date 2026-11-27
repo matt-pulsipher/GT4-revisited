@@ -29,7 +29,7 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
 4. GT4 Revisited's own menu, the home screen, is underneath the game: press **Select** on the title (on a keyboard Tab),
    or click or tap the **GT4R menu** button beside it. (On Prologue's board, Select stays the board's while a sign has the
    focus: Triangle first goes back to its menu.) The home screen: *Play* (the game from the start: the opening movie, then
-   the title), *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
+   the title), *Quick race*, *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
    another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
    race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
@@ -40,6 +40,12 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
    save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
    images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
+6. *Quick race* races any event of the game with any car, with nothing to unlock and nothing saved to your game: every race
+   of Gran Turismo mode's event lists (a championship's races one at a time), the license tests (the test, or a free run on
+   its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
+   then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
+   pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for. The last
+   choices are kept (`config.ini` `[quickrace]`). Not on Prologue yet.
 
 ## Controls
 
@@ -336,6 +342,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   what the menus do (`calls`: each script call too).
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
+- `--screen quickrace` with `GT4R_QUICKRACE="event=am_sunday_0002,car=ford_gt_05,start"` starts a Quick race at once
+  (`event=arcade:tsukuba`, `license:l0b0001`, `mission:<label>`; the top of `src/gt4r/app/screen_quick_race.cpp`).
 - Scripted runs (`--shot`, `--sweep`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
   nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
   driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
@@ -387,6 +395,15 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   own options)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
+- Quick race (`screen_quick_race.cpp`) and the car picker (`car_picker.*`) are the app's pages. What they list is the
+  disc's, read by the game's own code (`menu/save_editor.h`: Gran Turismo mode's event lists, the license tests, the
+  missions, the courses, the cars and makers, the colors). The race is the game's: menus of a new game of their own (never
+  saved; the player's options read from the data folder) given the request the game's pages give: an event's race as the
+  event page's entry (its race label, `solo_event`; tests `license`, missions `mission`, a test's course `freerun`), and
+  Arcade's single race through Arcade's own script (`GameRoot.set_enemy_cars`, then `MCarData.ShiftCarCode` on each entry,
+  as `doGame`); the race sequence's pages (quick-event, quick-arcade, ...) run before and after it. Ours (judged): the open
+  car's two-car field is applied for model type 2 only (Arcade's open-top option page is not asked), and the tire is the
+  setting page's default.
 - The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
   `game::app_bundle_folder`, else SDL's preference folder) is ours (`app.cpp` `user_data_dir`). The update check and the
   online session's relay requests are the shared engine's (`net::VersionCheck`, `net::Session`) carrying our game tag
