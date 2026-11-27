@@ -295,7 +295,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 
 - `--keys`: presses (`cross`, `down`, `start`, ...), `waitN` (N frames), `shot:<name>` (a
   picture beside `--shot`'s), `quit`; the mouse on the app's pages (`click:x:y`, `move:x:y`, `back:x:y`,
-  `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`; race controls held until changed: `gas=0..1`,
+  `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`, `type:<text>` (typed on a keyboard;
+  `typefile:<file>`: the file's text as it is when the key comes), `enter` (the Enter key); race controls held until changed: `gas=0..1`,
   `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `lx=` `ly=` `rx=` `ry=` (the sticks, -1..1),
   `l1=0|1` and any other button so (held), `release`; the second player's pad: `gas2=` `brake2=` `steer2=`
   `reverse2=` `handbrake2=` and `p2:<button>`; `@<file>` reads keys
@@ -365,7 +366,10 @@ pages as drawn, at the window's pixel size: 2560 x 1440 for the 1280 x 720 windo
 - `--record-frames <n>` ends the run after n frames; `quit` among the keys ends it too.
 - The frames are held to 60 a second (the menus' movies run by the clock); `--fast` does not hold them.
   `GT4R_RECORD_REALTIME=1` holds them to a 60 Hz schedule instead, a late frame made up by the next ones (the log says
-  how late they got), for what goes by real time: an online race. The machine must then draw faster than 60 a second.
+  how late they got), for what goes by real time: an online race, which takes one step a frame while it is recorded (its
+  machines' shared clock would otherwise give a late frame two). The machine must then draw faster than 60 a second.
+  A second copy joins over a relay server on this machine: `GT4R_LOBBY_CODEFILE` and the `typefile:` key (specs/net.md
+  "Scripted races").
 - `GT4R_RECORD_CODEC` replaces ffmpeg's output options (default: the VideoToolbox H.264 encoder at 80 Mbit/s on macOS,
   x264 CRF 12 elsewhere; BT.709). Dynamic resolution is off as in every scripted run.
 - `ai=1` in `GT4R_RACE` (and `GT4R_AUTODRIVE=1` for races the menus start): the computer drivers drive the player's car

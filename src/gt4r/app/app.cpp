@@ -349,7 +349,7 @@ std::vector<std::string> App::parse_key_script(std::string_view text) {
     for (std::string_view line : gt3r::split(text, '\n')) {
         if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
         for (std::string_view k : gt3r::split(line, ','))
-            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" || t.substr(0, 9) == "typefile:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
     }
     return keys;
 }
@@ -453,6 +453,15 @@ gt3r::PadState App::scripted_keys() {
             screenshot_wanted_ = true, ++key_;
             continue;
         }
+        if (k == "enter") { // the keyboard's Enter key, down and up (a text field's "done")
+            ++key_;
+            for (const SDL_EventType type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP}) {
+                SDL_Event e{};
+                e.type = type, e.key.key = SDLK_RETURN, e.key.scancode = SDL_SCANCODE_RETURN, e.key.down = type == SDL_EVENT_KEY_DOWN;
+                event(e);
+            }
+            continue;
+        }
         if (k == "release") {
             drive_ = {}, drive2_ = {}, ++key_;
             continue;
@@ -501,9 +510,14 @@ gt3r::PadState App::scripted_keys() {
             event(e);
             return pad;
         }
-        if (k.compare(0, 5, "type:") == 0) { // text typed on a keyboard
+        if (k.compare(0, 5, "type:") == 0 || k.compare(0, 9, "typefile:") == 0) { // text typed on a keyboard (typefile: a file's, read then)
             SDL_Event e{};
             std::string text = k.substr(5);
+            if (k[4] == 'f') {
+                const std::optional<Bytes> file = gt3r::read_host_file(k.substr(9));
+                text = file ? std::string(gt3r::trim(std::string_view(reinterpret_cast<const char*>(file->data()), file->size()))) : std::string();
+                if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 9);
+            }
             for (size_t at; (at = text.find("\\n")) != std::string::npos;) text.replace(at, 2, "\n"); // ("\n": Enter)
             ++key_, key_frames_ = 0;
             e.type = SDL_EVENT_TEXT_INPUT, e.text.text = text.c_str();

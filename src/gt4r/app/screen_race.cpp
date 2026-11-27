@@ -3607,6 +3607,9 @@ public:
         clock_ += paced;
         int due = online_ ? online_->steps(paced) : std::min(4, int(clock_ / kStep));
         if (due > 0 && !online_) clock_ = due == 4 ? 0 : clock_ - due * double(kStep);
+        // (A video of an online race: one step a frame, the frames held to the clock by the recording; video_recorder.h.)
+        const bool filmed = online_ && app.recording() && online_->phase() == net::NetRace::Phase::Racing;
+        if (filmed) due = 1;
         for (int n = 0; n < due; ++n) {
             // (the Race Monitor up: its speed's steps a frame, RaceBase::vf74 0x389A48 with vf30's scale from 0x3D8B00)
             const int steps = race_->viewing() ? race_->view().speed() : monitor_ && race_->watched() && !race_->replaying() ? monitor_speed_ : 1;
@@ -3615,7 +3618,7 @@ public:
         }
         if (playing()) feedback_.frame(app.input(), 0, input::FeedbackOptions::from(controllers_.port[0], wheel_.wheel), dt);
         else feedback_.stop(app.input(), 0);
-        race_->set_blend(online_ ? online_->alpha() : float(clock_ / kStep));
+        race_->set_blend(filmed ? 1.0f : online_ ? online_->alpha() : float(clock_ / kStep));
         step_ns_ += SDL_GetTicksNS() - t0;
     }
 

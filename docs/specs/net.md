@@ -484,7 +484,9 @@ application's `logo` art asset (the app's icon). The clock is the session's. Scr
 ### Scripted races
 
 `--screen online` with `GT4R_ONLINE` (the top of `app/screen_online.cpp`): two copies race without the menus, direct or
-through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (no addresses told, no broadcast).
+through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (no addresses told, no broadcast). Through the menus
+(videos): `GT4R_LOBBY_CODEFILE=<file>` makes a host's copy write its lobby's code there, which a second copy's
+`typefile:<file>` key types on the connection page's *Join with a code*.
 
 ### What runs where (the lobby)
 

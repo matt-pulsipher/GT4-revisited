@@ -156,6 +156,7 @@ public:
     // beside the game area (draw_whole_window).
     const gt3r::TouchOverlay& touch_overlay() const { return touch_; }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
+    bool recording() const { return recorder_ != nullptr; } // --record: a video of the run (video/video_recorder.h)
     const std::string& config_path() const { return config_path_; }
 
     void push(std::unique_ptr<Screen> s) { pending_.push_back(std::move(s)); }

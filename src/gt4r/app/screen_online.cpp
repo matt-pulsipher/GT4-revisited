@@ -469,6 +469,11 @@ bool OnlineMenus::frame(App& app, const MenuInput& m) {
         a.players = l.count(), a.limit = net::kMaxLobbyPlayers, a.open = l.session().in_lobby();
         discovery_.poll(a);
     }
+    // (Scripted runs, videos: GT4R_LOBBY_CODEFILE=<file> gets the host's code, for a second copy's `typefile:` key.)
+    if (static const char* code_file = std::getenv("GT4R_LOBBY_CODEFILE"); code_file && *code_file && !code_written_ && l.host() && !l.session().code().empty()) {
+        const std::string code = l.session().code();
+        code_written_ = gt3r::write_host_file(code_file, ByteSpan(reinterpret_cast<const u8*>(code.data()), code.size()));
+    }
     // The lobby ended by itself: why, then the arcade's pages.
     if (l.closed() && notice_.empty()) {
         notice_ = l.take_error();
