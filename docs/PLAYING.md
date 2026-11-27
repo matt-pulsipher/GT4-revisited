@@ -112,7 +112,7 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   console's 640x448; the 3D renderer.
 - *Audio*: the output device; the music's and the effects' volume, on top of the game's own options (both at 100% to start, so the
   game's own option levels are what plays); whether sounds behind you
-  are sent as the console sends them (one side turned over, for a surround decoder) or plain.
+  are sent as the console sends them (one side turned over, for a surround decoder) or plain. *Your music* (below).
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
 - *Views & replays*: the views the change-view control goes through and whether the in-car view shakes; in replays the
@@ -156,6 +156,12 @@ device =                 ; an output device's name; empty: the system's
 music_volume = 1.00
 effects_volume = 1.00
 rear_cue = on            ; on | off
+[music]
+folder =                 ; empty: the data folder's music/
+source = yours           ; game | yours | both (unset: yours, the game's until a song is found)
+next_race = next         ; next | same
+show_song = on           ; on | off (the song on the race's pause, L1 / R1 there)
+race_song =              ; the song the last race ended on (disc:<piece> or yours:<id>)
 [saves]
 folder =                 ; empty: the data folder
 [game]
@@ -171,6 +177,20 @@ the texture they replace: *Save the game's textures* writes every car's, course'
 (`gt4tool textures <disc> <folder> car/lod/fdeu0006` a few of them). Packs change what is loaded from then on. They replace
 the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods'
 cars, events and liveries are not read.
+
+**Your music.** MP3, FLAC, WAV and Ogg Vorbis files in the music folder (by default `music/` in the data folder, any
+depth; on Android the Files app shows it as *GT4 Revisited > music*) play as race songs. Settings > Audio > *Race songs*:
+the game's music list (the jukebox's, on Gran Turismo mode's map), *Your songs*, or *Both, mixed* (shuffled, each song
+drawn from both lists by how many each has left in its round; in order, one of each in turn). The order or shuffle is the
+game's list's own (the jukebox's play mode), for yours too. *Your songs' list* checks songs on and off; songs added to the
+folder are checked. Each of your songs plays as loud as the game's list's pieces on average (measured as it first plays,
+and once for eight of the game's list's pieces between races; songs not measured yet start as they are and ease in). *Music folder*
+chooses another folder (on Android the system's folder picker, after allowing music access; a folder in a cloud drive's app
+does not work), *Songs* reads it again. Other formats (AAC, Opus, WMA) and damaged files are counted and skipped. *Next
+race starts with*: the next song of the list, or the song the last race ended on. The race's pause shows the song's title
+and artist with L1 / R1 to skip (held, every 0.3 s; the song waits silent until the race goes on); the songs' controls
+(Settings > Controls) and the on-screen song buttons (shown from the layout's settings) skip while driving, and show the
+new song for a moment. The replay's caption names your song by its tags.
 
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they

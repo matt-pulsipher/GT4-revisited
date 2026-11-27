@@ -336,6 +336,15 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         // The volumes and output of the game's options, and the player's play list of racing music.
         m.sound->set_options(audio::race_sound_options(setup.options));
         if (setup.playlist) m.sound->set_playlist(setup.playlist);
+        // Ours: the player's own songs, as loud as the game's list's pieces.
+        if (setup.your_music) {
+            m.sound->set_your_music(&app.your_music(), setup.remember_song);
+            std::vector<int> enabled;
+            if (setup.playlist)
+                for (size_t i = 0; i < setup.playlist->rows().size(); ++i)
+                    if (setup.playlist->rows()[i].enabled) enabled.push_back(int(i));
+            app.measure_disc_music(enabled);
+        }
     }
     for (int i = 0; i < std::clamp(setup.players, 1, 2); ++i) m.views[size_t(i)].view = std::make_unique<render::View3D>(gpu);
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
