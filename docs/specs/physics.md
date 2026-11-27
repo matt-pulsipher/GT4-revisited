@@ -327,8 +327,9 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   A force taken along the wheel's steer angle (sin steer) instead of its slip direction.
 - **The forces across the car and the yaw** (0x352848): per wheel, in the car's frame, the
   lateral forces (as the speed's: along the steer angle for +0xDD = 1), the camber force
-  (-cos / -sin steer), the low-speed hold (0x3522B0: the engine's with 2002 Tokyo-Geneva's
-  constants), the longitudinal force; the force across the car kept per wheel (+0xD4); the
+  (-cos / -sin steer), the low-speed hold (0x3522B0, `rules::low_speed_hold`: 0 for a wheel
+  without load, its rim over 5 km/h either way, the hub off the rim by over 2 km/h or over 4 km/h across the wheel, else
+  sin(0.9 pi x across) cos(0.36 pi x rim) x the load; Prologue's 0x3BAFE0 is the same routine), the longitudinal force; the force across the car kept per wheel (+0xD4); the
   torque about levers from the layout: across, ± the half track of the layout's axle byte
   (+0x2C + w) by side (0 left -, 1 right +, other 0); along, ± that axle's distance from the
   center of gravity by the signed byte +0x3C + w. Yaw acceleration = torque x P +0x118, its
@@ -1203,7 +1204,10 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 
 **What still runs Gran Turismo 3's code** in a race: nothing of the step. `session.cpp` calls the shared engine's step
 routines only on its own rules (`GT4R_SIM_RULES=engine`) and Prologue's; its math
-(`ex::lookup_bisect`, `ex::bump_wave`, `ex::atan2`) is shared. Not ported, because nothing here asks for them: a LAN battle's
+(`ex::lookup_bisect`, `ex::atan2`) is shared; the bump wave (0x369640, Prologue's 0x375340) and the hold near standstill
+(0x3522B0, 0x3BAFE0) are Gran Turismo 4's own (`rules::bump_wave`, `rules::low_speed_hold`: word for word with both
+programs on drawn inputs, test `disc_bump_wave_and_low_speed_hold_equal_the_programs`). The engine's rules' race start
+(`Session::place`) sets the wheels at rest by Gran Turismo 4's (`rules::pose_wheels`) or Prologue's routine. Not ported, because nothing here asks for them: a LAN battle's
 packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives and the pad block's sending (0x354A78):
 [input.md](input.md). Judged or ours:
 

@@ -563,8 +563,8 @@ void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& d
     holding_ = false;
 }
 
-// The car at rest on a start place with the engine's rules (GT4R_SIM_RULES=engine: the engine's race start, the pose
-// on the road and the standing start), with the nose at the place.
+// The car at rest on a start place, with the nose at the place: Prologue's set-up, or the engine's rules' race start
+// (GT4R_SIM_RULES=engine: the engine's pose on the road and standing start, with Gran Turismo 4's wheels at rest).
 void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s32 hint, const F* line_heading) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
@@ -625,8 +625,9 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
             wheel.ground = wheel.ground0 = ground + wheel.hub.z;
         }
     }
-    if (own) prologue::pose_wheels(c, prologue_cars_[i], *prologue_); // (0x3C89D8's wheels, over the layout)
-    else
+    if (prologue_) prologue::pose_wheels(c, prologue_cars_[i], *prologue_); // (0x3C89D8's wheels, over the layout)
+    else if (gt4_ready_) rules::pose_wheels(c, gx_[i], layouts_[i], start_tables_); // (0x363B10's wheels, over the layout)
+    else // (a program that is neither: the engine's rules)
         for (int w = 0; w < 4; ++w) {
             ex::Wheel& wheel = c.w[size_t(w)];
             const size_t a = size_t(w >> 1);

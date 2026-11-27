@@ -244,7 +244,7 @@ void road_bumps(ex::Car& c, const WheelLayout& l, const BumpTables& t, const std
             wh.bump = k0;
             continue;
         }
-        F b = ex::bump_wave(s8(t.mode[s]), g.x, g.z, t.freq[s]);
+        F b = rules::bump_wave(s8(t.mode[s]), g.x, g.z, t.freq[s]);
         if (t.soft[material[size_t(w)] & 31] && !all_soft) b = b * kHalf;
         if (t.scaled[s]) b = b * wh.speed_ramp;
         wh.bump = b * amp;
@@ -610,6 +610,14 @@ void bump_nudge(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
     F floor = along * c.ground_fwd.z + side * c.ground_lat.z;
     if (k0 < floor) floor = k0;
     if (c.vel.z < floor) c.vel.z = floor;
+}
+
+F bump_wave(int mode, F x, F z, F freq) {
+    F w = gt3r::ee::sin(freq * x);
+    w = w + gt3r::ee::cos(freq * z);
+    if (mode != 1) return w;
+    const F sq = w * w;
+    return w < k0 ? -sq : sq;
 }
 
 // (for the start's pose, rules_start.cpp: 0x36A690 and 0x36A578 on their own)

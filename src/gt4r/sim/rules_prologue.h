@@ -208,10 +208,8 @@ bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& t
 // 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
 // `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
 int gear_for_speed(const ex::Car& c, F v);
-// 0x375340 (= Gran Turismo 4's 0x369640): a surface's bump wave at (x, z): sin(f x) + cos(f z), mode 1 its signed square.
-F bump_wave(int mode, F x, F z, F freq);
-// 0x3BAFE0 (= Gran Turismo 4's 0x3522B0 in its layout): the wheel's sideways hold near standstill.
-F low_speed_hold(const ex::Wheel& w);
+// (0x375340 and 0x3BAFE0 are Gran Turismo 4's 0x369640 and 0x3522B0, its wheel record's layout aside: rules::bump_wave and
+// rules::low_speed_hold)
 // 0x3DD910 (= Gran Turismo 4's 0x3484D0 in its layout): the HUD's steering percentage and the full throttle's flag from a pad.
 void pad_hud(ex::Car& c, const ex::PadFrame& f);
 // 0x3DDC40 and its caller's blend (0x3DEDE0): a computer's HUD steering percentage two thirds of the way to its command's

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_input.h"
@@ -26,26 +27,6 @@ const F kHalfPi = F::raw(0x3FC90FD9);
 F speed_of(u8 kmh) { return gt3r::ee::int_to_f(kmh ? kmh : 50) * kKmh; }
 F f_of(u32 v) { return gt3r::ee::int_to_f(s32(v)); }
 } // namespace
-
-F bump_wave(int mode, F x, F z, F freq) {
-    F w = gt3r::ee::sin(freq * x);
-    w = w + gt3r::ee::cos(freq * z);
-    if (mode != 1) return w;
-    const F sq = w * w;
-    return w < F() ? -sq : sq;
-}
-
-F low_speed_hold(const ex::Wheel& w) {
-    if (w.peak_force == F()) return F();
-    const F ws = w.rim_speed, slip = w.hub_vx - ws;
-    if (ws < F::raw(0xBFB1C71B) || F::raw(0x3FB1C71B) < ws) return F();     // |the rim| over 5 km/h
-    if (slip < F::raw(0xBF0E38E3) || F::raw(0x3F0E38E3) < slip) return F(); // the hub off the rim by over 2 km/h
-    F across = gt3r::ee::cos(w.steer) * w.hub_vy;
-    across = across + gt3r::ee::sin(w.steer) * w.hub_vx;
-    if (F::raw(0x3F8E38E3) < across || across < F::raw(0xBF8E38E3)) return F(); // over 4 km/h across the wheel
-    const F s = gt3r::ee::sin(across * F::raw(0x4034F4AB));                     // 0.9 pi
-    return s * gt3r::ee::cos(ws * F::raw(0x3F90C3BC)) * w.peak_force;            // 0.36 pi
-}
 
 void pad_hud(ex::Car& c, const ex::PadFrame& f) {
     if (!(f.flags & 1)) c.steer_pct = gt3r::s8(f.steer == 0 ? 0 : f.steer > 0 ? 100 : -100);
@@ -471,7 +452,7 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool air, const Tables& t) {
         const F cam = tx.camber_force[size_t(i)];
         fa = fa + -cos(w.steer) * cam;
         fb = fb + -sin(w.steer) * cam;
-        const F hold = prologue::low_speed_hold(w); // (0x3BAFE0 = Gran Turismo 4's 0x3522B0 in its layout)
+        const F hold = rules::low_speed_hold(w); // (0x3BAFE0 = Gran Turismo 4's 0x3522B0 in its layout)
         fa = fa - cos(w.steer) * hold;
         fb = fb - sin(w.steer) * hold;
         fa = fa - sin(w.steer) * gx;
@@ -1312,7 +1293,7 @@ void road_bumps(ex::Car& c, const CarPart& x, const ex::SurfaceBumps& b) {
             wh.bump = F();
             continue;
         }
-        F v = bump_wave(b.mode[s], g.x, g.z, b.freq[s]);
+        F v = rules::bump_wave(b.mode[s], g.x, g.z, b.freq[s]); // (0x375340 = 0x369640)
         if (b.scaled[s]) v = v * wh.speed_ramp;
         wh.bump = v * amp;
     }
