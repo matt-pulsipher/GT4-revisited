@@ -8,6 +8,7 @@
 #include "gt4r/base/types.h"
 #include "gt4r/race/simulation.h"
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <vector>
@@ -94,7 +95,8 @@ public:
         bool beep = false;          // a count beep (3, 2 and 1 s before the start)
         bool start = false;         // the start signal
         bool clock_started = false; // a rolling start's clock started (the first car took the line)
-        int lap_done = -1;          // a car that completed a lap this step (the last such, -1 none)
+        std::vector<size_t> laps;   // cars that completed a lap this step (several cross in one step)
+        bool lap_done(size_t car) const { return std::find(laps.begin(), laps.end(), car) != laps.end(); }
         std::vector<size_t> finished; // cars that finished this step
         bool player_finished = false;
         std::vector<size_t> started; // cars whose start was counted this step (the conductor's virtual 20: the line first

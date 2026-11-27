@@ -198,7 +198,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
         const s64 ms = t - r.base_ms;
         r.last_lap_ms = ms;
         if (r.best_lap_ms < 0 || ms < r.best_lap_ms) r.best_lap_ms = ms;
-        ev.lap_done = int(i);
+        ev.laps.push_back(i);
     }
     if (setup_.test_kind != 0) { // the license's (0x3F6588): kinds 3 and 6 end at the laps
         if ((setup_.test_kind == 3 || setup_.test_kind == 6) && setup_.laps == old) end_car(i, at, ev);

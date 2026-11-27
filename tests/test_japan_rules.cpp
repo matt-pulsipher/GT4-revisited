@@ -34,9 +34,10 @@ TEST(japan_demonstrations_on_japan_rules_disc) {
     }
 }
 
-// Japan's Replay Theater races (replay/Rdemo<n>) played by our own race end on their recorded times: two-car arcade races
-// whose drivers' lines, arc speeds and spread are Japan's (Rdemo7, Rdemo9, Rdemo11). Japan's files keep a laps word of 0:
-// the time is the laps crossed within the recording.
+// Japan's Replay Theater races (replay/Rdemo<n>) played by our own race end on their recorded times, the 7 of 11 timed ones
+// Japan's program in the interpreter ends on them: races whose drivers' lines, arc speeds, spread and decisions are Japan's.
+// Japan's files keep a laps word of 0 or 4: the time is the laps crossed within the recording (Rdemo3's last lap is crossed
+// in the step another car's is).
 TEST(japan_replay_theater_races_disc) {
     Disc* disc = nullptr;
     for (const std::unique_ptr<Disc>& d : test::discs())
@@ -50,7 +51,7 @@ TEST(japan_replay_theater_races_disc) {
             return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
         },
         [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
-    for (const char* name : {"Rdemo7", "Rdemo9", "Rdemo11"}) {
+    for (const char* name : {"Rdemo0", "Rdemo3", "Rdemo7", "Rdemo8", "Rdemo9", "Rdemo10", "Rdemo11"}) {
         const gt3r::Volume::Entry* e = vol->find(std::string("replay/") + name + "/" + name);
         CHECK(e != nullptr);
         if (!e) continue;

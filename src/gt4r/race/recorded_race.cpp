@@ -209,7 +209,7 @@ void RecordedRace::step() {
     for (size_t i = 0; i < flow_.car_count(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
     if (p.field)
         for (const size_t i : e.finished) p.field->finish_run(session, i);
-    if (e.lap_done == 0) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();
+    if (e.lap_done(0)) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();
     ++at_;
 }
 
