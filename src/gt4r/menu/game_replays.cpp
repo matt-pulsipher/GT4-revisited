@@ -14,6 +14,7 @@
 #include "gt4r/save/best_lap_card.h"
 #include "gt4r/save/card_icon.h"
 #include "gt4r/save/codec.h"
+#include "gt4r/save/replay_list.h"
 #include "gt4r/save/replay_particulars.h"
 
 #include <algorithm>
@@ -89,8 +90,8 @@ struct ReplayRow {
     std::string icon; // its picture's name in GameState::chunk_pictures
 };
 
-std::shared_ptr<Object> replay_object(GameNatives& n, const ReplayRow& r) {
-    auto f = std::make_shared<Object>("MMemoryCardFile");
+std::shared_ptr<ListedFile> replay_object(GameNatives& n, const ReplayRow& r) {
+    auto f = std::make_shared<ListedFile>("MMemoryCardFile");
     Database& d = n.db();
     std::string car;
     if (!r.car.empty() && d.car(r.car)) car = n.rt.vm().attribute(make_car_object(n.rt, r.car, 0), "short_name").to_string();
@@ -214,20 +215,168 @@ std::vector<std::string> replays_for(GameNatives& n, const std::string& mode) {
     return out;
 }
 
+namespace {
+
+std::string card_product(Runtime& rt) { return rt.config().product.empty() ? std::string("BASCUS-97328") : rt.config().product; }
+save::ReplayList replay_list_of(Runtime& rt) {
+    return save::ReplayList(rt.data_dir().empty() ? std::string() : rt.data_dir() + "/memorycard", rt.reader(), card_product(rt));
+}
+
+// A replay's entry in the play list: Gran Turismo 4's own in its card folder by the folder's name (save/replay_list.h); ours,
+// with no folder (the race's own replay files, a data file alone), the letter 0 and its file's name hashed into the 42 bits
+// of a folder's letters (FNV-1a).
+u64 replay_entry(Runtime& rt, const std::string& path) {
+    const std::filesystem::path p(path);
+    const std::string name = p.filename().string();
+    if (name == p.parent_path().filename().string())
+        if (const std::optional<u64> e = save::folder_entry(name, card_product(rt))) return *e;
+    u64 h = 0xCBF29CE484222325ull;
+    for (unsigned char c : name) h = (h ^ c) * 0x100000001B3ull;
+    return h & ((u64(1) << 42) - 1);
+}
+
+// The replay of an entry ("": none on the card).
+std::string replay_of(Runtime& rt, u64 entry) {
+    for (const std::string& path : saved_replays(rt.data_dir()))
+        if (replay_entry(rt, path) == entry) return path;
+    return {};
+}
+
+// A replay's file object for the list's row `path` (`files`: the manager's list, which remove takes it from; `over`: the
+// replay a save writes over).
+std::shared_ptr<ListedFile> replay_file_object(GameNatives* np, const std::string& path, std::shared_ptr<std::vector<std::string>> files,
+                                               std::shared_ptr<std::string> over) {
+    GameState* s = &np->state();
+    const Bytes bytes = read_file(path);
+    const bool rebuilt = race::ReplayFile::is_replay(bytes);
+    ReplayRow row = rebuilt ? rebuilt_row(*np, path, bytes) : own_row(*np, path, bytes);
+    std::error_code ec;
+    const auto when = std::filesystem::last_write_time(path, ec);
+    if (!ec) {
+        const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(when - std::filesystem::file_time_type::clock::now() +
+                                                                                            std::chrono::system_clock::now());
+        row.date = day_text(std::chrono::system_clock::to_time_t(sys));
+    }
+    auto f = replay_object(*np, row);
+    f->entry = replay_entry(np->rt, path);
+    std::weak_ptr<ListedFile> weak = f;
+    // Renamed (the theater's pen): the title written back.
+    f->method("writeInfo", [weak, path, rebuilt](Vm&, const Value&, Args) {
+        const std::shared_ptr<ListedFile> o = weak.lock();
+        if (!o) return text("INVALID_FILE");
+        const std::string title = o->get("title").to_string();
+        try {
+            if (rebuilt) {
+                race::ReplayFile r = race::ReplayFile::decode(read_file(path));
+                r.title = title;
+                return text(write_file(path, r.encode()) ? "OK" : "DEVICE_ERROR");
+            }
+            const std::filesystem::path thumbnail = std::filesystem::path(path).parent_path() / "thumbnail";
+            const std::optional<Bytes> b = save::rename_particulars(read_file(thumbnail), title);
+            if (!b) return text("INVALID_FILE");
+            return text(write_file(thumbnail, *b) ? "OK" : "DEVICE_ERROR");
+        } catch (const std::exception&) {
+            return text("INVALID_FILE");
+        }
+    });
+    f->method("isExist", [over, path](Vm&, const Value&, Args) {
+        if (over) *over = path;
+        return number(0);
+    });
+    f->method("readSize", [kb = row.kb](Vm&, const Value&, Args) { return number(kb); });
+    // load(manager): the replay chosen for the sequence to show (GameState::replay_file).
+    f->method("load", [s, path, valid = row.valid](Vm&, const Value&, Args) {
+        if (!valid) return text("INVALID_FILE");
+        s->replay_file = path;
+        return text("OK");
+    });
+    f->method("remove", [files, path](Vm&, const Value&, Args) {
+        const bool gone = remove_replay(path);
+        if (files) files->erase(std::remove(files->begin(), files->end(), path), files->end());
+        return text(gone ? "OK" : "DEVICE_ERROR");
+    });
+    return f;
+}
+
+// The list's entries made files: a replay on the card its row, one not there its entry alone.
+void fill_play_list(GameNatives* np, PlayListObject& list, const std::vector<u64>& entries) {
+    list.files.clear();
+    for (const u64 e : entries) {
+        const std::string path = replay_of(np->rt, e);
+        std::shared_ptr<ListedFile> f = path.empty() ? std::make_shared<ListedFile>("MMemoryCardFile") : replay_file_object(np, path, nullptr, nullptr);
+        f->entry = e, f->missing = path.empty();
+        list.files.push_back(std::move(f));
+    }
+}
+
+// Every replay mode's `autoloadPlayList` (the manager's FileGT4ReplayList, 0x17C348): setting its `list` reads the card's
+// play list into that list (`autoloadPlayListResult`: OK, FILE_NOT_FOUND when there is none yet, INVALID_FILE); `save` /
+// `saveNew` write the list's entries; isExist, readSize, size, format, remove as a card file's (saveVariousDataImpl).
+void install_play_list_file(GameNatives& n, Object& manager) {
+    GameNatives* np = &n;
+    auto shown = std::make_shared<std::shared_ptr<PlayListObject>>();
+    auto loaded = std::make_shared<save::Result>(save::Result::FileNotFound);
+    manager.property("autoloadPlayListResult", [loaded] { return text(save::result_name(*loaded)); });
+    auto file = std::make_shared<Object>("MMemoryCardFile");
+    file->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [np, shown, loaded](const Value& v) {
+        const auto l = v.as<PlayListObject>();
+        if (!l) return;
+        *shown = l;
+        std::vector<u64> entries;
+        *loaded = replay_list_of(np->rt).load(entries);
+        if (*loaded == save::Result::Ok) fill_play_list(np, *l, entries);
+    });
+    file->set("size", number(save::kPlayListKb));
+    file->set("objectName", text("FileReplayList"));
+    file->method("isExist", [np](Vm&, const Value&, Args) { return number(replay_list_of(np->rt).exists() ? 0 : 1); });
+    file->method("readSize", [](Vm&, const Value&, Args) { return number(save::kPlayListKb); });
+    file->method("format", [](Vm&, const Value&, Args) { return number(1); });
+    file->method("remove", [np](Vm&, const Value&, Args) { return number(replay_list_of(np->rt).remove() == save::Result::Ok); });
+    for (const char* nothing : {"dump", "setNewFile"}) file->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    // save(manager) / saveNew(manager, icon.sys's second line)
+    for (const char* write : {"save", "saveNew"}) file->method(write, [np, shown, loaded](Vm&, const Value&, Args a) {
+        std::vector<u64> entries;
+        if (*shown)
+            for (const auto& f : (*shown)->files) entries.push_back(f->entry);
+        const save::Result r = replay_list_of(np->rt).save(entries, a.size() > 1 ? a[1].to_string() : std::string("Replay list"));
+        if (r == save::Result::Ok) *loaded = r;
+        return text(save::result_name(r));
+    });
+    manager.set("autoloadPlayList", object_value(file));
+}
+
+} // namespace
+
 void install_replay_list(GameNatives& n, Object& manager, const std::string& mode) {
-    auto files = std::make_shared<std::vector<std::string>>(replays_for(n, mode));
+    const bool play_list = mode == "MODE_REPLAY_PLAYLIST";
+    auto files = std::make_shared<std::vector<std::string>>(play_list ? std::vector<std::string>{} : replays_for(n, mode));
     GameNatives* np = &n;
     GameState* s = &n.state();
-    manager.property("count", [files] { return number(s32(files->size())); });
-    manager.method("isNoFile", [files](Vm&, const Value&, Args) { return number(files->empty()); });
+    install_play_list_file(n, manager);
+    // The PlayList folder (MODE_REPLAY_PLAYLIST): its rows are the list the scripts give the manager (`list`), the entries of
+    // replays no longer on the card taken out of it as it is listed (0x1D2EA8 -> 0x1D12D8).
+    auto list = std::make_shared<std::shared_ptr<PlayListObject>>();
+    auto prune = [list] {
+        if (!*list) return;
+        auto& f = (*list)->files;
+        f.erase(std::remove_if(f.begin(), f.end(), [](const std::shared_ptr<ListedFile>& x) { return x->missing; }), f.end());
+    };
+    if (play_list) {
+        manager.property("list", [list] { return *list ? object_value(*list) : Value{}; }, [list, prune](const Value& v) {
+            if (const auto l = v.as<PlayListObject>()) *list = l, prune();
+        });
+        for (const char* again : {"start", "restart", "clear"}) manager.method(again, [prune](Vm&, const Value&, Args) {
+            prune();
+            return Value{};
+        });
+    }
+    auto count = [files, list, play_list]() -> s32 { return play_list ? (*list ? s32((*list)->files.size()) : 0) : s32(files->size()); };
+    manager.property("count", [count] { return number(count()); });
+    manager.method("isNoFile", [count](Vm&, const Value&, Args) { return number(count() == 0); });
     manager.method("isConnect", [](Vm&, const Value&, Args) { return number(1); });
-    auto playlist = std::make_shared<Object>("MReplayPlayList");
-    playlist->set("list", Value::array({}));
-    playlist->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
-    manager.set("autoloadPlayList", object_value(playlist));
     // The run to be saved (Save Replay): the list's "Create new file", titled by the page after its mode and number.
     Value fresh;
-    if (s->pending_replay) {
+    if (s->pending_replay && !play_list) {
         const GameState::PendingReplay& q = *s->pending_replay;
         ReplayRow row;
         row.course = q.course, row.car = q.car, row.date = day_text(std::time(nullptr)), row.time_ms = q.time_ms, row.bspec = q.bspec, row.kb = q.kb;
@@ -255,58 +404,11 @@ void install_replay_list(GameNatives& n, Object& manager, const std::string& mod
         };
         f->method("saveNew", save), f->method("save", save);
     }
-    manager.method("getFile", [np, s, files, over](Vm&, const Value&, Args a) -> Value {
+    manager.method("getFile", [np, files, over, list, play_list](Vm&, const Value&, Args a) -> Value {
         const s32 i = arg_int(a, 0, -1);
+        if (play_list) return *list && i >= 0 && size_t(i) < (*list)->files.size() ? object_value((*list)->files[size_t(i)]) : Value{};
         if (i < 0 || size_t(i) >= files->size()) return Value{};
-        const std::string path = (*files)[size_t(i)];
-        const Bytes bytes = read_file(path);
-        const bool rebuilt = race::ReplayFile::is_replay(bytes);
-        ReplayRow row = rebuilt ? rebuilt_row(*np, path, bytes) : own_row(*np, path, bytes);
-        std::error_code ec;
-        const auto when = std::filesystem::last_write_time(path, ec);
-        if (!ec) {
-            const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(when - std::filesystem::file_time_type::clock::now() +
-                                                                                                std::chrono::system_clock::now());
-            row.date = day_text(std::chrono::system_clock::to_time_t(sys));
-        }
-        auto f = replay_object(*np, row);
-        std::weak_ptr<Object> weak = f;
-        // Renamed (the theater's pen): the title written back.
-        f->method("writeInfo", [weak, path, rebuilt](Vm&, const Value&, Args) {
-            const std::shared_ptr<Object> o = weak.lock();
-            if (!o) return text("INVALID_FILE");
-            const std::string title = o->get("title").to_string();
-            try {
-                if (rebuilt) {
-                    race::ReplayFile r = race::ReplayFile::decode(read_file(path));
-                    r.title = title;
-                    return text(write_file(path, r.encode()) ? "OK" : "DEVICE_ERROR");
-                }
-                const std::filesystem::path thumbnail = std::filesystem::path(path).parent_path() / "thumbnail";
-                const std::optional<Bytes> b = save::rename_particulars(read_file(thumbnail), title);
-                if (!b) return text("INVALID_FILE");
-                return text(write_file(thumbnail, *b) ? "OK" : "DEVICE_ERROR");
-            } catch (const std::exception&) {
-                return text("INVALID_FILE");
-            }
-        });
-        f->method("isExist", [over, path](Vm&, const Value&, Args) {
-            *over = path;
-            return number(0);
-        });
-        f->method("readSize", [kb = row.kb](Vm&, const Value&, Args) { return number(kb); });
-        // load(manager): the replay chosen for the sequence to show (GameState::replay_file).
-        f->method("load", [s, path, valid = row.valid](Vm&, const Value&, Args) {
-            if (!valid) return text("INVALID_FILE");
-            s->replay_file = path;
-            return text("OK");
-        });
-        f->method("remove", [files, path](Vm&, const Value&, Args) {
-            const bool gone = remove_replay(path);
-            files->erase(std::remove(files->begin(), files->end(), path), files->end());
-            return text(gone ? "OK" : "DEVICE_ERROR");
-        });
-        return object_value(f);
+        return object_value(replay_file_object(np, (*files)[size_t(i)], files, over));
     });
 }
 
@@ -355,10 +457,7 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
     manager.method("isNoFile", [demos](Vm&, const Value&, Args) { return number(demos->empty()); });
     manager.method("isConnect", [](Vm&, const Value&, Args) { return number(1); });
     manager.method("getNewFile", [](Vm&, const Value&, Args) { return Value{}; });
-    auto playlist = std::make_shared<Object>("MReplayPlayList");
-    playlist->set("list", Value::array({}));
-    playlist->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
-    manager.set("autoloadPlayList", object_value(playlist));
+    install_play_list_file(n, manager);
     manager.method("getFile", [np, s, demos](Vm&, const Value&, Args a) -> Value {
         const s32 i = arg_int(a, 0, -1);
         if (i < 0 || size_t(i) >= demos->size()) return Value{};
@@ -395,6 +494,53 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
         f->method("remove", [](Vm&, const Value&, Args) { return text("DEVICE_ERROR"); });
         return object_value(f);
     });
+}
+
+// 0x4349A8: the card's play list's next replay (the replays' slot, option +0x1148), as the play list and the title's
+// time-out pick it. None or an empty list: 0. Else the demonstration's count (MDemonstration +0x64) names it, from the first
+// again past the end, and goes on by one; with replay_play_mode SHUFFLE (option +0x114C) through an order drawn anew each
+// time from its seed (+0x68): 0, 1, .. n - 1, then each place from the second swapped with the one at the draw x (its place
+// + 1) (0x6012C0; the program's Mersenne Twister seeded with it, a draw a float over 2^32: 0x579548). The list's length,
+// with `path` the replay (0x1D1340; "" when it is not on the card).
+s32 card_replay_pick(Runtime& rt, std::string& path) {
+    path.clear();
+    std::vector<u64> entries;
+    if (replay_list_of(rt).load(entries) != save::Result::Ok || entries.empty()) return 0;
+    GameState& s = rt.game();
+    GameState::Demonstration& d = s.demonstration;
+    const s32 count = s32(entries.size());
+    if (d.card_at >= count) d.card_at = 0;
+    s32 at = d.card_at++;
+    if (s.option_text("replay_play_mode") == "SHUFFLE") {
+        std::vector<s32> order(static_cast<size_t>(count));
+        for (s32 i = 0; i < count; ++i) order[size_t(i)] = i;
+        save::Mt19937 mt(d.card_seed);
+        for (s32 i = 1; i < count; ++i) std::swap(order[size_t(i)], order[mt.below(u32(i + 1))]);
+        at = order[size_t(at)];
+    }
+    path = replay_of(rt, entries[size_t(at)]);
+    return count;
+}
+
+// The load_replay sequence's play list (0x10CA50 with 0x4349A8 and 0x1D14E0). The sequence reads the card's list each time
+// (card_replay_pick): none or empty, nothing plays. A replay not on the card is passed over and counted; as many as the
+// list holds end it (the count is the sequence's, kept through the list's replays). The list goes on after each replay
+// until the player ends one (the race's end code 2, 0x10CDD4).
+bool play_list_next(Runtime& rt, bool start, bool quit) {
+    GameState& s = rt.game();
+    if (start) s.replay_list = true, s.replay_list_missed = 0;
+    if (!s.replay_list) return false;
+    if (quit) return s.replay_list = false;
+    for (;;) {
+        std::string path;
+        const s32 count = card_replay_pick(rt, path);
+        if (count == 0) return s.replay_list = false;
+        if (!path.empty()) {
+            s.replay_file = path, s.next_sequence = "replay";
+            return true;
+        }
+        if (++s.replay_list_missed >= count) return s.replay_list = false;
+    }
 }
 
 } // namespace gt4r::menu

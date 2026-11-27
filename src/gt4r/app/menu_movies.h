@@ -25,7 +25,7 @@ namespace gt4r {
 
 class MenuMovies {
 public:
-    MenuMovies(SDL_Renderer* renderer, gt3r::Vfs& vfs, SDL_AudioDeviceID device, float volume = 0.8f) : r_(renderer), vfs_(vfs), device_(device), volume_(volume) {}
+    MenuMovies(SDL_Renderer* renderer, gt3r::Vfs& vfs, SDL_AudioDeviceID device, float volume = 1.0f) : r_(renderer), vfs_(vfs), device_(device), volume_(volume) {}
     ~MenuMovies();
 
     // The configuration's MpegRoot ("main"); "" : "preview".

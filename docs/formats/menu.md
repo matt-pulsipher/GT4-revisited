@@ -704,9 +704,11 @@ Gran Turismo mode sequences copy the block back into the riding car's record aft
 not the license tests', missions' or Arcade's, whose cars are not the garage's), so Car Wash's
 gauge (`dirtiness`) shows the dirt (`RaceResult::condition`, ✔ test `disc_car_gets_dirty`: 20 s
 of Grand Canyon 0.016, Tsukuba's road 0). A run without Gran Turismo 4's step (no block kept) has
-its distance added once instead (`add_distance`). ❓ The car's drawing does not read the dirt
-through its scripts (no body script on the US disc reads `dirtiness`, one of the model scripts'
-values, 0x6AAB70); whether the race draws dirt on the car otherwise is not read.
+its distance added once instead (`add_distance`). The race draws no dirt: the race car's dirt
+(+0x6E8) has one reader, `RaceCarParamSponsor::vf22` (0x3D75B0 -> 0x344A70), the model scripts'
+value `dirtiness` (0x6AAB70), and no car model's script on the US, European, Japanese or Prologue
+disc reads that value (`gt4tool car-scripts`: the values read are brake, engineRPM, pedalLeft,
+pedalRight and time).
 
 **The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
@@ -845,7 +847,20 @@ shows the picture, time, title, date, course, car, A or B and KB: save.md "A rep
 replays"). Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
 the project ends, and `race_request()` answers the sequence `replay` with `replay_file` (the
 path); after it the theater comes back (the sequence's loop). The pen renames (`writeInfo`). Exit returns to the title.
-❓ The play list is empty; `labo_folder` / `labo_list_index` start at -1.
+The **play list** (the PlayList folder; the card's `LSTRPLAY` file, save.md "The Replay Theater's play list"): ToListMov puts the
+chosen replays at the list's top (`append`, then `rotate` by the count before), asking first to make the list when the card has
+none ("no playlist slot n create?", then the KB it takes); the Replay folder's rows of the list show their icon lit
+(`ListCheck`). The PlayList folder lists the list (MODE_REPLAY_PLAYLIST: an entry whose replay is gone is taken out as it is
+listed, 0x1D2EA8); Trash takes rows off the list, the rows drag into another order (`order`), PlayMode switches
+`replay_play_mode` STRAIGHT / SHUFFLE and restarts the count (`resetPlayListCounter`). Its Play (`menu_result` "list") plays
+the list one replay after another (game_replays.cpp `play_list_next`: 0x10CA50's loop over 0x4349A8): from the
+demonstration's count (MDemonstration +0x64, kept across visits; past the end the first again), shuffled through an order
+drawn from the count's seed (+0x68, drawn anew by resetPlayListCounter and initialize: the timer and the small generator,
+0x579358): 0 .. n - 1, each place from the second swapped with the one at the Mersenne Twister's draw x (its place + 1)
+(0x6012C0; the title's time-out picks from the same list first, "The title's demonstrations"). A replay not on the card is passed over; as many passed over as the list is long end it. Each replay's end plays
+the next until the player ends one with Start (the race's end code 2, 0x10CDD4: ❓ that Start is that code is not read), then
+the theater again. Ours: the race's own replay files have no card folder: their entries are the letter 0 and their file's
+name hashed (FNV-1a) into the 42 bits of a folder's letters. `labo_folder` / `labo_list_index` start at -1.
 Save Replay (the race's menus) is the same project on `SaveReplayRoot` with MODE_SAVE_FULL_REPLAY: `getNewFile()` is the run
 (`GameState::pending_replay`), `saveNew` writes it. The card's free KB: 8,000 less a KB, the game's save and Gran Turismo 4's
 own replays on it (the scripts take 8,000 for an unformatted card); the race's own replays are in the data folder and take
@@ -1025,16 +1040,37 @@ entry (+0x48, round), the count down one. A try that spends the time-out's tries
 answered 0, is the last; the movie skipped (`menu_result` "terminate") ends it too; then the last
 project again (0x42FC50: the title, focus on Arcade Mode). The kinds by name (0x622D90): none,
 autodemo (an Arcade demo race, 0x10BA28), menu (a project), replay (the card's replays 0x4349A8,
-then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text, so
-the US and European lists' `Demo(2, "Rdemo0")` .. (a number) are kind none and play nothing: with
-the option at 3 every time-out plays the movie once (✔ reference 01-boot, 28's attract cycle: the
-movie, no demo race), at 5 every other time-out, at 1 three times running, at 0 never.
-`resetMovieCount` (the Misc options' OK) sets the count to 0: the movie at the next time-out.
-Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ test
-`disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
-kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
+then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text. The
+configuration's list holds `Demo(2, "Rdemo0")` .. `Demo(2, "Rdemo12")` (Europe `Rdemo0p` ..
+`Rdemo10p`, Korea four `Rdemo<n>k`; Japan its own 17), and `setNextDemo` sets `demonstration.type =
+demo.getType()`, which names 0 autodemo, 1 menu, 2 replay: every Gran Turismo 4 disc's list is kind
+replay (`gt4tool adc <disc> config/config-main.adc`; checked on the US, European and Japanese discs;
+no list gives 0 or 1, and skip_replay is never set). The jump table at 0x68D000 sends replay (and
+autodemo) to 0x10BEF0: the card's play list first (0x4349A8, the Replay Theater's list: its next
+replay by the demonstration's count +0x64, in order or shuffled as the play list picks it; the list's
+length, or 0 with no list or an empty one); with a list, that replay read from the card (0x10BBB0 with
+its flag 1, 0x1D14E0; one gone from the card plays nothing and the time-out goes on), and a list
+shorter than the time-out's tries (+0x50, repeat_time, 3) ends the time-out after it; with none, the
+disc's recording by its name (0x10BBB0 with its flag 0, the file read from the disc, a
+RaceReplayInformation race run). 0x10BBB0's time argument (-1 for the card's, +0x44 for the disc's)
+is not read by it. A key that ends that replay (end code 2) ends the time-out. So on the console a time-out with the option at 3 plays two
+recorded races and then the movie (the count 2, 1, 0). PCSX2 cannot read the disc's recordings
+(the Replay Theater's "Data is corrupted", reference 28), so its attract cycle (reference 01-boot,
+28) shows the movie and then the title. With the option at 5 the movie every other time-out, at 1
+three times running, at 0 never. `resetMovieCount` (the Misc options' OK) sets the count to 0: the
+movie at the next time-out. Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's
+time-out (✔ test `disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title:
+the movie): a recorded race of the list (replay/Rdemo0/Rdemo0 ..) plays as the Replay Theater's
+Demo tab plays it (the sequence "replay", `RaceStart::attract`), the game's mark over it; any button
+ends it and the time-out (its `menu_result` "terminate"), the title again with its wait from that
+key (✔ by pictures: a new game, the title left 20 s: Rdemo0, George V Paris, the Bentley; Cross:
+the title, Arcade Mode; 20 s later Rdemo1, El Capitan). The card's play list first
+(`menu::card_replay_pick`, shared with the theater's Play; ✔ test `disc_menu_title_card_replays`:
+three on the list play one each try, two end the time-out after one, one gone from the card plays
+nothing, an empty list the disc's; ✔ by pictures: a card with two Fuji replays on its list, the title
+left 20 s: the first at Fuji with the game's mark, Cross: the title, 20 s later the second).
 
-❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace` (the Analyzer's course map too), `EyetoyFace`, `VirtualFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).
 
 #### The slide show (`SlideShowFace`; `app/menu_slides.h`, `menu/jpeg.*`)
@@ -1322,6 +1358,7 @@ engine's Gran Turismo 3 code or on a judgment:
 | The loading page | `app/menu_loading.h` | the black and the capture modes; their holds judged | LoadingPS2's other modes (0x104B68) |
 | The slide show | `app/menu_slides.h` | its timing and places from the program; the card's list or the disc's; our JPEG decoder | — |
 | The photo pages' faces | `app/screen_photo.cpp`, `app/photo_faces.h` | [photo.md](photo.md) "What runs where" | |
+| The Analyzer's graph (LoggerFace) | `app/logger_face.h`, `menu/logger.cpp` | the program's picture drawn straight onto the page ([logger.md](logger.md)); ❓ its three copies of the face's buffer (the second and third a line up and down at 1/3 and 1/4) are not drawn | 0x120CF0's buffer and blend |
 | The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)

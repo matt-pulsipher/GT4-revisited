@@ -37,6 +37,10 @@ DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide);
 float place_x(const DisplayPlace& p, bool wide);
 // Ours: how far that move is on the picture shown now (race/game_area.h anchor_push; 96, the program's, until set).
 void set_wide_push(float units);
+// Ours: two players side by side on a picture wider than 16:9: each half's parts placed as at 16:9 (`set_wide_push(96)`), then those
+// in the half's left third moved `units` left, its middle third units / 2 left (each half wider than 16:9's by `units`: they keep to
+// the half's left edge, middle and right edge); 0 off.
+void set_half_extra(float units);
 // Ours, touch screens: the places tied to the right edge in the lower half of the canvas (y >= 240: the meters and their
 // small parts) moved `right` units left, those tied to the left edge there `left` units right, clear of the on-screen controls
 // (0: where the program puts them). The box each side's places took since the last take_lower_box() (canvas units, as the
@@ -50,6 +54,9 @@ constexpr u32 kPositionWord = 0x1668, kPosition = 0x1398, kLapWord = 0x1684, kLa
 constexpr u32 kLapTime = 0x15F8, kBestWord = 0x16A0, kBestTime = 0x14A8, kLastWord = 0x16BC, kLastTime = 0x1588;
 constexpr u32 kEventLine = 0x17BC, kMessage = 0x252C, kReplaySign = 0x2A6C, kReplayMode = 0x2BBC;
 constexpr u32 kTotalTime = 0x1438; // display mode 1: the race's total time (under the word at kBestWord)
+// The A-spec points' two lines (RaceDisplay::vf43 0x39C570): rows of their own only in Japan's single-race tables (320, 264 and
+// 320, 304: where the other releases' program puts them too).
+constexpr u32 kPointsTitle = 0x267C, kPointsLine = 0x27CC;
 } // namespace element
 
 struct DisplayLayout {

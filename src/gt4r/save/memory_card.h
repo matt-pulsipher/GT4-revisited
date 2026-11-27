@@ -14,6 +14,10 @@
 
 namespace gt4r::save {
 
+// Whether a card product ("BISCPS-15055", or without its region's letters) is Gran Turismo 4 Prologue's (Japan SCPS-15055,
+// Europe SCES-52438, Korea SCKA-20022), whose save is its own payload; the Japanese Gran Turismo 4's BISCPS-17001 is not.
+bool is_prologue_product(const std::string& product);
+
 // The card manager's results (0x1CBF40): what the scripts compare.
 enum class Result { Ok, DeviceError, InvalidFile, FileNotFound, DifferentMemoryCard, NoCard, NoOperation };
 const char* result_name(Result r);
@@ -43,7 +47,7 @@ public:
     // The game data alone (loadInstance): into `into`, without the garage file.
     Result load_instance(menu::GameState& into) const;
     Result remove();
-    // The game data a save of the state would hold, unscrambled.
+    // The game data a save of the state would hold, unscrambled (in the release's layout).
     Bytes payload(const menu::GameState& s) const;
 
 private:
@@ -51,6 +55,7 @@ private:
     // Gran Turismo 4 Prologue's save ("BI" product): its own payload (save/prologue_data.h) as
     // the file, no garage file, its disc's icon.
     bool prologue_ = false;
+    Layout layout_ = Layout::Us; // the release's game data (game_data.h)
     Codes codes_;
     Reader disc_;
     u32 stamp_ = 0; // the garage header's stamp last seen (0: none yet)

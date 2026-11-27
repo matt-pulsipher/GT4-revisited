@@ -4,6 +4,8 @@
 
 #include "test_framework.h"
 
+#include <cstdlib>
+
 #include "formats/model/brake_model.h"
 #include "formats/model/car_model.h"
 #include "gt4r/formats/course/ai_line_course.h"
@@ -313,7 +315,7 @@ TEST(disc_prologue_step_routines_equal) {
     }
     // Gran Turismo 4's routines where Prologue's are its in another layout, on other drives: four wheel drive with a turbo, the
     // special kind 7, the hybrid (its axles its own path), rear wheel drive.
-    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03"}) {
+    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03", "mtr_gmv_04"}) {
         std::string err;
         const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", car, 600, "prologue", err);
         CHECK(err.empty());
@@ -325,6 +327,20 @@ TEST(disc_prologue_step_routines_equal) {
                                                   static_cast<unsigned long long>(st.calls));
             CHECK(st.calls > 0 && st.clean == st.calls);
         }
+    }
+    { // Phases 4, 20 and 21 with made-up tire wear rules (no race of the disc wears its tires) and each wheel's wear started in
+      // another of their bands.
+        setenv("GT4R_PROLOGUE_WEAR", "1", 1);
+        std::string err;
+        const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", "civic_r_98", 900, "prologue", err);
+        unsetenv("GT4R_PROLOGUE_WEAR");
+        CHECK(err.empty());
+        for (const diff::prologue::PTapStat& st : stats)
+            if (st.name == "Prologue's preparation" || st.name == "Prologue's tire wear" || st.name == "Prologue's wear flags") {
+                std::printf("  wear on: %s %llu of %llu calls equal\n", st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                            static_cast<unsigned long long>(st.calls));
+                CHECK(st.calls > 0 && st.clean == st.calls);
+            }
     }
     // Steering wheels (the controller kinds 4 and 6) and a digital pad: the input and the steering wheel's force.
     for (u8 kind : {u8(6), u8(4), u8(0)})
@@ -456,6 +472,9 @@ TEST(disc_prologue_pairs_pass_equal) {
     CHECK(s.err.empty());
     CHECK(s.records == 6000 && s.clean == s.records);
     CHECK(s.with_slip > 0);
+    std::printf("  the pairs' slipstream factors and position codes: %llu of %llu equal\n", (unsigned long long)s.table_equal,
+                (unsigned long long)s.table_values);
+    CHECK(s.table_values > 0 && s.table_equal == s.table_values);
 }
 
 // The race's rules on our session (race_rules.h): lesson 1's speed cap (0x3E1C20: 50 km/h, as the original's lesson 1 drives),

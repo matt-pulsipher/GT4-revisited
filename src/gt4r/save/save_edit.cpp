@@ -2,6 +2,7 @@
 
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/codec.h"
+#include "gt4r/save/memory_card.h"
 #include "gt4r/save/prologue_data.h"
 
 #include "formats/ps2/memcard.h"
@@ -36,7 +37,7 @@ u32 clock_word() {
 
 // "BASCUS-97328GAMEDATA" of "BASCUS-97328"; "BISCPS-15055GAMEDATA" of Prologue's.
 std::string folder_of(const std::string& product) { return game_folder_name(product); }
-bool is_prologue(const std::string& product) { return product.rfind("BI", 0) == 0; }
+bool is_prologue(const std::string& product) { return is_prologue_product(product); }
 
 std::optional<Bytes> read_file(const fs::path& p) {
     std::ifstream in(p, std::ios::binary);
@@ -257,9 +258,10 @@ bool SaveDocument::decode(std::string* why) {
         payload_ = files_.game;
         return true;
     }
-    const std::optional<Bytes> payload = unscramble(files_.game, 0);
-    if (!payload) return set_why(why, "The save's checksum is wrong: the file is damaged.");
-    if (!valid_game(*payload)) return set_why(why, "This is not a whole saved game of this disc's release.");
+    const std::optional<Bytes> file_payload = unscramble(files_.game, 0);
+    if (!file_payload) return set_why(why, "The save's checksum is wrong: the file is damaged.");
+    const std::optional<Bytes> payload = from_layout(*file_payload, layout_of_product(product_));
+    if (!payload || !valid_game(*payload)) return set_why(why, "This is not a whole saved game of this disc's release.");
     std::vector<int> wanted;
     if (!read_game(*payload, loaded_, codes_, &wanted)) return set_why(why, "The saved game does not read.");
     payload_.assign(payload->begin(), payload->begin() + kPayloadSize);
@@ -341,7 +343,7 @@ std::optional<EditFiles> SaveDocument::files(std::string* why) const {
         if (!valid_prologue(out.game)) return set_why(why, "the changed save did not check"), std::nullopt;
         return out;
     }
-    if (payload != payload_) out.game = scramble(payload, 0, clock_word());
+    if (payload != payload_) out.game = scramble(to_layout(payload, layout_of_product(product_)), 0, clock_word());
     u8 h[kHeader];
     std::memcpy(h, out.garage.data(), kHeader);
     decode_header(h, loaded_.garage_key);

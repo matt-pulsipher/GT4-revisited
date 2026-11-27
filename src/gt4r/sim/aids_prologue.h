@@ -23,6 +23,8 @@ struct AidTables {
     u8 c_status = 0;               // 0x504B02 the stability control's channels C / E count as acting and as on
     u8 c_throttle = 0;             // 0x504B03 channel C acts with the throttle open too
     u8 e_quiet = 0;                // 0x504B04 channel E neither counts as acting nor as on
+    std::array<u8, 2> over_angle{}; // static +0xAD / +0xAE: the oversteer's rear slip angle at rest and at full speed (degrees)
+    std::array<u8, 2> over_gain{};  // static +0xAF / +0xB0: its gain at rest and at full speed (x 0.1)
 };
 AidTables aid_tables(const Program& program);
 
@@ -53,7 +55,15 @@ void tcs(ex::Car& c, const CarPart& x, const AidTables& g, const ex::Aids& a);
 void brakes(ex::Car& c, const CarPart& x, const AidTables& g, const AidRace& r, const ex::Aids& a, bool ascc_enabled);
 // 0x3E0670: the throttle at most what holds `target` (m/s) in the car's gear.
 void hold_speed(ex::Car& c, F target);
-// 0x3E0838: the phase. `in`: the engine's indicators' inputs (0x3E02A0: the engine's 0x1E3708, equal at every call).
+// 0x3E02A0: the understeer and oversteer indicators (F +0x39C / +0x3A0), 0 at a standstill or going back. The grip the sum of
+// the layout's wheels' tire records' grips. Understeer: turning the way it steers with the lateral acceleration past 0.2 of
+// the grip, the yaw rate (and half its acceleration while that adds to it) short of speed x sin(the command) / the wheelbase.
+// Oversteer, a car a computer drives (control source 1 or 2, or a driver kind): from 25 km/h, the yaw rate times the speed
+// beyond the lateral acceleration while they turn opposite ways, x 2 / the grip; else the greatest slip angle of the wheels
+// behind the center of gravity past the static block's angle at the speed's share (x 0.018 a m/s, at most 1), times its gain
+// over what is left to 90 degrees, at most 1. The engine's 0x1E3708 over the layout, with the 25 km/h always.
+void steer_indicators(ex::Car& c, const CarPart& x, const AidTables& g);
+// 0x3E0838: the phase.
 void aids(ex::Car& c, const CarPart& x, const AidTables& g, const AidRace& r, const ex::AidInputs& in);
 
 } // namespace gt4r::sim::prologue

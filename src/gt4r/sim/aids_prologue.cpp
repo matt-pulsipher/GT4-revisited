@@ -2,6 +2,8 @@
 
 #include "gt4r/sim/aids_prologue.h"
 
+#include "base/ee_math.h"
+
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/rules_aids.h"
@@ -44,7 +46,63 @@ AidTables aid_tables(const Program& program) {
     g.dirt_cut = {program.b(s + 0xB6), program.b(s + 0xB7)};
     g.c_status = program.b(PrologueProgram::kAsmKeep - 2), g.c_throttle = program.b(PrologueProgram::kAsmKeep - 1);
     g.e_quiet = program.b(PrologueProgram::kAsmKeep);
+    g.over_angle = {program.b(s + 0xAD), program.b(s + 0xAE)}, g.over_gain = {program.b(s + 0xAF), program.b(s + 0xB0)};
     return g;
+}
+
+void steer_indicators(ex::Car& c, const CarPart& x, const AidTables& g) {
+    const rules::WheelLayout& l = x.layout;
+    const int n = count(l);
+    c.understeer = k0, c.oversteer = k0;
+    const F v = c.speed;
+    if (v <= k0) return;
+    F grip = k0;
+    for (int w = 0; w < n; ++w) grip = grip + rules::tire_record(x.tires, l, w, c.w[size_t(w)].surface).grip;
+    F delta = c.steer_cmd, r = c.yaw_rate, ra = c.yaw_accel;
+    if (k0 <= delta * r) {
+        if (delta < k0) delta = -delta, r = -r, ra = -ra;
+        const F rt = v * gt3r::ee::sin(delta) / c.p.wheelbase;
+        if (k0 < rt) {
+            F lat = c.a_y;
+            if (lat < k0) lat = -lat;
+            lat = lat / grip;
+            if (F::raw(0x3E4CCCCC) < lat) {
+                if (k0 < ra * r) r = r + ra * F::raw(0x3F000000);
+                if (r < rt) c.understeer = kOne - r / rt;
+            }
+        }
+    }
+    if (u8(c.control - 1) < 2 || c.driver_kind != 0) {
+        const F sp = gt3r::ee::sqrt(v * v + c.lat_speed * c.lat_speed);
+        if (sp < F::raw(0x40DE38E2)) return; // (25 km/h)
+        F a = sp * c.yaw_rate, lat = c.a_y;
+        if (k0 <= a * lat) return;
+        if (a < k0) a = -a;
+        if (lat < k0) lat = -lat;
+        a = a - lat;
+        if (a < k0) a = k0;
+        c.oversteer = (a + a) / grip;
+        return;
+    }
+    F m = k0;
+    for (int w = 0; w < n; ++w) {
+        if (!(gt3r::s8(l.fore_aft[size_t(w)]) < 0)) continue;
+        F b = c.t[size_t(w)].slip_angle;
+        if (b < k0) b = -b;
+        if (m < b) m = b;
+    }
+    F q = gt3r::ee::sqrt(v * v + c.lat_speed * c.lat_speed) * F::raw(0x3C9374BD);
+    if (kOne < q) q = kOne;
+    const F deg = F::raw(0x3C8EFA34), tenth = F::raw(0x3DCCCCCC);
+    const F a0 = gt3r::ee::int_to_f(g.over_angle[0]) * deg, a1 = gt3r::ee::int_to_f(g.over_angle[1]) * deg;
+    const F th = q * (a1 - a0) + a0;
+    if (!(th <= m)) return;
+    m = m - th;
+    const F g1 = gt3r::ee::int_to_f(g.over_gain[1]) * tenth, g0 = gt3r::ee::int_to_f(g.over_gain[0]) * tenth;
+    const F span = F::raw(0x3FC90FD9) - th;
+    F o = (q * (g1 - g0) + g0) * m / span;
+    if (kOne < o) o = kOne;
+    c.oversteer = o;
 }
 
 void tcs(ex::Car& c, const CarPart& x, const AidTables& g, const ex::Aids& a) {
@@ -193,7 +251,8 @@ void hold_speed(ex::Car& c, F target) {
 }
 
 void aids(ex::Car& c, const CarPart& x, const AidTables& g, const AidRace& r, const ex::AidInputs& in) {
-    ex::steer_indicators(c, in); // 0x3E02A0
+    (void)in;
+    steer_indicators(c, x, g); // 0x3E02A0
     c.tcs_status = 0, c.ascc_status = 0;
     const gt3r::s8 control = gt3r::s8(c.control);
     auto own = [&] { // 0x3E0778

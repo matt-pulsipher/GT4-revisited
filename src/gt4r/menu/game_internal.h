@@ -188,6 +188,23 @@ struct GameNatives;
 void install_replay_list(GameNatives& n, Object& manager, const std::string& mode);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
+// A card file a play list holds (MMemoryCardPlayList: the slide show's photos, the Replay Theater's replays). The program's
+// list keeps each as its entry: the card folder's seven letters as a number with the letter after the product in the top byte
+// (0x1D1478; save/replay_list.h); search compares entries (0x1D13A0).
+struct ListedFile : Object {
+    using Object::Object;
+    u64 entry = 0;
+    bool missing = false; // an entry whose file is not on the card
+};
+struct PlayListObject : Object {
+    PlayListObject() : Object("MMemoryCardPlayList") {}
+    std::vector<std::shared_ptr<ListedFile>> files;
+    bool changed = false;
+    int find(u64 entry) const;
+};
+// A new list with the natives' members (0x17DDF8: size, append, remove, search, isChanged, clear, order, rotate, getFile).
+std::shared_ptr<PlayListObject> make_play_list();
+
 // ---- game_photos.cpp
 // The card manager's photo modes (MODE_LOAD_PHOTO_PICTURE, MODE_SAVE_PHOTO_PICTURE, ..._FILM, MODE_PHOTO_PLAYLIST,
 // MODE_PHOTO_PRINTLIST) over the photos on the card in `slot`; true when `mode` is one.
