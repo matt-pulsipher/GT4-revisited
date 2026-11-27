@@ -126,20 +126,22 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
         p.field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);
         sim::ai::Field& field = *p.field;
+        if (p.bspec) field.set_bspec(0);
+        else field.set_shadow(0);
+        for (size_t i : cars) session.set_driver_aids(i, field.params(i).aids, field.params(i).grip);
+        for (size_t i : cars) {
+            field.start_line(i, first_line(race, planned[i], i == 0 && !p.bspec, entries[i].grid_place, program));
+            if (session.cars()[i].rolling) field.hold_rolling(i);
+        }
         if (p.bspec) {
-            // The record of the B-spec driver's races as the recording keeps it (the race information's +0x20).
-            field.set_bspec(0);
+            // The record of the B-spec driver's races as the recording keeps it (the race information's +0x20), and its skill
+            // from it, at the race's start (the conductor's virtual 28, 0x3F1E60): after the set-up's plans.
             std::array<u8, 0x40> rec{};
             std::memcpy(rec.data(), d.information.data() + 0x20, rec.size());
             const gt3r::ee::F rating(session.rating(0));
             field.set_bspec_record(0, rec, sim::ai::bspec_class(rating));
             if (const auto sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program), sim::ai::BSpecRecord::from_bytes(rec.data()), rating, start_code_digit(cs.code, 1) > 0))
                 field.set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
-        } else field.set_shadow(0);
-        for (size_t i : cars) session.set_driver_aids(i, field.params(i).aids, field.params(i).grip);
-        for (size_t i : cars) {
-            field.start_line(i, first_line(race, planned[i], i == 0 && !p.bspec, entries[i].grid_place, program));
-            if (session.cars()[i].rolling) field.hold_rolling(i);
         }
         field.apply_start_delays(session);
         sim::ai::PitHooks hooks;
@@ -149,6 +151,7 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         }
         sim::ai::PitRace pr;
         pr.laps = int(laps);
+        pr.mode = p.bspec ? 2 : 0; // (K +0xCBDC: a B-spec race's replay)
         p.pits = std::make_unique<sim::ai::PitStops>(field, program, entries.size(), hooks, pr);
         p.pits->set_recorded(0);
     }
@@ -209,7 +212,7 @@ void RecordedRace::step() {
     for (size_t i = 0; i < flow_.car_count(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
     if (p.field)
         for (const size_t i : e.finished) p.field->finish_run(session, i);
-    if (e.lap_done == 0) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();
+    if (e.lap_done(0)) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();
     ++at_;
 }
 
