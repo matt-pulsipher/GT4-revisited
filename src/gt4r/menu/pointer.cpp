@@ -202,7 +202,21 @@ W list_at(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y, boo
     if (open_option_menu(candidates)) return nullptr;
     const PointerHit h = hit_in(rt, drawn, candidates, x, y);
     if (h.kind == PointerHit::Kind::SelectRow || h.kind == PointerHit::Kind::ListRow) return h.box;
-    if (h.kind == PointerHit::Kind::Widget || !or_focus) return nullptr; // (a widget of its own: nothing to scroll)
+    if (h.kind == PointerHit::Kind::Widget) return nullptr; // (a widget of its own: nothing to scroll)
+    // Between two rows: the list or select box drawn there, when it takes the focus.
+    std::unordered_set<const LiveWidget*> can;
+    for (const FocusCandidate& c : candidates) can.insert(c.widget.get());
+    for (auto it = drawn.rbegin(); it != drawn.rend(); ++it) {
+        const std::shared_ptr<const script::Heap> alive = it->alive.lock();
+        if (!alive || !inside(it->box, x, y)) continue;
+        const LiveWidget& w = *it->widget;
+        if (w.is("ListBox") && can.count(&w)) return const_cast<LiveWidget&>(w).self();
+        if (is_select_box(w)) {
+            const std::vector<W> rows = rows_of(w);
+            if (!rows.empty() && can.count(rows[size_t(std::clamp(w.index(), 0, int(rows.size()) - 1))].get())) return const_cast<LiveWidget&>(w).self();
+        }
+    }
+    if (!or_focus) return nullptr;
     const W focus = rt.current_page()->focus.lock();
     if (!focus) return nullptr;
     if (focus->is("ListBox")) return focus;
