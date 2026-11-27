@@ -1,10 +1,10 @@
-// What the race view draws at distance: the scenery's lists over time (race::ListFade), and the far planes of the disc's
+// What the race view draws at distance: the scenery's lists over time (gt3r::race::SceneryFade), and the far planes of the disc's
 // courses (docs/formats/course.md "Visibility lists", "The race view's frame").
 
 #include "test_framework.h"
 
 #include "gt4r/formats/course/course_file.h"
-#include "gt4r/race/list_fade.h"
+#include "race/scenery_fade.h"
 #include "race/sun_glare.h"
 
 #include <algorithm>
@@ -16,53 +16,36 @@ using namespace gt4r;
 namespace {
 
 // Every model the fade draws (whole or dithered) this picture.
-std::set<u16> drawn(const race::ListFade& f) {
+std::set<u16> drawn(const gt3r::race::SceneryFade& f) {
     std::set<u16> s;
     if (const std::vector<u16>* solid = f.solid()) s.insert(solid->begin(), solid->end());
-    for (const race::ListFade::Group& g : f.faded()) s.insert(g.nodes.begin(), g.nodes.end());
+    for (const gt3r::race::SceneryFade::Group& g : f.faded()) s.insert(g.nodes.begin(), g.nodes.end());
     return s;
 }
 
 } // namespace
 
-// A list's models: the first picture whole; a model that joins comes in over 0.6 s; one that leaves is gone at once, so no
-// picture draws a model the list leaves out; a camera cut takes the new list whole.
-TEST(scenery_list_fade) {
-    race::ListFade f;
-    const std::vector<u16> a{1, 2, 3}, b{2, 3, 4}, c{7, 8};
+// The race view's scenery fade as RaceWorld uses it: a model leaving the list fades out and one joining fades in over
+// 0.6 s (ours on purpose: GT4 switches at once, docs/formats/course.md "Visibility lists"); a photo's picture, stepped by
+// the fade's whole time, takes its list whole, nothing left over from the race view's.
+TEST(scenery_fade_photo_whole) {
+    gt3r::race::SceneryFade f;
+    const std::vector<u16> race{1, 2, 3}, photo{2, 3, 4, 5};
     const float dt = 1.0f / 60;
     gt3r::render::Vec3 eye{0, 0, 0};
-    f.update(&a, eye, dt);
-    CHECK(f.solid() && *f.solid() == a);
-    CHECK(drawn(f) == std::set<u16>(a.begin(), a.end()));
-    // Node 1 leaves and node 4 joins.
+    f.update(&race, eye, dt);
+    CHECK(f.solid() && *f.solid() == race);
+    // The race view: 1 leaves and 4 joins, both dithered for a while.
     eye.x += 0.5f;
-    f.update(&b, eye, dt);
-    CHECK(!drawn(f).count(1));
-    CHECK((f.solid() && *f.solid() == std::vector<u16>{2, 3}));
-    int pictures = 1;
-    for (; pictures < 100; ++pictures) {
-        for (u16 n : drawn(f)) CHECK(std::find(b.begin(), b.end(), n) != b.end());
-        if (f.solid() && f.solid()->size() == b.size()) break;
-        eye.x += 0.5f;
-        f.update(&b, eye, dt);
-    }
-    // In the list's order once whole, after about 0.6 s (36 pictures; the last 1/32 counts as whole).
-    CHECK(f.solid() && *f.solid() == b);
-    CHECK(pictures >= 30 && pictures <= 36);
-    // Back to the first list: 1 comes in again from nothing, 4 is gone at once.
-    f.update(&a, eye, dt);
-    CHECK(!drawn(f).count(4));
-    CHECK((f.solid() && *f.solid() == std::vector<u16>{2, 3}));
-    // A cut (20 m in a picture) takes the list whole.
-    eye.x += 25;
-    f.update(&c, eye, dt);
-    CHECK(f.solid() && *f.solid() == c);
-    CHECK(drawn(f) == std::set<u16>(c.begin(), c.end()));
-    // No list: every model, nothing faded.
-    f.update(nullptr, eye, dt);
-    CHECK(f.solid() == nullptr);
-    for (const race::ListFade::Group& g : f.faded()) CHECK(g.nodes.empty());
+    const std::vector<u16> next{2, 3, 4};
+    for (int k = 0; k < 6; ++k) f.update(&next, eye, dt);
+    CHECK(drawn(f).count(1));
+    CHECK(drawn(f).count(4));
+    CHECK(!(f.solid() && *f.solid() == next));
+    // A photo's picture: its list whole.
+    f.update(&photo, eye, gt3r::race::SceneryFade::kSeconds);
+    CHECK(f.solid() && *f.solid() == photo);
+    CHECK(drawn(f) == std::set<u16>(photo.begin(), photo.end()));
 }
 
 // Every course of the discs has its own far plane (Env0 +0x20), so CourseScene::kScreenFar (the screen's starting 750 m) is

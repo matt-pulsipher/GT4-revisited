@@ -364,9 +364,12 @@ Gran Turismo 3's.
 list) is the same routine (0x4580F0). **Each picture draws its list as it is**: RacePS2Base::vf110 (0x3403B8, the one-view
 draw's scenery) takes the list (0x396E10) and 0x396F00 draws its models in its order, then their billboards (0x4506F0, no
 distance test), keeping nothing from one picture to the next: a model that joins the list appears at once and one that
-leaves is gone at once. Ours (`race::ListFade`, test `scenery_list_fade`): the list of every picture as the game's, a model
-that leaves gone at once, a model that joins dithered in over 0.6 s (a cut of 20 m, the first picture and a photo take the
-list whole), so the picture never shows a model the list leaves out. Checked by picture from the original's eye in
+leaves is gone at once. **Ours fades on purpose** (the shared engine's `SceneryFade`, test `scenery_fade_photo_whole`): a model
+that joins the list is dithered in over 0.6 s and one that leaves is dithered out over 0.6 s (a cut of 20 m, the first picture and
+a photo's pictures take the list whole). The lists were made for GT4's 4:3 picture at 640 x 448; our wider pictures (16:9 and
+wider, at full resolution) show models at the sides and at a distance that the original's view never showed switching, so an
+instant switch pops in far more visibly than on the console. For up to 0.6 s after a switch a leaving model can still show,
+fading, where GT4 has already dropped it; a settled view draws exactly the list. Checked by picture from the original's eye in
 `07-courses/state_grand_canyon_chase` (`eye=`): the ridge, the trees and the far camper vans as the original's. Which
 lists belong to which view, from the draw routines:
 

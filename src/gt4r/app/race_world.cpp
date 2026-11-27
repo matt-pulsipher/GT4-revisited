@@ -98,7 +98,7 @@ struct RaceWorld::Impl {
     std::unique_ptr<audio::RaceSound> sound;
     // What each of the screen's views keeps from picture to picture: the race's one view, or a split screen's two.
     struct ViewState {
-        race::ListFade fade; // the scenery models it draws (GT4's list each picture, joining ones dithered in)
+        gt3r::race::SceneryFade fade; // the scenery models it draws (GT4's list, models coming and going dithered: docs/formats/course.md "Visibility lists")
         std::unique_ptr<render::View3D> view, mirror;
         bool env_ready = false;
         RVec env_at; // where the cars' reflection picture was last drawn from
@@ -1374,7 +1374,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         for (Impl::MovingDriver& d : m.drivers) d.posed = false;
     }
     // (A photo's pictures take their lists whole: a step of the fade's whole time.)
-    v.fade.update(course_->visible_nodes(pose.eye, lists), pose.eye, photo ? race::ListFade::kSeconds : kStep);
+    v.fade.update(course_->visible_nodes(pose.eye, lists), pose.eye, photo ? gt3r::race::SceneryFade::kSeconds : kStep);
     m.items.clear();
     // The view's axes in course space (the rows of the view matrix's turn).
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
@@ -1392,7 +1392,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     }
     if (m.billboards.count() && (course_->env().view_flags[split ? 1 : 0] & 1)) {
         m.billboards.add_items(m.items, cam_right, v.fade.solid());
-        for (const race::ListFade::Group& g : v.fade.faded())
+        for (const gt3r::race::SceneryFade::Group& g : v.fade.faded())
             if (!g.nodes.empty()) m.billboards.add_items(m.items, cam_right, &g.nodes, g.weight);
     }
     // The road's reflection goes here, after the scenery and before the cars (draw_view: each view its own).

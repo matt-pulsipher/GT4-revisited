@@ -13,7 +13,7 @@
 #include "gt4r/race/animated_models.h"
 #include "gt4r/race/gadgets.h"
 #include "race/occluder.h"
-#include "gt4r/race/list_fade.h"
+#include "race/scenery_fade.h"
 #include "race/sun_glare.h"
 #include "render/gpu_model.h"
 #include "render/view3d.h"
@@ -40,9 +40,9 @@ public:
     enum class View { Race, Mirror, Half, HalfMirror, Photo };
     // Appends the draw items for a camera at `eye`, in the game's order: sky, backdrop (the depth
     // is reset after it), then the scenery's models named by the view's list for `eye` (with
-    // `fade`: those drawn whole and, dithered, those coming in).
+    // `fade`: those drawn whole and, dithered, those coming or going).
     void add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view = View::Race,
-                   const ListFade* fade = nullptr) const;
+                   const gt3r::race::SceneryFade* fade = nullptr) const;
     // The models drawn after the cars (slot 17), all of them.
     void add_after_items(std::vector<render::DrawItem>& items) const;
     // The cars' reflection picture: its sky (slot 23) turned by `sky_rotation`, then slot 5 by
