@@ -181,11 +181,11 @@ Its own tables, at fixed places in the recognized build, each addressed by the r
 | the machine test sectors | 0x503E68 | 0x3B511C | 16 of 16 |
 | the tire effect parameters | 0x503EA0 | 0x3B98A8 | 87 of 88 |
 
-They replace Gran Turismo 3's in the shared engine's race core when a session runs on
-Prologue's disc (`exact_bridge`). The controller settings are at 0x504950 (Gran Turismo 4's 0x622110 layout ❓ checked only for the row; the input
-phase 0x3DEDE0 reads the steering prefilter row at +0x70, the automatic shift 0x3CD6B8 its +0x08 .. +0x0B); ❓ not located: the surface classes, the soft materials, the gear
-kinds, the stick curve, the tire effect kinds and scales (the engine's values serve), the race sound's gains and
-microphones.
+They are the only tables of the shared engine's race core when a session runs on Prologue's disc (`exact_bridge`
+`core_program`): the core's others stay 0, none of Gran Turismo 3's (Prologue's step reads its own, `rules_prologue.h`; every
+Prologue test and the demonstrations are the same with the others filled with a marker byte). The controller settings are at 0x504950 (Gran Turismo 4's 0x622110 layout ❓ checked only for the row; the input
+phase 0x3DEDE0 reads the steering prefilter row at +0x70, the automatic shift 0x3CD6B8 its +0x08 .. +0x0B); not located (no reader in a Prologue session; 0 in the core's): the core's surface classes, soft materials, gear
+kinds, stick curve, tire effect kinds and scales.
 `gt4tool prologue <disc> program` prints the build's routines, these tables and, for each table
 not located, the place in the data most like Gran Turismo 3's values.
 

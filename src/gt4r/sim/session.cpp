@@ -118,7 +118,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // nothing, but for the engine's rules asked for, GT4R_SIM_RULES=engine, for comparison)
     if (const char* e = std::getenv("GT4R_SIM_RULES"); !program.known() && !(e && std::string(e) == "engine") && !PrologueProgram::locate(program).recognized())
         throw std::runtime_error("session: " + program.issue() + "; this release is not supported yet");
-    if (!program.known()) notes_.push_back(program.issue() + ": the shared engine's tables serve");
+    if (!program.known()) notes_.push_back(program.issue()); // (Prologue's: none of the shared engine's, exact_bridge.h core_program)
     data_ = std::make_shared<ex::ProgramData>(core_program(program));
     japan_ = program.known() && program.release() == Release::Japan;
 
