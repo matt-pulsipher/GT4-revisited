@@ -85,7 +85,8 @@ menu::RuntimeConfig menus_config(App& app) {
         config.program_image = [disc] { return disc->program_image(); };
         config.region = disc->info().region, config.product = disc->info().product;
     }
-    if (const std::vector<std::string> languages = menu::project_languages(config.list, "boot"); !languages.empty()) {
+    const bool prologue = app.db() && app.db()->prologue();
+    if (const std::vector<std::string> languages = menu::project_languages(config.list, prologue ? "prologue" : "boot"); !languages.empty()) {
         config.language = languages[0];
         if (Disc* disc = app.disc(); disc && std::find(languages.begin(), languages.end(), disc->info().language) != languages.end())
             config.language = disc->info().language;
@@ -152,13 +153,15 @@ public:
     explicit QuickRaceScreen(App& app) : app_(app) {
         db::SpecDb* sdb = app.db();
         if (!sdb || !app.vfs()) throw FormatError("This disc's events are not read yet.");
-        if (sdb->prologue()) throw FormatError("Quick race is not ready for Gran Turismo 4 Prologue yet.");
+        prologue_ = sdb->prologue();
         cars_ = CarCatalog::of(app);
-        read_events(app);
+        if (prologue_) read_prologue(app);
+        else read_events(app);
         // The last choices.
         car_.label = config_get(app, "car");
         car_.paint = config_int(app, "paint", 0);
         if (!cars_->find(car_.label) && !cars_->cars().empty()) car_ = {cars_->cars().front().label, 0};
+        if (prologue_ && !prologue_races_.count(car_.label) && !prologue_races_.empty()) car_ = {prologue_races_.begin()->first, 0};
         manual_ = config_int(app, "mt", 0) != 0;
         level_ = config_int(app, "level", 0);
         laps_ = std::clamp(config_int(app, "laps", 0), 0, 99);
@@ -258,6 +261,34 @@ private:
     };
 
     // ---- The events ----------------------------------------------------------------------------------------------------
+    // Gran Turismo 4 Prologue: its arcade's courses and cars (the configuration script's main::prologue ArcadeCourseList and
+    // ArcadeCarList), the race as its arcade's setupRace sets it up.
+    void read_prologue(App& app) {
+        probe_ = new_menus(app);
+        script::Vm& vm = probe_->vm();
+        std::map<std::string, std::string> names;
+        for (const db::CourseEntry& c : app.db()->courses())
+            if (!c.name.empty() && latin_text(c.name)) names[c.label] = c.name;
+        Category cat{"Single Race", "Arcade", {}};
+        if (const std::vector<Value>* crs = vm.attribute(vm.lookup("main::prologue::ArcadeCourseList"), "crs_list").items())
+            for (const Value& c : *crs) {
+                QuickEvent q;
+                q.kind = Kind::Arcade, q.course = vm.attribute(c, "code").to_string();
+                if (q.course.empty() || !app.vfs()->exists("crs/" + q.course)) continue;
+                std::string name = names.count(q.course) ? names[q.course] : q.course; // (the label, where the disc's name is not Latin)
+                if (!name.empty()) name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
+                q.id = "arcade:" + q.course, q.name = q.course_name = name;
+                q.grid = std::max(1, int(vm.attribute(c, "max_entry").as_float()));
+                prologue_dirt_[q.course] = vm.attribute(c, "is_dirt").truthy();
+                cat.events.push_back(events_.size());
+                events_.push_back(std::move(q));
+            }
+        if (const std::vector<Value>* cars = vm.attribute(vm.lookup("main::prologue::ArcadeCarList"), "car_list").items())
+            for (const Value& c : *cars) prologue_races_[vm.attribute(c, "car_code").to_string()] = vm.attribute(c, "race_code").to_string();
+        if (!cat.events.empty()) categories_.push_back(std::move(cat));
+        LOG_INFO("Quick race: Prologue's arcade, %zu courses, %zu cars", events_.size(), prologue_races_.size());
+    }
+
     void read_events(App& app) {
         gt3r::Vfs* vfs = app.vfs();
         const auto read = [vfs](const std::string& path) { return vfs->read(path); };
@@ -365,18 +396,18 @@ private:
         PageRows& r = p.rows;
         r.rows.clear();
         if (p.kind == Page::Top) {
-            r.heading("Custom race");
-            r.action("Custom race", custom_.name.empty() ? course_name(custom_.course) : custom_.name, "set it up", [this] {
+            if (!prologue_) r.heading("Custom race");
+            if (!prologue_) r.action("Custom race", custom_.name.empty() ? course_name(custom_.course) : custom_.name, "set it up", [this] {
                 go_ = [this] { open_custom(); };
             });
-            for (size_t i = 0; i < saved_.size(); ++i) {
+            for (size_t i = 0; i < saved_.size() && !prologue_; ++i) {
                 PageRow& row = r.action(saved_[i].name, course_name(saved_[i].course), "set it up", [this, i] {
                     go_ = [this, i] { custom_ = saved_[i], open_custom(); };
                 });
                 row.other = [this, i] { go_ = [this, i] { remove_saved(i); }; }, row.other_hint = "delete it";
             }
             if (event_ >= 0) r.action("Last event", events_[size_t(event_)].name, "set it up", [this] { go_ = [this] { open_setup(); }; });
-            std::string group = "Custom race";
+            std::string group = prologue_ ? std::string() : std::string("Custom race");
             for (size_t i = 0; i < categories_.size(); ++i) {
                 if (categories_[i].group != group) r.heading(group = categories_[i].group);
                 r.action(categories_[i].title, std::to_string(categories_[i].events.size()), "list its events", [this, i] {
@@ -422,6 +453,7 @@ private:
             go_ = [this] {
                 CarPickerOptions o;
                 o.title = "QUICK RACE: YOUR CAR", o.now = car_;
+                if (prologue_) o.allowed = [this](const CarCatalog::Car& c) { return prologue_races_.count(c.label) > 0; }; // (its arcade's cars)
                 app_.push(make_car_picker(app_, cars_, o, [this](const PickedCar& c) { car_ = c, keep(); }));
             };
         });
@@ -432,7 +464,12 @@ private:
             r.choice("Color", names, size_t(std::clamp(car_.paint, 0, int(names.size()) - 1)), [this](size_t i) { car_.paint = int(i), keep(); });
         }
         r.choice("Transmission", {"Automatic", "Manual"}, manual_ ? 1 : 0, [this](size_t i) { manual_ = i == 1, keep(); });
-        if (e.kind == Kind::Arcade) {
+        if (e.kind == Kind::Arcade && prologue_) {
+            r.choice("Difficulty", {"1", "2", "3"}, size_t(std::clamp(level_, 0, 2)), [this](size_t i) { level_ = int(i), keep(); });
+            std::vector<std::string> laps{"The race's"};
+            for (int n = 1; n <= 99; ++n) laps.push_back(std::to_string(n));
+            r.choice("Laps", laps, size_t(laps_), [this](size_t i) { laps_ = int(i), keep(); });
+        } else if (e.kind == Kind::Arcade) {
             // The difficulty as Arcade's slider has it: -1 .. 1 for a car with races of its own on this kind of course, else -10 .. 10.
             const int lo = arcade_has_races() ? -1 : -10, hi = -lo;
             std::vector<std::string> names;
@@ -778,6 +815,22 @@ private:
         q.tire = loose ? 11 : normal ? 4 : 1 + 6;
     }
 
+    // Prologue's arcade's setupRace: its dirt race on a dirt course (the car's dirt version), else the car's own race, "_h" or "_p"
+    // after it at the second and third difficulty; the course's field.
+    void prologue_setup(menu::Runtime& rt, const QuickEvent& e) {
+        script::Vm& vm = rt.vm();
+        menu::RaceRequest& q = rt.game().race;
+        const bool dirt = prologue_dirt_[e.course];
+        std::string race = dirt ? vm.lookup("main::prologue::DIRT_RACECODE").to_string() : prologue_races_[car_.label];
+        const int level = std::clamp(level_, 0, 2);
+        if (level == 1) race += "_h";
+        if (level == 2) race += "_p";
+        q.race = race, q.course = e.course, q.max_entry = e.grid, q.paint = car_.paint;
+        q.car = dirt ? vm.lookup("main::prologue::DIRT_PREFIX").to_string() + car_.label : car_.label;
+        rt.game().options["difficulty"] = s32(level);
+        if (laps_ > 0) q.laps = laps_;
+    }
+
     void start(App& app) {
         if (event_ < 0) return;
         const QuickEvent& e = events_[size_t(event_)];
@@ -801,7 +854,8 @@ private:
             case Kind::Mission: sequence = "mission", q.race = e.race, q.course = e.course, q.max_entry = std::max(1, e.grid); break;
             case Kind::Arcade:
                 sequence = "single_race";
-                arcade_setup(*rt, e);
+                if (prologue_) prologue_setup(*rt, e);
+                else arcade_setup(*rt, e);
                 break;
             }
             q.sequence = sequence;
@@ -900,6 +954,10 @@ private:
     std::vector<std::string> course_list_;
     std::map<std::string, int> fields_;
     int fill_level_ = 0;
+    // Prologue's arcade: the cars' own races, the dirt courses.
+    bool prologue_ = false;
+    std::map<std::string, std::string> prologue_races_;
+    std::map<std::string, bool> prologue_dirt_;
     bool probe_arcade_ = false, script_custom_start_ = false, script_cars_ = false;
     // A name typed.
     gt3r::TextKeyboard keys_;

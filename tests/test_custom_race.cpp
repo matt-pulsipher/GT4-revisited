@@ -64,3 +64,25 @@ TEST(disc_arcade_difficulty_sets_no_driver) {
     if (const std::optional<db::RaceEvent> e = events.event("sample_entry_6"))
         std::printf("  sample_entry_6: grid %d laps %d start %d t%d b%d c%d\n", e->grid, e->laps, e->bytes[0x40], e->ai_throttle[0], e->ai_brake[0], e->ai_corner[0]);
 }
+
+TEST(disc_prologue_arcade_lists_explore) {
+    Disc* disc = nullptr;
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::Prologue) disc = d;
+    if (!disc) SKIP("needs the Prologue disc");
+    Flow f(*disc, "JP");
+    f.rt->boot();
+    script::Vm& vm = f.rt->vm();
+    const Value cars = vm.attribute(vm.lookup("main::prologue::ArcadeCarList"), "car_list");
+    const Value crs = vm.attribute(vm.lookup("main::prologue::ArcadeCourseList"), "crs_list");
+    std::printf("  cars %zu courses %zu dirt %s prefix %s\n", cars.items() ? cars.items()->size() : 0, crs.items() ? crs.items()->size() : 0,
+                vm.lookup("main::prologue::DIRT_RACECODE").to_string().c_str(), vm.lookup("main::prologue::DIRT_PREFIX").to_string().c_str());
+    if (cars.items() && !cars.items()->empty()) {
+        const Value& c = (*cars.items())[0];
+        std::printf("  car %s race %s\n", vm.attribute(c, "car_code").to_string().c_str(), vm.attribute(c, "race_code").to_string().c_str());
+    }
+    if (crs.items())
+        for (const Value& c : *crs.items())
+            std::printf("  crs %s max %s dirt %s\n", vm.attribute(c, "code").to_string().c_str(), vm.attribute(c, "max_entry").to_string().c_str(), vm.attribute(c, "is_dirt").to_string().c_str());
+    std::printf("  difficulty %s enemies %s\n", vm.attribute(vm.lookup("main::game.option"), "difficulty").to_string().c_str(), f.rt->game().option_text("run_with_enemies").c_str());
+}

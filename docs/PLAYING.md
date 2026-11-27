@@ -45,7 +45,8 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
    then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
    pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for. The last
-   choices are kept (`config.ini` `[quickrace]`). Not on Prologue yet.
+   choices are kept (`config.ini` `[quickrace]`). On Prologue, Quick race is its arcade's single race on any of its courses
+   with any of its arcade's cars, at its three difficulties (no custom race).
    Its first item, *Custom race*, is your own race: any course, the laps, your car and color and your place on the grid, and
    up to as many opponents as the course's field holds, each any car in any color. *Fill the grid like Arcade* draws the
    opponents as Arcade does for your car at its difficulty level (-10 to +10); then change any of them. The race is Arcade's
@@ -387,7 +388,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   through `ShiftCarCode`) and the grid's places ours (`RaceStart::grid_slots`); *Fill the grid like Arcade* runs
   `set_enemy_cars` at the level chosen; the course's field is `MCourseData.GetMaxCarNum`. Ours (judged): the open
   car's two-car field is applied for model type 2 only (Arcade's open-top option page is not asked), and the tire is the
-  setting page's default.
+  setting page's default. Prologue's: its arcade's lists (the configuration script's `ArcadeCourseList`, `ArcadeCarList`) and
+  its `setupRace` (the dirt race and the car's dirt version on a dirt course, else the car's own race; `_h` / `_p` after it at
+  the second and third difficulty). Names the app's pages cannot show (Japanese) are the database's American names or labels.
 - The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
   `game::app_bundle_folder`, else SDL's preference folder) is ours (`app.cpp` `user_data_dir`). The update check and the
   online session's relay requests are the shared engine's (`net::VersionCheck`, `net::Session`) carrying our game tag
