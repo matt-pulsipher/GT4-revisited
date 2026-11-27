@@ -984,8 +984,10 @@ public:
         drawer_.menu_frame = rt.frame();
         drawer_.beside = scale > 0 ? x / scale : 0;
         cars_.begin_frame(rt.frame()), models_.begin_frame(rt.frame());
+        boxes_.clear(), drawer_.boxes = &boxes_, x_ = x, scale_ = scale; // (what the pointer is over)
         for (const auto& page : rt.open_pages())
             if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
+        drawer_.boxes = nullptr;
         cars_.end_frame(), models_.end_frame();
         // The pointer (menu_cursor.h), a step a picture of the menus.
         if (stepped_ > rt.frame()) stepped_ = 0;
@@ -993,9 +995,15 @@ public:
         stepped_ = rt.frame();
         cursor_.draw(rt, drawer_, x, scale);
     }
+    void pointer(App& app, menu::Runtime& rt) override {
+        if (rt_ == &rt) menu_pointer_frame(app, rt, boxes_, drag_, x_, scale_); // (nothing before the pages were first drawn)
+    }
 
 private:
     PageDrawer drawer_;
+    std::vector<menu::DrawnBox> boxes_; // the pages' widgets as last drawn, and where
+    menu::PointerDrag drag_;
+    float x_ = 0, scale_ = 0;
     MenuCars cars_;     // the prize pages' models
     MenuModels models_;
     PhotoFaces photos_;
