@@ -592,9 +592,18 @@ the most of it and trunc((v x 60 x 60 + 5) / 10) of the top speed v (m/s): km/h 
 Here: `race::machine_test_course`, `FlowSetup::machine_test` (the run's time kept as the car's best at the goal: ❓ where the
 program writes what 0x35E3F0 reads back), `screen_race.cpp` `end_machine_test`, `report_result`, `game_race.cpp`'s rankings.
 ✔ Scripted (`GT4R_RACE="course=testcourse,menus=machinetest,race=mt400_testcourse,drive=auto"`): FINISH at 400 m, "0'11.156" on
-the lap line and as the page's Session Record; the top speed test 87.6 s to 6845 m, Session Record 199.01 mph. ❓ The race
-display of the test (RaceMachineTest's own: the words `MaxSpeed`, `RecordSpeedLabel`, `SessionSpeedLabel`, `RecordTimeLabel` are
-in the word table) is not read: the single race's display stands in; the top speed's line is written "<whole>.<tenth> <unit>".
+the lap line and as the page's Session Record; the top speed test 87.6 s to 6845 m, Session Record 199.01 mph.
+**The display**: `RaceMachineTest` (0x3BDD60) holds a plain `RaceDisplay` (+0xF6A8) and its vf38 0x3BDF80 gives it kind 5 (vf7) and
+the display mode the sequence passes (vf8; 0x115A90 starts it through 0x387EF0 with 0): mode 0, the single race's tables
+(race_display.md), nothing of the test's own. The race words `MaxSpeed` (59), `RecordSpeed` (62), `RecordSpeedLabel` (42),
+`SessionSpeedLabel` (43) and `RecordTimeLabel` (39) are loaded with the others but have no reader in the program (every use of the
+word list 0x621870). `RaceMachineTestInformation` is the race information (its entries), not a display. **The top speed's line**
+(0x35E7C0 → a `RaceDisplaySpeedEvent`, type 0x13, packed as the speed x 10 and read back x 0.1, 0x3A3778; drawn by 0x3A0600 →
+0x3A12A0): 0x3B0230 writes three digits, a point and the tenth ("085.3"; at or under 0 four 0x7F glyphs) and the unit's name
+(0x472680, "km/h" or "mph") is joined with no space: "199.0mph"; `hn_20R`, 0x80C8C8C8, 3 s, fades 0.15 s. ✔ by picture.
+**The rankings' units** (`MCourseRecord.getMTUnit`, 0x15C9D8 → 0x433C98): the name looked up exactly in the table 0x6A57C0
+(`0_400` 0, `0_1000` 1, `MAXSPEED` 2, `LASVEGAS` 3; quick-mt's `UnitData` maps the races' labels to them); any other name finds
+none. ✔ quick-mt's Rankings after a top speed run: "2000 Ford Falcon XR8 2026/11/26 199mph".
 
 ## What runs where (the race screen)
 
