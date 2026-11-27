@@ -236,23 +236,77 @@ void RaceSound::count(int frames_left) {
     if (count_beep(frames_left) && play_effect("count_d", mix_->master)) ++report_.beeps;
 }
 
-// The next racing piece: the play list's, or the group's next.
+// The next racing piece: the play list's, or the group's next. Ours: the songs heard again after a song before; the run's
+// first the last run's ([music] next_race = same); the player's own songs by the source chosen (your_music.h); a song of the
+// player's that no longer plays (its file gone) passed over.
 bool RaceSound::play_racing() {
-    racing_piece_ = playlist_ ? playlist_->next() : racing_piece_ + 1;
-    if (racing_piece_ < 0) return false;
-    if (first_piece_ < 0) first_piece_ = racing_piece_;
-    songs_heard_.push_back(racing_piece_);
-    return play_stream("racing", racing_piece_, true);
+    for (int guard = 0; guard < 8; ++guard) {
+        RaceSong s;
+        if (at_ + 1 < heard_.size()) {
+            s = heard_[++at_];
+        } else {
+            if (heard_.empty() && yours_ && yours_->same_song() && yours_->can_play(yours_->last_song(), playlist_.get())) s = yours_->last_song();
+            else if (yours_) s = yours_->next(playlist_.get(), song_.piece);
+            else s.piece = playlist_ ? playlist_->next() : song_.piece + 1;
+            if (!s.valid()) return false;
+            heard_.push_back(s);
+            constexpr size_t kKept = 200;
+            if (heard_.size() > kKept) heard_.erase(heard_.begin(), heard_.end() - std::ptrdiff_t(kKept));
+            at_ = heard_.size() - 1;
+        }
+        if (!first_song_.valid()) first_song_ = s;
+        if (play_song(s)) return true;
+        if (!s.yours() || stream_level(true) <= 0) return false;
+    }
+    return false;
+}
+
+bool RaceSound::play_song(const RaceSong& s) {
+    song_ = s;
+    bool ok = false;
+    if (!s.yours()) {
+        ok = play_stream("racing", s.piece, true);
+    } else if (const gt3r::race::CustomSong* c = yours_ ? yours_->song(s.id) : nullptr) {
+        const float level = stream_level(true);
+        if (level <= 0) return false;
+        report_.music = c->path;
+        trim_ = yours_->gain(s.id);
+        ok = music_.play_file && music_.play_file(c->path, level, trim_);
+    }
+    if (!ok) return false;
+    // (a song changed on the pause waits there, silent)
+    if ((paused_ || music_held_) && music_.pause) music_.pause(true);
+    if (yours_) {
+        yours_->started(s);
+        if (remember_song_) yours_->set_last_song(s);
+    }
+    return true;
 }
 
 bool RaceSound::skip_song(int direction) {
     if (!racing_) return false;
     if (direction > 0) return play_racing();
     // (the first song again when there is none before it)
-    if (songs_heard_.size() > 1) songs_heard_.pop_back();
-    if (songs_heard_.empty()) return false;
-    racing_piece_ = songs_heard_.back();
-    return play_stream("racing", racing_piece_, true);
+    if (heard_.empty()) return false;
+    if (at_ > 0) --at_;
+    return play_song(heard_[at_]);
+}
+
+bool RaceSound::song_info(const RaceSong& s, std::string& title, std::string& artist) const {
+    title.clear(), artist.clear();
+    if (s.yours()) {
+        const gt3r::race::CustomSong* c = yours_ ? yours_->song(s.id) : nullptr;
+        if (!c) return false;
+        title = c->title, artist = c->artist;
+        return true;
+    }
+    if (!library_ || s.piece < 0) return false;
+    const int g = sound::stream_group("racing");
+    const auto& groups = library_->streams().groups;
+    if (g < 0 || size_t(g) >= groups.size() || size_t(s.piece) >= groups[size_t(g)].size()) return false;
+    const sound::MusicRecord& r = groups[size_t(g)][size_t(s.piece)];
+    title = r.title, artist = r.artist;
+    return true;
 }
 
 void RaceSound::start() {
@@ -264,9 +318,9 @@ void RaceSound::start() {
 void RaceSound::begin_run(RaceMusic kind, int start) {
     kind_ = kind;
     started_ = racing_ = replay_ = false;
-    first_piece_ = -1;
+    first_song_ = {};
     start_step_ = replay_piece_step_ = SIZE_MAX;
-    songs_heard_.clear();
+    heard_.clear(), at_ = 0;
     if (music_.stop) music_.stop();
     fade_ = 0;
     fade(1.0f, kFadeIn);
@@ -314,12 +368,12 @@ void RaceSound::replay() {
     replay_piece_step_ = SIZE_MAX;
     // Prologue's (its recording of a replay after a standing start: str01j as the replay begins, the racing piece about
     // 0.45 s after the replay's START, at 0.9): the start's jingle, the piece from the step the run started.
-    if (mix_->tables.prologue && start_step_ != SIZE_MAX && first_piece_ >= 0) {
+    if (mix_->tables.prologue && start_step_ != SIZE_MAX && first_song_.valid()) {
         intro();
         replay_piece_step_ = start_step_;
         return;
     }
-    if (first_piece_ >= 0) racing_ = play_stream("racing", first_piece_, true);
+    if (first_song_.valid()) racing_ = play_song(first_song_);
 }
 
 void RaceSound::finish() {
@@ -431,6 +485,15 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
 
     // The racing music: the playlist's next piece when one ends.
     if (racing_ && !music_held_ && music_.playing && !music_.playing()) play_racing();
+    // Ours: one of the player's songs eased to its measured gain once that lands (6 dB a second).
+    if (racing_ && song_.yours() && yours_ && music_.set_trim) {
+        if (const float target = yours_->gain(song_.id); target != trim_) {
+            const float step = std::pow(10.0f, 6.0f / 60.0f / 20.0f);
+            trim_ = target > trim_ ? std::min(target, trim_ * step) : std::max(target, trim_ / step);
+            music_.set_trim(trim_);
+        }
+    }
+    if (yours_) yours_->racing();
 }
 
 void RaceSound::update(const sim::Session& session, const SoundListener& camera, int target) {
@@ -447,7 +510,7 @@ void RaceSound::update(std::span<const race::CarState> cars, const SoundListener
     if (replay_ && replay_piece_step_ != SIZE_MAX && replay_step_ + 1 >= replay_piece_step_) {
         replay_piece_step_ = SIZE_MAX;
         if (music_.stop) music_.stop();
-        racing_ = play_stream("racing", first_piece_, true);
+        racing_ = play_song(first_song_);
     }
     if (replay_ && replay_step_ + 1 < recorded_.size() && recorded_[replay_step_ + 1].size() == cars.size()) {
         ++replay_step_;

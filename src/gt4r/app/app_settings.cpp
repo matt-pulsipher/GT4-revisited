@@ -3,11 +3,15 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/game_area.h"
 
+#include "audio/audio_engine.h"
 #include "audio/voice_mixer.h"
 #include "base/file.h"
 #include "base/log.h"
 #include "formats/texture_pack.h"
+#include "gt4r/formats/sound/sound_index.h"
+#include "platform/music_folder.h"
 #include "platform/render_scale.h"
+#include "vfs/vfs.h"
 
 #include <algorithm>
 #include <cmath>
@@ -43,6 +47,84 @@ void App::load_settings() {
     sound_settings_.music = level_of(config_, "music_volume", sound_settings_.music);
     sound_settings_.effects = level_of(config_, "effects_volume", sound_settings_.effects);
     sound_settings_.rear_cue = gt3r::to_lower(config_.get("audio", "rear_cue").value_or("on")) != "off";
+    // The player's music.
+    SDL_CreateDirectory(default_music_dir().c_str());
+    music_.set_files(data_dir_);
+    music_.set_source(audio::parse_song_source(config_.get("music", "source").value_or("")));
+    music_.set_same_song(gt3r::to_lower(config_.get("music", "next_race").value_or("")) == "same");
+    music_.set_last_song(audio::RaceSong::parse(config_.get("music", "race_song").value_or("")));
+    follow_music_folder(false);
+}
+
+// --- the player's music ---
+
+std::string App::music_folder() const {
+    const std::string f = config_.get("music", "folder").value_or("");
+    return f.empty() ? default_music_dir() : f;
+}
+
+bool App::music_folder_chosen() const { return !config_.get("music", "folder").value_or("").empty(); }
+
+void App::set_music_folder(const std::string& path) {
+    // The game's own folder picked in a picker (Android's shows it) is the default.
+    if (path.empty() || gt3r::race::same_folder(path, default_music_dir())) config_.remove("music", "folder");
+    else config_.set("music", "folder", path);
+    save_config();
+    follow_music_folder(false);
+}
+
+void App::follow_music_folder(bool rescan) {
+    const std::string folder = music_folder();
+    music_access_ = gt3r::platform::music_access(folder, data_dir_);
+    const std::string use = music_access_ ? folder : std::string();
+    if (use == music_.library().folder()) {
+        if (rescan) music_.rescan();
+    } else {
+        music_.set_folder(use);
+    }
+}
+
+bool App::show_song() const { return gt3r::to_lower(config_.get("music", "show_song").value_or("on")) != "off"; }
+
+void App::measure_disc_music(const std::vector<int>& enabled) {
+    audio::AppSound* s = vfs_ ? sound() : nullptr;
+    if (!s) return;
+    const int g = sound::stream_group("racing");
+    const auto& groups = s->library().streams().groups;
+    if (g < 0 || size_t(g) >= groups.size()) return;
+    std::vector<int> pieces = enabled;
+    if (pieces.empty())
+        for (size_t n = 0; n < groups[size_t(g)].size(); ++n) pieces.push_back(int(n));
+    std::sort(pieces.begin(), pieces.end());
+    // At most eight, spread over the list: a piece takes seconds to measure (a phone many more); the list's level is their
+    // mean (race_35 measures -7.7 LUFS).
+    constexpr size_t kMeasured = 8;
+    if (pieces.size() > kMeasured) {
+        std::vector<int> some;
+        for (size_t i = 0; i < kMeasured; ++i) some.push_back(pieces[i * pieces.size() / kMeasured]);
+        pieces = std::move(some);
+    }
+    std::vector<gt3r::race::MusicLibrary::StreamOpener> songs;
+    std::string names;
+    for (const int n : pieces) {
+        const std::string path = s->library().stream_file(g, n);
+        std::optional<gt3r::Vfs::Stream> stream = path.empty() ? std::nullopt : vfs_->open_stream(path);
+        if (!stream) continue;
+        names += path + ':' + std::to_string(stream->size) + '\n';
+        songs.push_back(audio::disc_piece_opener(*vfs_, path));
+    }
+    char key[24];
+    std::snprintf(key, sizeof key, "%016llx", static_cast<unsigned long long>(gt3r::race::custom_song_id(names, 0)));
+    if (songs.empty() || measured_key_ == key) return;
+    measured_key_ = key;
+    music_.library().set_disc_songs(key, std::move(songs));
+    // (the loudest level a racing piece streams at: the mix table's stream level at the full option)
+    music_.set_loudest_level(s->library().levels().level(0, sound::VolumeTable::Stream));
+}
+
+void App::forget_disc_music() {
+    music_.library().set_disc_songs({}, {}); // (its measuring reads the disc)
+    measured_key_.clear();
 }
 
 // --- the display ---
@@ -325,6 +407,7 @@ void App::use_texture_packs() { gt3r::texture_pack::set_pack(vfs_ && video_.text
 
 void App::rescan_mods() {
     if (!vfs_) return;
+    forget_disc_music(); // (mods may replace the pieces)
     vfs_->scan_mods(mods_dir(), &config_);
     use_texture_packs();
     sound_.reset(); // (its banks are read again, as the database is)
@@ -333,6 +416,7 @@ void App::rescan_mods() {
 
 void App::set_mod_enabled(const std::string& id, bool on) {
     if (!vfs_) return;
+    forget_disc_music();
     config_.set(vfs_->mods_section(), id, on ? "on" : "off");
     save_config();
     vfs_->set_mod_enabled(id, on);
