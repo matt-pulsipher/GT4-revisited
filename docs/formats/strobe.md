@@ -264,7 +264,7 @@ no fade). The rows appear one frame after the panel.
 |---|---|---|---|---|
 | `RaceArcade` (single race), `RaceFreeRun` (the time trial's sequence 0x112620 and the free run's 0x116E20 make one), `RaceFreePractice` (0x1181C8) | 0 | 0 | 1 | `MENU_NORMAL`: CONTINUE, EXIT, Screen Setting |
 | `RaceLicense` (0x3BC05C), `RaceMachineTest` (0x3BDE20), `RaceTrainingBase` (0x3ECD98: missions) | 1 | 0 | 1 | `MENU_RETRY`: CONTINUE, RETRY, EXIT, Screen Setting |
-| `RaceGTmode` (0x3EDF68), the championship's race (0x3EF5C0) | 0 | 1 | 1 | `MENU_NORMAL`, EXIT asks "Are you sure?" (`CONFIRM`: CONTINUE, EXIT) |
+| `RaceGTmode` (0x3EDF68: an event's race 0x113B48, the photo drive 0x11ABE0), the championship's race (0x3EF5C0) | 0 | 1 | 1 | `MENU_NORMAL`, EXIT asks "Are you sure?" (`CONFIRM`: CONTINUE, EXIT) |
 | `RaceLanBattle` (0x3366D4) | 0 | 0 | 0 | `MENU_NO_SCREEN_NO_RETRY`: CONTINUE, EXIT |
 | replays | | | | no pause menu: Start ends the replay |
 

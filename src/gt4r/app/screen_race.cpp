@@ -4295,9 +4295,10 @@ private:
         }
         if (!pause_movie_) return;
         // The entries by the race's class (docs/formats/strobe.md "Entries per mode"): a retry in the
-        // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races.
+        // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races (RaceGTmode: the events' 0x113B48
+        // and the photo drive's 0x11ABE0; the championship's).
         const bool retry = is_license(sequence_) || sequence_ == "mission" || sequence_ == "machinetest";
-        const bool confirm = sequence_ == "solo_event" || sequence_ == "championship";
+        const bool confirm = sequence_ == "solo_event" || sequence_ == "championship" || sequence_ == "photo_drive";
         auto host = [this, &app, retry, confirm](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
             using V = race::StrobePlayer::Value;
             std::string n = name;
