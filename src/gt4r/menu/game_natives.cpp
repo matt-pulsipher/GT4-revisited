@@ -1623,15 +1623,22 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     }
     {
         // MRandom (0x2CB888): GetValue(lo, hi) from the program's generator (its state starts at
-        // 0x12345678); GetValue(lo, hi, seed) one draw of a generator seeded so.
+        // 0x12345678): a draw x (float)(hi - lo) (0x579398) + (float)lo, truncated; GetValue(lo, hi,
+        // seed) one draw of a generator seeded so: ((float)hi - (float)lo) x the draw + (float)lo
+        // (0x5792E8, 0x5792F0). In the EE's arithmetic.
         auto cls = make_class(menu, "MRandom");
         GameNatives* global = n.get();
         auto roll = [global](Vm&, const Value&, Args a) {
             if (a.size() < 2) return Value{};
+            using gt3r::ee::int_to_f;
             const s32 lo = arg_int(a, 0), hi = arg_int(a, 1);
-            ProgramRandom own{u32(arg_int(a, 2))};
-            ProgramRandom& g = a.size() > 2 ? own : global->random;
-            return number(s32(g.next01() * float(hi - lo) + float(lo)));
+            if (a.size() > 2) {
+                ProgramRandom own{u32(arg_int(a, 2))};
+                const sim::F d(own.next01());
+                return number(gt3r::ee::to_int((int_to_f(hi) - int_to_f(lo)) * d + int_to_f(lo)));
+            }
+            const sim::F d(global->random.next01());
+            return number(gt3r::ee::to_int(d * int_to_f(hi - lo) + int_to_f(lo)));
         };
         static_fn(*cls, "GetValue", roll);
         cls->construct = [roll](Vm&, Args) {

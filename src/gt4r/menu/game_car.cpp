@@ -456,7 +456,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         update();
         return Value{};
     });
-    car->method("getCurrentPower", [c](Vm&, const Value&, Args) { return number(s32(std::lround(c->power100 / 100.0))); });
+    // getCurrentPower (0x1412A8): the power x 100 (+0x178) / 100 (0x1465D8) + 0.5, truncated.
+    car->method("getCurrentPower", [c](Vm&, const Value&, Args) {
+        return number(gt3r::ee::to_int(gt3r::ee::int_to_f(s32(c->power100)) / sim::F(100.0f) + sim::F(0.5f)));
+    });
     car->method("getCurrentWeight", [c](Vm&, const Value&, Args) { return number(c->weight); });
     car->method("getCurrentPs", [c, spec, st](Vm& vm, const Value&, Args a) {
         const GameState::Unit unit = st->power_unit();

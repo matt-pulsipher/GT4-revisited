@@ -2,6 +2,9 @@
 // names the routine whose answers it holds ours to.
 
 #include "menu_run_flow.h"
+#include "natives_check.h"
+
+#include "gt4r/sim/program.h"
 
 #include <cstdio>
 #include <cstring>
@@ -94,4 +97,17 @@ TEST(disc_menu_car_condition_natives) {
     const float dirt = get("dirtiness");
     std::memcpy(&bits, &dirt, 4);
     CHECK(bits == 0x3F4CCCCCu);
+}
+
+// The calendar's natives (MCalendar.dateToDay 0x135F50 -> 0x5797A8, dayToDate 0x1360A0 -> 0x579898) equal the program's on
+// every day of 1950 .. 2049 and on months past either end of the year.
+TEST(sim_program_calendar_natives_equal) {
+    Disc* disc = nullptr;
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const diff::NativesResult r = diff::run_natives(*disc, false);
+    CHECK(r.ran && r.dates > 40000 && r.days > 36000);
+    CHECK(r.dates_equal == r.dates && r.days_equal == r.days);
+    if (r.dates_equal != r.dates || r.days_equal != r.days) std::printf("  dates %zu of %zu, days %zu of %zu\n", r.dates_equal, r.dates, r.days_equal, r.days);
 }
