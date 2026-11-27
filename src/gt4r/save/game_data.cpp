@@ -370,7 +370,7 @@ Bytes to_layout(ByteSpan p, Layout l) {
     Bytes b(kJapanPayloadSize, 0);
     std::memcpy(b.data(), p.data(), kGameZone);
     std::memcpy(b.data() + kGameZone + kJapanShift, p.data() + kGameZone, kPayloadSize - kGameZone);
-    // ❓ Japan's block from +0x11A4 to its end is left as zeros (its reset sets none of it; no accessor of it was found).
+    // Japan's block from +0x11A4 to its end: zeros, as the program writes it (no field: save.md "Japan's game data").
     std::memset(b.data() + option(0x1180), 0, kGameZone + kJapanShift - option(0x1180));
     for (const auto& m : kJapanMoved) std::memcpy(b.data() + option(m[1]), p.data() + option(m[0]), m[2]);
     put32(b, kOptionHead, kJapanOptionBlock);
