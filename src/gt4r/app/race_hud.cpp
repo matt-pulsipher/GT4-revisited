@@ -589,6 +589,9 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sx = float(std::atof(sizes.c_str())) / 100.0f;
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
+            // A font the disc does not have (racephoto.strb's camera numbers ask for "Futura CondensedBoldOblique"): the text
+            // object's own font (0x490420 keeps its +0x10 then; ❓ which: the movies' bold one here 🔎).
+            if (!f.font && star == std::string::npos && hash == std::string::npos) f = m.font("hb_24", 100, variant);
             if (!f.font) continue;
             // GT4's own text layout (menu/text_layout.h) at the glyphs' own pixel size: only the font
             // string's percentages and the instance's scale (the field's height does not scale the
@@ -599,6 +602,9 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             st.font = f.font;
             if (const auto it = m.spacing.find(f.font->name); it != m.spacing.end()) st.spacing = it->second;
             st.scale_x = f.sx * sx, st.scale_y = f.sy * sy;
+            // (the pad's buttons, "%B..": the Gaiji font's, at its own size; the photo pause's movie names its keys so)
+            if (const auto g = m.font_by_name.find("Gaiji"); g != m.font_by_name.end()) st.gaiji = g->second;
+            st.button_colors = m.button_colors;
             const float bx = d.m[0] * (t.x0 + 2) + d.m[2] * (t.y0 + 2) + d.m[4], by = d.m[1] * (t.x0 + 2) + d.m[3] * (t.y0 + 2) + d.m[5];
             const float bw = std::max(0.0f, t.x1 - t.x0 - 4) * sx, bh = std::max(0.0f, t.y1 - t.y0 - 4) * sy;
             const int align = t.align == 2 ? 1 : t.align == 1 ? 2 : 0;
@@ -630,9 +636,18 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             SDL_SetTextureColorMod(atlas, u8(c.r * 255), u8(c.g * 255), u8(c.b * 255));
             SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a, 0.0f, 1.0f) * 255));
             for (const menu::PlacedGlyph& g : lay.glyphs) {
-                if (g.font != f.font || !g.sw || !g.sh) continue; // (other fonts' glyphs: the pad's buttons; none in these movies)
+                if (!g.font || !g.sw || !g.sh) continue;
                 const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
                 const SDL_FRect dst = to_ui({g.x, g.y, g.w, g.h});
+                if (g.font != f.font) { // a button of the Gaiji font: its own picture in its colour (as draw_menu_text)
+                    SDL_Texture*& other = m.atlases[{g.font, 1}];
+                    if (!other) other = m.make_texture(g.font->atlas[1]);
+                    if (!other) continue;
+                    SDL_SetTextureColorMod(other, g.color.r, g.color.g, g.color.b);
+                    SDL_SetTextureAlphaMod(other, u8(float(g.color.a) * std::clamp(c.a, 0.0f, 1.0f)));
+                    SDL_RenderTexture(m.r, other, &src, &dst);
+                    continue;
+                }
                 SDL_RenderTexture(m.r, atlas, &src, &dst);
             }
         }

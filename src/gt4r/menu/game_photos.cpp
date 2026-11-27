@@ -370,17 +370,19 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
         return number(photo_card(*rt, slot).needed_kb(p.jpeg, small_picture(p), p.height > p.width));
     });
     file->method("saveNew", [np, rt, slot, save_film](Vm&, const Value&, Args a) {
-        if (!rt->photo_picture || rt->photo_picture->jpeg.empty() || !rt->photo) return text("INVALID_FILE");
+        if (!rt->photo_picture || rt->photo_picture->jpeg.empty() || (!rt->photo && rt->photo_picture->course.empty())) return text("INVALID_FILE");
         // ❓ A film (the scene itself, developed in Photo Lab) is not written.
         if (save_film) return text("DEVICE_ERROR");
         const PhotoPicture& p = *rt->photo_picture;
+        // (the shoot's place and car, or the photo pause's: the picture's own)
+        const std::string course = rt->photo ? rt->photo->course : p.course, car_label = rt->photo ? rt->photo->car_label : p.car_label;
         Database& d = np->db();
         save::PhotoInfo info;
-        info.course_file = rt->photo->course;
+        info.course_file = course;
         info.course = d.code(kCourseTable, info.course_file);
-        info.car = d.code(kCarTable, rt->photo->car_label);
-        if (const db::CarEntry* c = d.car(rt->photo->car_label)) info.car_name = c->name;
-        const Value car = make_car_object(*rt, rt->photo->car_label, 0);
+        info.car = d.code(kCarTable, car_label);
+        if (const db::CarEntry* c = d.car(car_label)) info.car_name = c->name;
+        const Value car = make_car_object(*rt, car_label, 0);
         if (car.p) info.car_name = rt->vm().attribute(car, "short_name").to_string();
         info.portrait = p.height > p.width;
         return text(save::result_name(photo_card(*rt, slot).save(info, p.jpeg, small_picture(p), a.size() > 1 ? a[1].to_string() : std::string("Photo data"))));
