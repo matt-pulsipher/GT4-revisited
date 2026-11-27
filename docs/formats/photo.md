@@ -266,7 +266,7 @@ scrambled, icon) made again the same; developed here, its photo has the original
     place in the body's frame (x right, y up, z back: the Ford GT's (-+0.800, 0.227, -1.355) front), 11 the tire's width (0.235),
     12 its radius (0.334), 13 its sidewall (0.106), 14 the spin over a step, 9's spin now less a step before, 24, 25; then 26 a
     wheel each (-1), 23 the engine's rpm, 27 a vector a wheel. Then the driver's and co-driver's figures (`DRVR` / `NAVI`, 0x339AD0:
-    960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
+    960 bytes), the skid marks (`SMOK` 0x3E91E0, the last frame: u8 0, u16 the car's marks (0x3E9190), each mark of that car by 0x3E93D0 ❓ its record not followed; ours draws no skid marks and writes none, as the original's film does without them); the frame's gadgets (`GDGT` 0x3E5408) and particles (`PTCL`
     0x3C2990), the last frame.
   - `GDGT` (0x3E5408), the last frame: u8 0, u16 160 (the rigid bodies' slots, RigidBodyManager 0x3E4CE0, the course's cones and
     boards in them in order, 0x3E4E50), each slot a bool in use (on the manager's list, 0x3E4F60), for one in use a bool moving
