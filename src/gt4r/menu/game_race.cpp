@@ -529,6 +529,24 @@ s64 Runtime::race_finished(const RaceResult& r) {
     }
     case RaceResult::Kind::License: {
         const u32 result = r.finished ? result_number(r.result) : 15;
+        if (!d.db || !d.db->prologue()) {
+            // 0x1105A8: only a graded run (the race's grade +0x88: 2 gold, 3 silver, 4 bronze, as results 9, 10, 11) is
+            // kept: the test's unit, its ranking (time, result, the real date, the pass code); any other run (failed, not
+            // finished, 13) is kept nowhere. The sequence's day takes the graded run whose time beats the sequence's best
+            // so far (its result and time, the best then that time); none graded: a day with nothing in it (0x110800).
+            if (result < 9 || result > 11) break;
+            if (unit >= 0) unit_result(w, 1, result);
+            if (r.time_ms < s.race_session.license_best) {
+                s.race_session.license_best = r.time_ms;
+                day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.time_ms, day.code = race_code;
+            }
+            const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(r.pass_code.empty() ? "--------" : r.pass_code)};
+            const Value record = vm().attribute(vm().lookup("game"), "license_record");
+            const Value label[1] = {Value::string(race)};
+            const Value u = record.p ? vm().call(vm().attribute(record, "getUnit"), label) : Value{};
+            if (u.p) vm().call(vm().attribute(u, "insertEntry"), args);
+            break;
+        }
         if (unit >= 0) unit_result(w, 1, result);
         { // Prologue's license (prologue_natives.cpp): the medal, points and time into its record.
             const Value lic = vm().attribute(vm().lookup("game"), "license");
@@ -562,6 +580,29 @@ s64 Runtime::race_finished(const RaceResult& r) {
         day.code = d.code(kCourseTable, r.course);
         break;
     }
+    // The course rankings (Gran Turismo 4's; Prologue keeps its own). A driven run (mode 0; a B-spec run's sequence inserts
+    // nothing) whose best lap beats the sequence's best: the time trial's (0x112620 -> 0x113320) and the free run's (0x116E20
+    // -> 0x117898, inside its "the run made a best-lap recording", race information +0x98: ❓ here a lap timed) go into the
+    // course's ranking (its unit made when it has none, 0x433C10), and the best is the menus' BestTime. A machine test the car
+    // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
+    // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
+    // (0x1165B8, 0x433348): not run here (the machine test's own conductor is not built), so not inserted. ❓ The race's kind
+    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code (0x10F718 ->
+    // 0x44B258) is not made: "--------".
+    if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
+        std::string car;
+        for (const RaceResult::Finisher& f : r.order)
+            if (f.entry == 0) car = f.car;
+        const s32 have = work.get("BestTime"); // (the sequence's best: none before a run, 0x112E78 / 0x117718)
+        if ((r.course_kind == 7 || r.course_kind == 1) && (have <= 0 || r.best_lap_ms < u32(have))) {
+            if (const int u = course_record_unit(d, s, r.course, true); u >= 0) ranking_insert(d, s.course_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+            work.set("BestTime", s32(r.best_lap_ms));
+        } else if (r.course_kind == 6 && r.finished) {
+            const u8 kind = row.size() > 0x10 ? u8(row[0x10] - 6) : 0;
+            const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
+            if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
+        }
+    }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player
     // drove and finished keeps its A-spec points when they are the course's best (0x111E98: the course of the race's row,
     // its record made when it has none, 0x433C10; 0x4336D0: at most 255), shown on the course page.
@@ -576,9 +617,11 @@ s64 Runtime::race_finished(const RaceResult& r) {
         return prize;
     }
     // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
-    // sequence puts it at once.
-    if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;
-    else if (!sequence_day) s.put_day(day);
+    // sequence puts it at once. (Gran Turismo 4's: only a graded run's that beat the sequence's best, above.)
+    if (r.kind == RaceResult::Kind::License && s.race_session.license_open) {
+        if (day.type == 4) s.race_session.license_day = day;
+    } else if (!sequence_day && (r.kind != RaceResult::Kind::License || day.type == 4))
+        s.put_day(day);
     return prize;
 }
 

@@ -385,9 +385,13 @@ scene"), and after a run failed by the rules the camera circling the car (Camera
 degrees, 0x37CCA8 steps it half a degree a step; the view translate(0, 0, -4) x rotate X 30 degrees x rotate Y by its angle x
 translate(-the car's drawn point, 0x344798 ..), so 4 m off, 30 degrees above, from the course's +z at first; a lens of 65
 degrees; ✔ by picture against the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`: the car's
-front with the cone first, its left side about 2 s on, a turn in 12 s; ❓ the routine that puts the camera manager on it for a
-failed test is not read: ours takes it for every rule failure of a Gran Turismo 4 test). ❓ The still picture with a white edge the original
-shows for a moment as the run fails is not drawn. ✔ The
+front with the cone first, its left side about 2 s on, a turn in 12 s). It is put on by the results page: ResultLicense's
+event step (0x3E1E10) finds event 10, and with the conductor's result word not 0 (-1: the rule failure's end 0x3F8980; a slow
+finish leaves it 0) 0x3E1FB0 sets the camera manager's mode for screen 0 to 6 (0x3720A0: screen +0x144 = 6; mode 6 in the
+manager's switch, 0x3747B8, takes the camera at screen +0x160, CameraFinishType1, and starts it). What the original shows as
+the run fails is this camera at once, the race display going out and the picture shrinking from the whole frame into the
+page's inset (the movie's `screen` picture from 2.13; ✔ 18-round4-gt overshoot and 27-license-fails wall videos in 0.1 s
+frames, ours the same: there is no separate still). ✔ The
 page's timing against the original's pass (18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`, 0.1 s frames
 from the stop): the title 0.1 s after, the time 0.6 s, the trophy fading in from 1.2 s (the original's 0.1 .. 0.3, 0.5 .. 0.7,
 1.3 s). ❓ The original fades the race display out over about 0.3 s as the title comes; ours takes it away at once.
