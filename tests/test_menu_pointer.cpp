@@ -223,3 +223,47 @@ TEST(menu_pointer_open_option_list) {
     rt.settle();
     CHECK(m->data.number("is_popuped") == 0 && m->index() == 2 && changed == 2);
 }
+
+namespace {
+
+const char* kScrollBox = R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [2] {
+				ScrollBox { name string {"Scroll"} geometry rectangle {100 300 300 60} children [3] {
+					ListBox { name string {"List"} can_focus digit {1} geometry rectangle {20 0 260 60} direction digit {0} }
+					Composite { name string {"dec_arrow"} geometry rectangle {0 20 15 20} }
+					Composite { name string {"inc_arrow"} geometry rectangle {285 20 15 20} }
+				} }
+				Composite { name string {"Row"} geometry rectangle {0 0 50 60} visible digit {0} }
+			}
+		}
+	}
+})";
+
+} // namespace
+
+TEST(menu_pointer_scroll_box_arrows) {
+    menu::Runtime rt(no_files());
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(kScrollBox)))->child("Top");
+    script::Vm& vm = rt.vm();
+    rt.open_page(top, true);
+    const std::shared_ptr<menu::LiveWidget> list = top->child("Scroll")->child("List");
+    const Value lv = menu::widget_value(list);
+    call(vm, lv, "setItemTemplate", {rt.context(), menu::widget_value(top->child("Row"))});
+    call(vm, lv, "setItemCount", {Value::integer(10)});
+    rt.settle();
+    rt.update();
+    // The arrows beside a list across: right is a row on, left a row back (the focus taken by the list first).
+    const std::vector<menu::DrawnBox> boxes = boxes_of(top);
+    CHECK(menu::pointer_hit(rt, boxes, 392, 330).kind == menu::PointerHit::Kind::Arrow);
+    CHECK(menu::pointer_tap(rt, boxes, 392, 330));
+    CHECK(menu::pointer_tap(rt, boxes, 392, 330));
+    rt.settle();
+    CHECK(focus_index(vm, list) == 2 && rt.focused() == list.get());
+    CHECK(menu::pointer_tap(rt, boxes, 105, 330));
+    rt.settle();
+    CHECK(focus_index(vm, list) == 1);
+}

@@ -82,6 +82,21 @@ PointerHit hit_in(Runtime& rt, const std::vector<DrawnBox>& drawn, const std::ve
                 return out.row >= 0 && !w->insensitive() ? out : PointerHit{};
             }
             if (open_menu) continue; // (the open list alone)
+            if ((w->name == "dec_arrow" || w->name == "inc_arrow") && up->is("ScrollBox")) {
+                // A scroll box's arrow: a step of the list (or select box) in it, when that takes the focus.
+                for (const auto& c : up->children) {
+                    bool reachable = c->is("ListBox") && can.count(c.get());
+                    if (is_select_box(*c)) {
+                        const std::vector<W> rows = rows_of(*c);
+                        reachable = !rows.empty() && can.count(rows[size_t(std::clamp(c->index(), 0, int(rows.size()) - 1))].get());
+                    }
+                    if (!reachable) continue;
+                    out.kind = PointerHit::Kind::Arrow, out.box = c, out.row = w->name == "dec_arrow" ? -1 : 1;
+                    out.widget = const_cast<LiveWidget*>(w)->self();
+                    return out;
+                }
+                break;
+            }
             if (is_select_box(*up) && w->is_composite()) {
                 // A select box's rows: its chosen row is the candidate; the box is one when that is.
                 const std::vector<W> rows = rows_of(*up);
@@ -264,6 +279,7 @@ bool pointer_tap(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float
         if (candidates.empty() && !page->focus.lock()) return rt.key(Key::Accept), true;
         return false;
     }
+    if (h.kind == PointerHit::Kind::Arrow) return step_list(rt, h.box, h.row), true;
     if (!is_focus(rt, h)) {
         if (h.kind == PointerHit::Kind::Widget) focus_on(rt, h.widget);
         else choose_row(rt, h);

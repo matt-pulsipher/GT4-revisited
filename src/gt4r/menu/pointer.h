@@ -5,7 +5,8 @@
 // puts it there and a tap on what has it is Accept; the wheel and a drag along a list step it as its keys do; the
 // mouse's right button is Cancel. What a point is over comes from where the app drew each widget this picture
 // (`DrawnBox`, the page's 640 x 480), the last drawn on top; what can take the focus is the focus search's own
-// candidates (widget_classes.cpp), so a widget the pad cannot reach is no target either. docs/formats/menu.md "Mouse and
+// candidates (widget_classes.cpp), so a widget the pad cannot reach is no target either. A scroll box's arrows
+// (`dec_arrow`, `inc_arrow`) step the list in it. docs/formats/menu.md "Mouse and
 // touch".
 
 #include "gt4r/menu/runtime.h"
@@ -24,10 +25,10 @@ struct DrawnBox {
 
 // What a point of the shown page is over.
 struct PointerHit {
-    enum class Kind { None, Widget, SelectRow, ListRow, OptionRow } kind = Kind::None;
+    enum class Kind { None, Widget, SelectRow, ListRow, OptionRow, Arrow } kind = Kind::None;
     std::shared_ptr<LiveWidget> widget; // Widget: what takes the focus; a row: the row's widget
     std::shared_ptr<LiveWidget> box;    // a row's select box, list box or option menu
-    int row = -1;
+    int row = -1; // Arrow: -1 back, 1 on
 };
 PointerHit pointer_hit(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y);
 

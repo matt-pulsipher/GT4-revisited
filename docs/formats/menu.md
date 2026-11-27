@@ -247,7 +247,8 @@ moves the pad makes, so the scripts see nothing new:
   (rows that scroll would move under a pointer that stays still), and nothing in a scroll window or box (the map). So one click chooses with a mouse, and a finger taps
   twice.
 - **The wheel** over a list or select box (else the one with the focus): a notch, a key along it. **A drag** that starts
-  on one: a key along it for each row's pitch it goes, the rows following the finger. **The right button**: Cancel.
+  on one: a key along it for each row's pitch it goes, the rows following the finger. A tap on a scroll box's `dec_arrow` or
+  `inc_arrow`: a key along its list. **The right button**: Cancel.
 - Nothing while the context's `event_mask` is 0 or a transition covers the page. ❓ The map's `ScrollWindow` is not
   dragged (its `floating` is not read): its places are tapped.
 
