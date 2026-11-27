@@ -37,6 +37,10 @@ DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide);
 float place_x(const DisplayPlace& p, bool wide);
 // Ours: how far that move is on the picture shown now (race/game_area.h anchor_push; 96, the program's, until set).
 void set_wide_push(float units);
+// Ours: two players side by side on a picture wider than 16:9: each half's parts placed as at 16:9 (`set_wide_push(96)`), then those
+// in the half's left third moved `units` left, its middle third units / 2 left (each half wider than 16:9's by `units`: they keep to
+// the half's left edge, middle and right edge); 0 off.
+void set_half_extra(float units);
 // Ours, touch screens: the places tied to the right edge in the lower half of the canvas (y >= 240: the meters and their
 // small parts) moved `right` units left, those tied to the left edge there `left` units right, clear of the on-screen controls
 // (0: where the program puts them). The box each side's places took since the last take_lower_box() (canvas units, as the
