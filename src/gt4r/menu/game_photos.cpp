@@ -253,9 +253,11 @@ void install_photo_lists(GameNatives& n, script::Module& menu) {
 }
 
 void answer_photo_destination(LiveWidget& project) {
-    // Where to save (a memory card's slot, a USB memory): the photo to the save files. The photo pause's page asks as well whether
-    // as a film (SaveDialog: Film, Film and Photo, Photo): that page is shown, as the program's.
-    for (const char* name : {"DestinationDialog"})
+    // Where to save (a memory card's slot, a USB memory): the photo to the save files. The photo pause's page (the project
+    // photo_save) asks as well whether as a film (SaveDialog: Film, Film and Photo, Photo): that page is shown, as the program's.
+    const bool film_choice = project.name == "PhotoSaveProject";
+    for (const char* name : {"SaveDialog", "DestinationDialog"}) {
+        if (film_choice && std::string(name) == "SaveDialog") continue;
         if (const auto dialog = project.child(name); dialog && dialog->members.count("kind"))
             if (const auto it = dialog->members.find("open"); it != dialog->members.end() && it->second->value.kind == script::Kind::Function) {
                 std::weak_ptr<LiveWidget> weak = dialog;
@@ -267,6 +269,7 @@ void answer_photo_destination(LiveWidget& project) {
                     return number(1);
                 });
             }
+    }
 }
 
 bool install_photo_manager(GameNatives& n, Object& manager, const std::string& mode, int slot) {
