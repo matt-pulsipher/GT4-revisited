@@ -205,3 +205,40 @@ TEST(race_mission_rival_moves_from_the_grid) {
         CHECK(ahead > 5 && ahead < 120);
     }
 }
+
+// The photo drive (RaceGTmode on the single player's conductor): its RACE row puts the player's car 30 m before the line at
+// 30 km/h (vf30 0x347618: kind 2); no hold, the clock from the first step (the course's rolling speed cleared, vf28 0x34D490, so
+// vf27 0x3477C8 holds nothing), the first lap timed from it.
+TEST(race_photo_drive_start) {
+    for (Disc* d : test::reference_discs()) {
+        if (d->info().game != Game::GT4) continue;
+        gt3r::Volume* vol = &d->volume();
+        const auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        };
+        db::SpecDb db(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+        const std::optional<db::RaceEvent> ev = db::RaceEvents(db, read).event("photo_drive");
+        CHECK(ev.has_value());
+        if (!ev) continue;
+        const race::RowStart r = race::RowStart::from_row(ev->bytes);
+        CHECK(r.distance[0] == -30 && r.speed[0] == 30);
+        std::printf("  %s: %d m, %d km/h\n", d->info().product.c_str(), r.distance[0], r.speed[0]);
+    }
+    race::FlowSetup fs;
+    fs.start = race::StartType::Moving, fs.laps = 0, fs.lap_length = 1000, fs.counted = true, fs.timed_from_start = true;
+    std::vector<race::CarState> cars(1);
+    cars[0].course_v = 970;
+    race::RaceFlow flow(fs, cars);
+    CHECK(flow.clock_running());
+    int start_step = -1;
+    for (int i = 0; i < 120; ++i) {
+        cars[0].course_v += 0.5f;
+        if (cars[0].course_v >= 1000) cars[0].course_v -= 1000;
+        const race::RaceFlow::Events e = flow.step(cars);
+        if (e.start) start_step = i;
+        if (i == 10) CHECK(flow.lap_ms(0) > 0); // (the clock shown before the line)
+    }
+    CHECK(start_step == 59);           // 970 + 60 x 0.5 = 1000
+    CHECK(flow.lap_ms(0) == race::clock_ms(flow.clock())); // (the first lap from the clock's start)
+}

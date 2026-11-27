@@ -141,6 +141,9 @@ struct Setup {
     int start_seconds = 0;
     float start_speed = 0; // a rolling start's (metres per second)
     std::vector<std::array<float, 2>> test_starts; // Prologue's test's rolling start, by car: km/h, metres from the line (sim::RaceRules)
+    // A single player's race whose event row gives the player's car a place and a speed (the conductor's virtual 30, 0x347618:
+    // a distance not 0 with a speed; the photo drive's row: 30 m before the line at 30 km/h): km/h, metres from the line; 0: none.
+    int row_start_kmh = 0, row_start_m = 0;
     float start_back = 400, start_spacing = 20; // a rolling start's last place behind the line and the gap between places (metres)
     int start_kind = 0;        // a rolling start's kind (3 a free run's; 0 by its distance)
     bool course_start = false; // the start the course's start code gives (race/start_rule.h)
@@ -733,6 +736,7 @@ public:
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
+            if (i == 0 && setup.row_start_kmh > 0) e.start_speed = float(setup.row_start_kmh) / 3.6f, e.start_distance = float(setup.row_start_m);
             // (A free practice, 0x3F4F10: the player's car a pit start (kind 6) on its grid place; the others rolling at 120 km/h
             // from 300 + 24 x their number metres behind the line)
             if (free_practice(setup) && i == 0) e.start_kind = 6, e.start_speed = 0;
@@ -874,6 +878,7 @@ public:
                 fs.back.push_back(u8(world_->start_back(i)));
             }
             if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
+            fs.timed_from_start = setup_.row_start_kmh > 0;
             fs.no_lap = world_->start_race().way == 1;
         } else fs.sectors = splits_;
         if (free_practice(setup_) && !(db_ && db_->prologue()))
@@ -3172,6 +3177,24 @@ public:
         // The photo drive's race has no number of laps: its display shows the lap alone (✔ the original's GT mode photo drive at
         // Tsukuba: "Lap 1", the position, the lap clock, the best and last lap), and no count ends it.
         if (setup_.sequence == "photo_drive") setup_.laps = 0;
+        // The photo drive's start (RaceGTmode on the single player's conductor, the race's label "photo_drive" its RACE row): the
+        // row gives car 0 a distance (+0x14, -30 m) and a speed (+0x42, 30 km/h), so the car starts there on the move, kind 2,
+        // driven by its computer driver to the line (vf30 0x347618); no hold (vf10 0x3475B8 answers 0 with a speed for car 0); the
+        // course's rolling speed cleared (vf28 0x34D490, a car with a place of its own), so the clock is not held for the line
+        // (vf27 0x3477C8) and runs from the first step, the first lap timed from it. ✔ The original's: "0'13.1" at about 14 s.
+        if (setup_.sequence == "photo_drive" && !setup_.start_given)
+            if (db::SpecDb* sdb = app.db(); sdb && !sdb->prologue()) {
+                gt3r::Vfs* vfs = app.vfs();
+                const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+                if (const std::optional<db::RaceEvent> e = find_event(events, "photo_drive", region_of(app))) {
+                    const race::RowStart rs = race::RowStart::from_row(e->bytes);
+                    if (rs.distance[0] != 0 && rs.speed[0] > 0) {
+                        setup_.start = race::StartType::Moving;
+                        setup_.row_start_kmh = rs.speed[0], setup_.row_start_m = rs.distance[0];
+                        setup_.start_speed = float(rs.speed[0]) / 3.6f;
+                    }
+                }
+            }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())

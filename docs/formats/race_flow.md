@@ -239,6 +239,18 @@ and the missions' the car's own, a speed of 0 being place 0's (0x3F7090 / 0x3F70
 On the US disc 40 section tests and 9 Super License laps start moving (8.3 to 55.6 m/s), IB-12 stands on the driving line
 (kind 1 without a speed), the rest stand on the grid. A race with a speed for car 0 has no start's hold (virtual 10, 0x3F6090).
 
+**The photo drive's start** (RaceGTmode, 0x11ABE0, on the single player's conductor; its race label `photo_drive` names its
+`RACE` row): the row gives car 0 a distance of -30 m (+0x14) and a speed of 30 km/h (+0x42), the only row not a test's or a
+mission's that does (US disc). The single player's virtual 30 (0x347618) takes a car's own distance and speed when both are given
+(else the base's: the grid, the course's rolling start): kind 2, 30 m before the line at 30 km/h, its computer driver driving it
+to the line (the pace 30 km/h: held for the first 5 m, the course's cameras that long). No hold (virtual 10, 0x3475B8: car 0 has
+a speed); the course's rolling speed K +0xF886 is cleared at the reset (vf28 0x34D490: a car with a place, speed or count of its
+own), so virtual 27 (0x3477C8) holds no clock: the clock runs from the first step and the first lap is timed from it; the car's
+crossing hands it to the player with the start signal (vf20). Here `Setup::row_start_kmh` / `row_start_m` and
+`FlowSetup::timed_from_start` (`race_photo_drive_start`). ✔ Ours by picture: the course's camera at 0.2 s, the car at 30 km/h,
+the line at 2.7 s ("START"), at 13.8 s the clock 0'13.766 in first gear on the back straight; the original's (PCSX2, Tsukuba, the
+Ford GT): 0'13.133 at about 14 s in first gear at the same place.
+
 **Where a test's clock starts.** The clock runs from the first step after the hold (the step whose count, the race
 information's +0xBC, the frame takes to 0 before it: 8 s hold 479 steps). When a car with the mark 1 passes the section's
 start, the lap step (0x358608) calls virtual 22; the license's (0x3F6760) clears the mark and calls its virtual 20
