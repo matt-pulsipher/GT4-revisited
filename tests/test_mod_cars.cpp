@@ -54,16 +54,18 @@ grip_pct = 105
 x = 1
 )";
 
-db::SpecDb open_db(Disc& disc, std::string list) {
+// `list` may change after (a mod installed while the game runs).
+db::SpecDb open_db(Disc& disc, std::shared_ptr<const std::string> list) {
     gt3r::Volume* vol = &disc.volume();
     return db::SpecDb(
         [vol, list](const std::string& path) -> std::optional<Bytes> {
-            if (path == "mods/.cars") return Bytes(list.begin(), list.end());
+            if (path == "mods/.cars") return Bytes(list->begin(), list->end());
             const gt3r::Volume::Entry* e = vol->find(path);
             return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
         },
         [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
 }
+db::SpecDb open_db(Disc& disc, std::string list) { return open_db(disc, std::make_shared<const std::string>(std::move(list))); }
 
 Disc* gt4_disc() {
     for (Disc* d : test::reference_discs())
@@ -205,6 +207,7 @@ TEST(mod_car_rows) {
     CHECK(spec.b(0x42) == 31); // the drag coefficient
 }
 
+#include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/runtime.h"
 
 #include <algorithm>
@@ -212,7 +215,7 @@ TEST(mod_car_rows) {
 namespace {
 
 // The game's menus on the disc with the mods' cars of `list` (the file layer's mods/.cars).
-std::unique_ptr<menu::Runtime> menus_with(Disc& d, std::string list) {
+std::unique_ptr<menu::Runtime> menus_with(Disc& d, std::shared_ptr<const std::string> list) {
     menu::Runtime::Config config;
     config.language = "US";
     config.list = [&d](const std::string& folder) {
@@ -228,12 +231,13 @@ std::unique_ptr<menu::Runtime> menus_with(Disc& d, std::string list) {
     config.program = [&d] { return d.read_program(); };
     return std::make_unique<menu::Runtime>(
         [&d, list](const std::string& path) -> std::optional<Bytes> {
-            if (path == "mods/.cars") return Bytes(list.begin(), list.end());
+            if (path == "mods/.cars") return Bytes(list->begin(), list->end());
             const gt3r::Volume::Entry* e = d.volume().find(path);
             return e ? std::optional<Bytes>(d.volume().read(*e)) : std::nullopt;
         },
         config);
 }
+std::unique_ptr<menu::Runtime> menus_with(Disc& d, std::string list) { return menus_with(d, std::make_shared<const std::string>(std::move(list))); }
 
 } // namespace
 
@@ -281,4 +285,66 @@ TEST(mod_car_at_its_dealer) {
     for (const std::string& line : rt->log())
         if (line.find("script error") != std::string::npos) clean = false, std::printf("  %s\n", line.c_str());
     CHECK(clean);
+}
+
+// A mod installed while the game runs (an online download): its car added to the database read already, the cars in before kept.
+TEST(mod_car_added_later) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    auto list = std::make_shared<std::string>(write_car("gt4r_test_coupe_26.ini", kCar));
+    db::SpecDb sdb = open_db(*disc, list);
+    const size_t before = sdb.cars().size();
+    const std::optional<db::CarParts> coupe = db::car_parts(sdb, "gt4r_test_coupe_26");
+    CHECK(coupe && !db::car_parts(sdb, "gt4r_test_alfa_26"));
+    const db::Table* names = sdb.table("CAR_NAME_american");
+    *list += write_car("gt4r_test_alfa_26.ini", "[car]\nlabel = gt4r_test_alfa_26\nname = Alfa Test `26\nprice = 23456\ndonor = _147_20_twinspark_02\n");
+    CHECK(sdb.add_mod_cars() == std::vector<std::string>{"gt4r_test_alfa_26"});
+    CHECK(sdb.add_mod_cars().empty()); // (once)
+    CHECK(sdb.table("CAR_NAME_american") == names); // the same table, rows added
+    CHECK(sdb.cars().size() == before + 1);
+    const std::optional<db::CarParts> alfa = db::car_parts(sdb, "gt4r_test_alfa_26"), coupe2 = db::car_parts(sdb, "gt4r_test_coupe_26");
+    CHECK(alfa && coupe2 && coupe2->parts == coupe->parts && coupe2->car_row == coupe->car_row);
+    if (alfa) CHECK(rd32(ByteSpan(alfa->car_row), 8) == 23456);
+    bool named = false;
+    for (const db::CarEntry& e : sdb.cars())
+        if (e.label == "gt4r_test_alfa_26") named = e.name == "Alfa Test `26" && e.paints > 0;
+    CHECK(named);
+    // As a database made with both at once has it.
+    db::SpecDb both = open_db(*disc, *list);
+    const std::optional<db::CarParts> alfa2 = db::car_parts(both, "gt4r_test_alfa_26");
+    CHECK(alfa && alfa2 && alfa->car_id == alfa2->car_id && alfa->car_row == alfa2->car_row && alfa->parts == alfa2->parts);
+    const sim::Program program = sim::Program::load(*disc);
+    sim::Equipment eq, eq2;
+    CHECK(sim::stock_car(sdb, program, "gt4r_test_alfa_26", eq) && sim::stock_car(both, program, "gt4r_test_alfa_26", eq2));
+    sim::Spec spec, spec2;
+    sim::build_spec(sdb, program, eq, 0, spec), sim::build_spec(both, program, eq2, 0, spec2);
+    CHECK(spec.weight_kg() == spec2.weight_kg() && spec.weight_kg() > 0 && spec.gears() == spec2.gears());
+
+    // The menus: the car joins its maker's dealer list already read.
+    auto menus_list = std::make_shared<std::string>();
+    std::unique_ptr<menu::Runtime> rt = menus_with(*disc, menus_list);
+    auto press = [&](std::initializer_list<menu::Key> keys) {
+        for (menu::Key k : keys) rt->key(k), rt->settle();
+    };
+    menu::GameState& game = rt->game();
+    game.card.has_game_data = true, game.username = "Player", game.money = 500000;
+    rt->boot();
+    rt->start_project(rt->first_project());
+    rt->settle();
+    if (rt->current_page() && rt->current_page()->name == "MovieRoot") press({menu::Key::Start});
+    CHECK(rt->finished() && rt->advance());
+    rt->settle();
+    press({menu::Key::Down, menu::Key::Accept});
+    CHECK(rt->finished() && rt->wanted_project() == "gtmode" && rt->advance());
+    rt->settle();
+    rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child("DealerItaly"));
+    press({menu::Key::Accept});
+    const std::vector<script::Value>* items = rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carlist").items();
+    CHECK(items && items->size() == 5);
+    *menus_list = *list;
+    CHECK(menu::refresh_mod_cars(*rt).size() == 2);
+    items = rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carlist").items();
+    CHECK(items && items->size() == 6 && items->back().as_string() == "gt4r_test_alfa_26");
+    CHECK(rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carnum").i == 6);
+    CHECK(menu::refresh_mod_cars(*rt).empty());
 }

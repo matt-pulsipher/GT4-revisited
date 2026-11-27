@@ -242,6 +242,33 @@ const ModCars& SpecDb::mod_cars() {
     return *mods_;
 }
 
+std::vector<std::string> SpecDb::add_mod_cars() {
+    prepare_mods();
+    if (prologue_ || !mods_) return {};
+    const std::optional<Bytes> list = read_("mods/.cars");
+    if (!list || list->empty()) return {};
+    ModCars more;
+    mods_state_ = 1; // (the builder reads the tables as they are now, the cars in so far included)
+    try {
+        more = ModCars::build_more(*this, std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_, *mods_);
+    } catch (const std::exception& e) {
+        LOG_WARN("Mod cars: %s", e.what());
+        more = ModCars();
+    }
+    for (const ModCarStatus& s : more.statuses())
+        if (!s.loaded()) LOG_WARN("Mod car %s (%s): %s", s.label.c_str(), s.mod.c_str(), s.error.c_str());
+    for (auto& [name, t] : tables_)
+        if (t) more.extend(name, *t);
+    for (auto& [name, l] : labels_)
+        if (l) more.extend(name, *l);
+    for (auto& [name, st] : strings_)
+        if (st) more.extend(name, *st);
+    std::vector<std::string> added = more.labels();
+    mods_->merge(std::move(more));
+    mods_state_ = 2;
+    return added;
+}
+
 std::optional<Bytes> SpecDb::mod_car_file(u64 code) const { return mods_ ? mods_->car_file(code) : std::nullopt; }
 
 std::optional<Bytes> SpecDb::car_file(u64 code) {

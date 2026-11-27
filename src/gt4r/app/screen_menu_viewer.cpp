@@ -395,6 +395,13 @@ private:
     }
 
     void update_running(App& app, const MenuInput& m) {
+        // Mods installed or switched since: their new cars into the menus' database and makers' lists (an online download).
+        if (app.mods_generation() != mods_seen_) {
+            mods_seen_ = app.mods_generation();
+            if (runtime_)
+                if (const std::vector<std::string> added = menu::refresh_mod_cars(*runtime_); !added.empty())
+                    LOG_INFO("Menus: %zu mod cars added (%s ...)", added.size(), added[0].c_str());
+        }
         // The developer's viewer: Select and Start together stop the running menus.
         if (!player_ && m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
         // The game: the GT4R menu button beside the title or the map (a click or a tap) leaves it for GT4 Revisited's own menu underneath; the
@@ -854,6 +861,7 @@ private:
     std::vector<std::shared_ptr<LiveWidget>> pages_;
     RowPointer mouse_; // the lists'
     std::unique_ptr<menu::Runtime> runtime_;
+    u32 mods_seen_ = 0; // App::mods_generation when the menus last looked
     // Typing on the page's own keyboard: SDL's text input on while the page has one (the engine's start_text_input with the
     // game's keyboard: the system's screen keyboard stays closed), the letters and the typing keys held.
     menu::KeyboardTyping typing_;

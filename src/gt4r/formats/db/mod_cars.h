@@ -103,6 +103,11 @@ public:
     static ModCars build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers);
     // The same from definitions already read (tests, tools).
     static ModCars build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers);
+    // The cars of `list` that `before` has not read (files it has no status for, labels it has not loaded), made on a database
+    // `before` extends already: its rows' ids are kept clear of, and merge() then adds them to it.
+    static ModCars build_more(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars& before);
+    // `more` (build_more's, on this one) added: its cars, rows, labels and strings after these.
+    void merge(ModCars&& more);
 
     bool empty() const { return statuses_.empty(); }
     const std::vector<ModCarStatus>& statuses() const { return statuses_; }
@@ -128,6 +133,8 @@ public:
     std::optional<Picture> picture(std::string_view path) const;
 
 private:
+    static ModCars build_defs(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers, const ModCars* before);
+    static ModCars build_list(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars* before);
     struct PaintGroup {
         u32 from = 0, to = 0;              // the donor's (or body car's) paint group and the car's
         float scale_box[4] = {1, 1, 1, 1}; // VARIATION +0x10 height, +0x14 width, +0x18 ahead, +0x1C behind

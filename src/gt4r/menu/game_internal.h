@@ -77,6 +77,8 @@ struct Database {
     };
     std::map<std::string, Spec> specs;
     const Spec& spec(const std::string& label);
+    // The script modules the makers' lists were read into (mod_car_lists.cpp: refresh_mod_cars adds to them).
+    std::vector<std::weak_ptr<script::Module>> car_lists;
 
     // The showroom car (sim/showroom.h: ShowRoomCar's figures and evaluation); none without the
     // database or for a program whose tables are not mapped.
@@ -291,5 +293,8 @@ void apply_monitor(GameNatives& n);
 std::shared_ptr<GameNatives> natives_of(Runtime& rt);
 // The mods' cars for sale onto the dealers' lists of a script file just run (mod_car_lists.cpp).
 void add_mod_cars_to_lists(GameNatives& n, const std::shared_ptr<script::Module>& into);
+// The mods' cars installed since the menus' database was read (an online download, the Mods page) added to it and to the
+// makers' lists already read; the labels added (mod_car_lists.cpp).
+std::vector<std::string> refresh_mod_cars(Runtime& rt);
 
 } // namespace gt4r::menu

@@ -116,6 +116,10 @@ public:
     // maker; set them before anything is read.
     void set_makers(std::map<int, std::string> makers) { makers_ = std::move(makers); }
     const ModCars& mod_cars();
+    // The mods' cars the reader lists now that are not in yet (a mod installed since they were worked out), added to every table
+    // read and to come; the labels added. The ones in stay as they are (a removed mod's car stays until the database is made
+    // again), and so do the tables, label lists and pools already handed out (rows are added to them).
+    std::vector<std::string> add_mod_cars();
     // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
     std::optional<Bytes> car_file(u64 code);
     // A mod car's alone, once the mods' cars are worked out (any table read); none for a disc car.

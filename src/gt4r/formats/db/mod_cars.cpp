@@ -876,7 +876,8 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     return true;
 }
 
-ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers) {
+// The cars of a list's files, read; `before`'s files and loaded labels passed over.
+ModCars ModCars::build_list(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars* before) {
     std::vector<ModCarDef> defs;
     std::vector<ModCarStatus> bad;
     std::map<std::string, std::vector<std::string>> warnings; // by file
@@ -890,6 +891,7 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
         if (tab == std::string_view::npos) continue;
         const std::string mod(line.substr(0, tab)), file(line.substr(tab + 1));
         if (file.find("/cars/") == std::string::npos) continue; // (a maker's or an event's)
+        if (before && std::any_of(before->statuses().begin(), before->statuses().end(), [&](const ModCarStatus& s) { return s.file == file; })) continue;
         ModCarStatus st;
         st.mod = mod, st.file = file;
         const std::optional<Bytes> text = gt3r::read_host_file(file);
@@ -904,9 +906,15 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
             continue;
         }
         d->mod = mod, d->file = file;
+        if (before && before->def(d->label)) {
+            st.label = d->label, st.name = d->name, st.donor = d->donor;
+            st.error = "a car of that label is in the game already (the menus read the mods' cars again when they start)";
+            bad.push_back(std::move(st));
+            continue;
+        }
         defs.push_back(std::move(*d));
     }
-    ModCars m = build(db, std::move(defs), makers);
+    ModCars m = build_defs(db, std::move(defs), makers, before);
     for (ModCarStatus& s : m.statuses_) {
         const std::vector<std::string>& w = warnings[s.file];
         s.warnings.insert(s.warnings.begin(), w.begin(), w.end());
@@ -915,9 +923,44 @@ ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, st
     return m;
 }
 
-ModCars ModCars::build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers) {
+ModCars ModCars::build(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers) { return build_list(db, list, makers, nullptr); }
+
+ModCars ModCars::build_more(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars& before) {
+    return build_list(db, list, makers, &before);
+}
+
+ModCars ModCars::build(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers) { return build_defs(db, std::move(defs), makers, nullptr); }
+
+void ModCars::merge(ModCars&& more) {
+    statuses_.insert(statuses_.end(), more.statuses_.begin(), more.statuses_.end());
+    for (auto& [l, d] : more.defs_) defs_[l] = std::move(d);
+    for (auto& [t, rows] : more.rows_) rows_[t].insert(rows_[t].end(), rows.begin(), rows.end());
+    for (auto& [t, labels] : more.labels_) labels_[t].insert(labels_[t].end(), labels.begin(), labels.end());
+    for (auto& [pool, strings] : more.strings_) {
+        const auto size = more.pool_sizes_.find(pool);
+        if (size == more.pool_sizes_.end()) continue;
+        const auto mine = pool_sizes_.find(pool);
+        if (mine == pool_sizes_.end()) {
+            pool_sizes_[pool] = size->second, strings_[pool] = strings;
+            continue;
+        }
+        // (`more` read the pool with these strings in it: its own start after them)
+        std::vector<std::string>& have = strings_[pool];
+        if (size->second == mine->second + have.size()) have.insert(have.end(), strings.begin(), strings.end());
+    }
+    for (const auto& [pool, size] : more.pool_sizes_) pool_sizes_.emplace(pool, size);
+    paint_groups_.insert(paint_groups_.end(), more.paint_groups_.begin(), more.paint_groups_.end());
+    names_.insert(names_.end(), more.names_.begin(), more.names_.end());
+    for (auto& [code, f] : more.car_files_) car_files_[code] = std::move(f);
+}
+
+
+ModCars ModCars::build_defs(SpecDb& db, std::vector<ModCarDef> defs, const std::map<int, std::string>& makers, const ModCars* before) {
     ModCars out;
     ModCarBuilder b{db, out, makers, {}};
+    if (before) // (the ids its cars took)
+        for (const auto& [table, rows] : before->rows_)
+            for (const auto& [id, bytes] : rows) b.used[table].insert(id);
     // A later file's car of a label replaces an earlier one's.
     std::map<std::string, size_t> last;
     for (size_t i = 0; i < defs.size(); ++i) last[defs[i].label] = i;
