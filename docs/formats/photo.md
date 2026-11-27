@@ -19,7 +19,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The finder's color correction | the shared engine's grade pass, a curve through the gamma's middle value | 🔎 the photo itself uses the program's gamma table |
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
-| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎, the recomposing shutter not done; the B-spec panel's refusal not done |
+| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎; the B-spec panel's refusal not done |
 | Not built | saving and developing a film (the dialog answers the photo) | |
 
 ## The sequence
@@ -185,7 +185,11 @@ race screen's `open_photo` / `update_photo`.
 - **The pad** (the race input in mode 2, 0x3FAD78; the replay's words of 0x43D288: 0x1 L1, 0x2 R1, 0x200 L2, 0x400 R2):
   nothing held: Left / Right another camera, else Up / Down the eye up or down, the sticks, and when they are still the first of
   Circle (upright or not), Triangle, Square (focus), Cross (shutter); L1 alone: Up / Down the exposure (and Cross the shutter on
-  the focused place, ❓ the recomposing 0x37FA38 not done); L2 the white balance; R1 the aperture; R2 the shutter speed.
+  the focused place: with a place focused (Square), the camera's eye and that place carried with the followed car over the step
+  (0x380A04 -> 0x37FA38: from the car's frame at the step's start, 0x3FD0A0 with 0, to its frame at the end, 0x3FCEA8 with 1)
+  and the camera aimed at the place again (0x36EA98, 0x36EA50); the photo's pictures take the camera's view between the two at
+  their time (CameraManager::vf2 -> CameraVariable::vf16 0x3796C8): a panning shot, the car sharp, ✔ ours by picture against the
+  plain shutter's; without a focused place it is the plain shutter); L2 the white balance; R1 the aperture; R2 the shutter speed.
 - **A step of the camera** (`CameraShot::vf10` 0x37FFB0; begun by vf39 0x37FBE0): the eye's height by up to 0.05 m a step
   (faster over 30 steps, 0x36F6A0); the zoom by the right stick up and down, up to 5 % a step (18 steps), between the closest view
   (2 atan(0.35 / d): a 0.7 m stretch, at least 2 degrees, set once a camera) and 83.2 degrees; the check of the new view (0x380C50 ->
