@@ -131,7 +131,7 @@ F evaluation(const Record& r, F ps, F kgfm) {
     // The aerodynamics: 1 + the downforce coefficients' mean - the drag.
     F aero = (p.downforce_coef[0] + p.downforce_coef[1]) * kHalf;
     aero = aero - p.drag_coef;
-    if (body.speed_part_kind == 7) grip = grip * (body.speed_part_lift / p.weight + kOne);
+    if (body.speed_part_kind == 7) grip = grip * (body.speed_part_lift / p.weight + kOne); // (Japan's lift 0: grip x 1, as its 0x3F13A0)
     aero = aero + kOne;
     // The front paved tire's grip on the first surface (P +0x418), squared, the power squared and the
     // torque's root over the mass to the power 1.5.

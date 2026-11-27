@@ -2062,12 +2062,13 @@ public:
         return setup_.start_speed > 0 && setup_.start_kind != 3 && to_line() > 3 * setup_.start_speed;
     }
     // A race of A-spec points (0x39C4C8: the single race, the missions, Gran Turismo mode's events, with other cars), and the
-    // points taken in it (0x3C1220): the race's when the player leads at its end and the B-spec driver drove none of it.
+    // points taken in it (0x3C1220): the race's when the player leads at its end and the B-spec driver drove none of it
+    // (SCPS-17001 v1.05's 0x3BA528: whoever drove; its cars keep no B-spec distance).
     bool aspec_race() const {
         return world_->car_count() > 1 && (setup_.sequence == "single_race" || setup_.sequence == "mission" || setup_.sequence == "solo_event" || setup_.sequence == "championship");
     }
     int aspec_taken() const {
-        return aspec_race() && flow_.player_finished() && flow_.place(0) == 1 && bspec_distance_ <= 0 ? world_->aspec_points(setup_.sequence == "mission") : 0;
+        return aspec_race() && flow_.player_finished() && flow_.place(0) == 1 && (bspec_distance_ <= 0 || release_ == sim::Release::Japan) ? world_->aspec_points(setup_.sequence == "mission") : 0;
     }
 
     // A rolling start before the player's car takes the line: it is driven for him.

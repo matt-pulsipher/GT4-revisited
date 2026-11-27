@@ -1046,6 +1046,14 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   share of the gain, under the limit +0x14 the whole) and 1 after; v1.01 takes up to the gain off past the limit +0x20.
   `condition_factor` (both), `engine_condition`. Checked: `gt4r_diff <jp> showroom`'s 260 condition blocks equal to Japan's
   program (221 with v1.01's rule).
+- ✔ **No lift of the speed part of kind 7** (the converter 0x35BEC8, v1.01 0x361908; the attitude 0x365610, v1.01 0x36B0C8;
+  the car's figure 0x3F13A0, v1.01 0x3F86E8): Japan's converter sets P +0x1084 to the kinds' common term for kind 7 too
+  (v1.01: +0x50 x 98 N) and keeps the kind when the ride heights differ by more than 3 cm (v1.01: the kind and the lift
+  dropped); its attitude takes no lift under the body, and its figure no grip from it. `BodyExtra` (`body_extras`), the
+  converter, `pace_figure`, `rules::attitude` (`BodyGlobals::japan`). The parameter blocks of all 711 stock cars equal
+  Japan's program's in every word either way (`gt4r_diff <jp> params`: none has kind 7).
+- ✔ **The A-spec points** (0x3BA528, v1.01 0x3C1220): taken by the place alone (v1.01: none when the B-spec driver drove any
+  of the race, car +0x7B0, which Japan's cars do not keep). `ScreenRace::aspec_taken`.
 - Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
   splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
   not run alone, and does not write F +0x5C1; the skill (0x3EA6A8, 0x3EA8F0),
