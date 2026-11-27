@@ -331,8 +331,10 @@ public:
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half = -1);
     // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
     // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep (a split screen's half 60);
-    // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2).
-    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f);
+    // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2); `lines`: its height in the original's 640 x 448
+    // frame (58 in the race's one view, race + 0xE2EC), for the cars' level of detail.
+    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f,
+                       float lines = 58);
     // A VR headset's frame (app/race_vr.h): the scene collected once from `head` (its eye between the eyes, its lens the eyes'
     // height), then drawn for each eye into its canvas (a render target, `w` x `h`) from its own place and off-centre lens. The
     // reflections are looked up from `reflection_view`, the race camera's view, so turning the head does not turn them.
@@ -364,11 +366,17 @@ public:
     void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
 
     // The photo mode's lens on the next frames (none: the plain one): a shear of the projection (photo/picture.h), the depth of
-    // field, the cars in their nearest level of detail.
+    // field, the scenery's lists.
     struct Lens {
         float shear_x = 0, shear_y = 0;
         gt3r::render::DrawOptions::DepthOfField dof;
-        bool full_detail = true;
+        // The race object's list switch off (race +0xE334 = 0), as a photo's exposure (0x334730) and the race's photo finder
+        // (0x3C5430) draw: the scenery by slot 8's lists, or every model of a course without them (CourseScene::View::Photo),
+        // taken whole each picture. Off: the race view's lists (Photo Travel's finder, mPhotoViewFace::vf71, leaves it on).
+        bool photo_lists = true;
+        // The exposure's reflection map, twice the race's across (0x333808, from a photo's exposure 0x333E50 / 0x333A00); the
+        // finders keep the race's.
+        bool photo_map = true;
         const gt3r::render::ScreenBatch* vignette = nullptr;
     };
     void set_lens(std::optional<Lens> lens) { lens_ = std::move(lens); }

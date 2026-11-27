@@ -34,8 +34,10 @@ public:
     CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name, int section = -1);
     ~CourseScene();
 
-    // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7).
-    enum class View { Race, Mirror, Half, HalfMirror };
+    // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7); the race view with
+    // the race object's list switch off (race +0xE334 = 0: a photo's exposure 0x334730 and the race's photo finder 0x3C5430;
+    // RacePS2Base::vf110 0x3403B8 then draws by slot 8's lists, every model on a course without them: 0x397048).
+    enum class View { Race, Mirror, Half, HalfMirror, Photo };
     // Appends the draw items for a camera at `eye`, in the game's order: sky, backdrop (the depth
     // is reset after it), then the scenery's models named by the view's list for `eye` (with
     // `fade`: those drawn whole and, dithered, those coming or going).
@@ -67,6 +69,11 @@ public:
     }
     // The environment block's values (fog, lights, sun, shadows), as the shared engine reads them.
     const gt3r::race::SunParams& env() const { return env_; }
+    // The race view's far plane (m): Env0 +0x20, which the one-view draw puts on the screen every picture (0x33EB9C); every
+    // course of the discs has one (test course_far_planes_disc). Without it the screen keeps the far plane it starts with,
+    // 750 m (0x3FB430).
+    float far_clip() const { return env_.has_env && env_.far_clip > 0 ? env_.far_clip : kScreenFar; }
+    static constexpr float kScreenFar = 750;
     // The picture's scale (Env0 +0x38). The models' stored colors carry race::stored_color_scale of it.
     float color_scale() const { return color_scale_; }
     // The weight of the frame's second multiply, on the sky, the backdrop, the scenery and the road's reflection (Env0 +0x3C,
@@ -122,7 +129,7 @@ private:
         std::array<float, 4> plane{0, 1, 0, 0};
     };
     mutable std::vector<GadgetLight> gadget_light_;
-    std::array<gt3r::course::Visibility, 4> vis_; // slot 1's lists per View
+    std::array<gt3r::course::Visibility, 5> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's
     gt3r::race::Occluder occluder_;
     render::ItemLights lights_;

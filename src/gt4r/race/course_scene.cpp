@@ -187,6 +187,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     };
     vis_[size_t(View::Half)] = lists(course::kSlotWorldVis + 2, View::Race);
     vis_[size_t(View::HalfMirror)] = lists(course::kSlotWorldVis + 5, View::Mirror);
+    vis_[size_t(View::Photo)] = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotPhotoVis));
     env_vis_ = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotEnvironment + 1));
 
     // The road reflection: the scenery stored mirrored below the road (slot 9) and the road as its

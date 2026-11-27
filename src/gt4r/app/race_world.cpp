@@ -98,10 +98,11 @@ struct RaceWorld::Impl {
     std::unique_ptr<audio::RaceSound> sound;
     // What each of the screen's views keeps from picture to picture: the race's one view, or a split screen's two.
     struct ViewState {
-        gt3r::race::SceneryFade fade;
+        gt3r::race::SceneryFade fade; // the scenery models it draws (GT4's list, models coming and going dithered: docs/formats/course.md "Visibility lists")
         std::unique_ptr<render::View3D> view, mirror;
         bool env_ready = false;
         RVec env_at; // where the cars' reflection picture was last drawn from
+        int env_size = 0; // its faces' pixels across
         int frame = 0;
     };
     std::array<ViewState, 2> views;
@@ -1368,11 +1369,12 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const bool split = half >= 0, first_view = half <= 0;
     s.split = split, s.hidden = hidden;
     Impl::ViewState& v = m.views[first_view ? 0 : 1];
-    const race::CourseScene::View lists = split ? race::CourseScene::View::Half : race::CourseScene::View::Race;
+    const bool photo = lens_ && lens_->photo_lists;
+    const race::CourseScene::View lists = split ? race::CourseScene::View::Half : photo ? race::CourseScene::View::Photo : race::CourseScene::View::Race;
     const float dt = first_view ? kStep : 0.0f; // (what both views show steps once a picture)
     const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
     const gt3r::race::SunParams& env = course_->env();
-    const float far = (env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f) * (split ? 0.5f : 1.0f);
+    const float course_far = course_->far_clip(), far = course_far * (split ? 0.5f : 1.0f);
     s.far = far;
 
     m.pit_shown = int(focus);
@@ -1380,7 +1382,8 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         course_->upload_animations(cars);
         for (Impl::MovingDriver& d : m.drivers) d.posed = false;
     }
-    v.fade.update(lens_ && lens_->full_detail ? nullptr : course_->visible_nodes(pose.eye, lists), pose.eye, kStep);
+    // (A photo's pictures take their lists whole: a step of the fade's whole time.)
+    v.fade.update(course_->visible_nodes(pose.eye, lists), pose.eye, photo ? gt3r::race::SceneryFade::kSeconds : kStep);
     m.items.clear();
     // The view's axes in course space (the rows of the view matrix's turn).
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
@@ -1428,8 +1431,8 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         const size_t first = m.items.size();
-        m.add_drivers(m.items, i, cars[i], pose.eye, lens_ && lens_->full_detail ? nullptr : &lod_view);
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, dt, lens_ && lens_->full_detail ? nullptr : &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)), m.motion(i));
+        m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, dt, &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)), m.motion(i));
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
@@ -1438,7 +1441,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     }
     if (ghost_state_ && !cars_hidden_ && !car_visuals_.empty()) { // (the ghost: the player's car's model again)
         const size_t first = m.items.size();
-        car_visuals_[0]->add_items(m.items, *ghost_state_, pose.eye, 0.0f, lens_ && lens_->full_detail ? nullptr : &lod_view);
+        car_visuals_[0]->add_items(m.items, *ghost_state_, pose.eye, 0.0f, &lod_view);
         for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = ghost_alpha_;
         if (!m.lights.empty()) light_items(m.items, first, m.lights[0]);
     }
@@ -1448,7 +1451,9 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         gt3r::race::TyreSmoke::View sv;
         sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
         sv.proj_x = 1.0f / (std::tan(pose.fovy(aspect) * 0.5f) * std::max(aspect, 1e-3f));
-        sv.near_m = pose.near, sv.far_m = far;
+        // GT4's cull (0x3E7F08): a puff's centre deeper than 0.01 m and nearer than the course's far plane (Env0 +0x20, the
+        // whole of it in a split half too), under two screen widths across and on the screen.
+        sv.near_m = 0.01f, sv.far_m = course_far;
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 
@@ -1460,7 +1465,8 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
     // at a time. GT4's map camera (DynamicEnvmapCamera, 0x44EEA8 / 0x44E660) is the shared engine's: 0.8 m above the car, tilted
     // 15 degrees, three panels to 200 m warped at 0.9 into a sphere map, so the engine's lookup is GT4's; the map is 128 pixels
-    // across (race + 0xE330: 256 / 2) and 32 bits a pixel (its frame's format 0, PSMCT32), not GT3's 16: no 5-bit steps.
+    // across (race + 0xE330: 256 / 2), twice that for a photo's pictures (512: 0x333808, back to 256 after them, 0x333900), and
+    // 32 bits a pixel (its frame's format 0, PSMCT32), not GT3's 16: no 5-bit steps.
     {
         m.env_items.clear();
         const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
@@ -1476,10 +1482,11 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
             for (float& c : eo.clear) c = 0;
             eo.clear[3] = 1;
             // (Whole when it starts and after a jump: another car, a restart, a replay's start.)
-            const bool whole = !v.env_ready || render::length(at - v.env_at) > 20;
-            v.env_at = at;
+            const int size = lens_ && lens_->photo_map ? 256 : 128;
+            const bool whole = !v.env_ready || render::length(at - v.env_at) > 20 || size != v.env_size;
+            v.env_at = at, v.env_size = size;
             const unsigned faces = whole ? 0x3Fu : 1u << (v.frame % 6);
-            if (v.view->render_env_cube(at, m.env_items, eo, 128, faces)) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true, v.env_ready = true;
+            if (v.view->render_env_cube(at, m.env_items, eo, size, faces)) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true, v.env_ready = true;
         }
     }
     if (first_view) m.lamps.tick(kStep);
@@ -1715,15 +1722,22 @@ void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel
     m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 
-// The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,
-// slot 1 by slot 3's list, the cars). ❓ Its lens and depth are the shared engine's mirror's (the
-// in-car view's angle zoomed 1.3 times, 120 m), not read from this program.
-void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half, float zoom) {
+// The rear-view mirror (docs/formats/course.md "The race view's frame", step 9: the mirror's fog, its sky,
+// slot 1 by slot 3's list, the cars). Its lens and depth are the program's (RacePS2Base::vf120 0x341E50: the view's lens
+// zoomed `zoom`, the far plane 120 m, 60 m in a split half; docs/formats/camera.md "The mirror in the program").
+void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half, float zoom,
+                              float lines) {
     Impl& m = *impl_;
     if (!app_.gpu() || rect.w <= 0 || rect.h <= 0) return;
     Impl::ViewState& v = m.views[half <= 0 ? 0 : 1];
     if (!v.mirror) v.mirror = std::make_unique<render::View3D>(*app_.gpu());
     const float kDepth = half >= 0 ? 60 : 120;
+    const float t = std::tan(pose.fovy() * 0.5f) / zoom;
+    // The cars' levels of detail by the program's rule with the size factor recomputed for the mirror's projection (0x341E50
+    // calls 0x456918 after setting it: one unit's height at depth 1 in its `lines` x 10 / 7; 121.38 in the one view's).
+    race::CarVisual::LodView lod_view;
+    lod_view.forward = RVec{pose.view.at(2, 0), pose.view.at(2, 1), pose.view.at(2, 2)}; // (looking back)
+    lod_view.k = (lines * 0.5f) * (10.0f / 7.0f) / std::max(t, 1e-3f);
     m.mirror_items.clear();
     course_->add_items(m.mirror_items, pose.eye, half >= 0 ? race::CourseScene::View::HalfMirror : race::CourseScene::View::Mirror);
     race::scenery_multiply(m.mirror_items, 0, m.mirror_items.size(), course_->scenery_fix()); // (its own second multiply, step 9)
@@ -1733,21 +1747,20 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         const race::CarLight* light = i < m.lights.size() ? &m.lights[i] : nullptr;
         car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i], light);
         const size_t first = m.mirror_items.size();
-        m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
-        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f, nullptr, true, m.motion(i));
+        m.add_drivers(m.mirror_items, i, cars[i], pose.eye, &lod_view);
+        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f, &lod_view, true, m.motion(i));
         if (light) light_items(m.mirror_items, first, *light);
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
     }
     if (ghost_state_ && !car_visuals_.empty()) {
         const size_t first = m.mirror_items.size();
-        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f);
+        car_visuals_[0]->add_items(m.mirror_items, *ghost_state_, pose.eye, 0.0f, &lod_view);
         for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = ghost_alpha_;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;
-    o.draw_distance = kDepth;
-    o.far_clip = 0;
+    o.far_clip = kDepth; // (the program's far plane: the screen's depth, as the race view's)
     o.post_grade = grade_;
     const gt3r::race::SunParams& env = course_->env();
     if (env.has_env) {
@@ -1759,7 +1772,6 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     race::draw_at_picture_scale(o, course_->color_scale());
     race::light_at_picture_scale(m.mirror_items, 0, course_->color_scale());
     if (v.view && v.env_ready) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true;
-    const float t = std::tan(pose.fovy() * 0.5f) / zoom;
     const render::Mat4 proj = render::perspective(2.0f * std::atan(t), rect.w / rect.h, 0.1f, kDepth);
     const render::Mat4 view = render::scale({1, 1, -1}) * pose.view;
     SDL_SetRenderDrawColor(ui.renderer(), 0, 0, 0, 255);

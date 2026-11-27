@@ -288,7 +288,8 @@ one-view race (0x33EF6C ..) the rectangle is w = 260 W / 640, h = 58 H / 448 cen
 (`CameraManager::vf2` with no blend, `CameraOnBoard::vf13`) times Scale(k r, k, 1), r = (the rectangle's height / width) / (the
 display's: 448 / 640), so its pixels are as square as the view's; the view matrix is the same eye turned round by Scale(1, 1, -1).
 The far plane is 120 m (60 m in a split half, which also takes the course's half list, + 0x1C) and the size factor K (0x456918) is
-recomputed for it (121.38 in that state = 721.2 x 1.3 x 58 / 448). Then its fog (Env0 + 0xA90), its sky (slot 24, depth 1000), slot 1
+recomputed for it (121.38 in that state = 721.2 x 1.3 x 58 / 448): the mirror's cars take their level of detail by it (ours
+the same: `RaceWorld::render_mirror`'s `lines`, 58 or the split half's mirror height), cut at its far plane as the race view's. Then its fog (Env0 + 0xA90), its sky (slot 24, depth 1000), slot 1
 by its list with Env0 + 0xF38, the multiply by + 0x3C, the cars, and a one-pixel outline round the rectangle.
 So the program's lens is the in-car lens zoomed 1.3 (half-height tangent 0.4437 / 1.3 = 0.341), the same factor as the shared engine's.
 The screen's own matrix in that state is diag(1.7320508, 2.2537780, 1, 1) (the in-car view: tan 0.5774 across the frame's x, 0.4437 up).
