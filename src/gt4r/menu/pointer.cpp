@@ -46,6 +46,13 @@ bool taking(Runtime& rt) {
     return rt.fade_cover() <= 0 && rt.current_page() != nullptr;
 }
 
+// The focused bar whose popup is open: every key is its own until it closes.
+LiveWidget* open_bar(Runtime& rt) {
+    LiveWidget* page = rt.current_page();
+    const W focus = page ? page->focus.lock() : nullptr;
+    return focus && (focus->is("SliderBar") || focus->is("ScaleBar")) && popup_open(*focus) ? focus.get() : nullptr;
+}
+
 // The option menu of the page whose list is open: then it alone takes the pointer.
 LiveWidget* open_option_menu(const std::vector<FocusCandidate>& candidates) {
     for (const FocusCandidate& c : candidates)
@@ -224,10 +231,13 @@ PointerHit pointer_hit(Runtime& rt, const std::vector<DrawnBox>& drawn, float x,
 }
 
 bool pointer_hover(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y) {
-    if (!taking(rt)) return false;
+    if (!taking(rt) || open_bar(rt)) return false;
     const PointerHit h = pointer_hit(rt, drawn, x, y);
     switch (h.kind) {
     case PointerHit::Kind::Widget:
+        // (A scroll window's content follows the focus: it would move under a pointer that stays.)
+        for (const LiveWidget* up = h.widget->parent_widget(); up; up = up->parent_widget())
+            if (up->is("ScrollWindow") || up->is("ScrollBox")) return false;
         focus_on(rt, h.widget);
         return true;
     case PointerHit::Kind::SelectRow:
@@ -246,6 +256,8 @@ bool pointer_tap(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float
     LiveWidget* page = rt.current_page();
     const std::vector<FocusCandidate> candidates = focus_candidates(*page, false);
     const PointerHit h = hit_in(rt, drawn, candidates, x, y);
+    // Off a bar whose popup is open: Accept, keeping its value.
+    if (LiveWidget* bar = open_bar(rt); bar && (h.kind != PointerHit::Kind::Widget || h.widget.get() != bar)) return rt.key(Key::Accept), true;
     if (h.kind == PointerHit::Kind::None) {
         // Off an open option list: Cancel closes it. A page with nothing to choose ("press a button"): Accept.
         if (open_option_menu(candidates)) return rt.key(Key::Cancel), true;
@@ -280,7 +292,7 @@ bool pointer_tap(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float
 }
 
 bool pointer_wheel(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y, float notches) {
-    if (!taking(rt) || notches == 0) return false;
+    if (!taking(rt) || notches == 0 || open_bar(rt)) return false;
     const W box = list_at(rt, drawn, x, y, true);
     if (!box) return false;
     const int n = int(std::lround(notches));
