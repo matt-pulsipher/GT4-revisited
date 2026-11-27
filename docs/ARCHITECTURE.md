@@ -26,8 +26,7 @@ The app's name, "GT4 Revisited", is in `src/gt4r/app/app_identity.h`: the window
 app name (`org.gt4revisited.gt4r`), message boxes, `--version`. At start it gives the engine the
 name, version and log file stem (the engine's `base/app_identity.h`), which the engine uses for
 the log (`gt4r.log`, `gt4r.prev.log`, its first line), the text a host sends a player whose copy
-is too old, and the disc's volume in the log. An engine without that header (before its
-submodule carries it) still writes `gt3r.log` with a "GT3 Revisited" first line.
+is too old, and the disc's volume in the log.
 
 ## Principles (the shared engine's, kept here)
 
