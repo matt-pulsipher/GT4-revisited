@@ -127,8 +127,13 @@ public:
             for (const std::string& line : Ui::wrap(items_[size_t(std::clamp(sel_, 0, int(items_.size()) - 1))].help, 280)) ui.text(340, y, line, colors::kText), y += 12;
         y += 10;
         if (!developer_)
-            for (const std::string& line : Ui::wrap(app.touch_ui() ? "In the game, tap GT4R menu beside the title to come back here."
-                                                                : "In the game, press {Select} on the title, or click GT4R menu beside it, to come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
+            for (const std::string& line : Ui::wrap(app.disc()->info().game == Game::Prologue
+                                                        ? (app.touch_ui() ? "In the game, tap GT4R menu beside the title to come back here."
+                                                                          : "In the game, press {Select} on the title, or click GT4R menu beside it, to come back here.")
+                                                        : (app.touch_ui() ? "In the game, tap GT4R menu beside the title or Gran Turismo mode's map to come back here."
+                                                                          : "In the game, press {Select} on the title, or click GT4R menu beside it or beside Gran Turismo mode's map, to come back here."),
+                                                    280))
+                ui.text(340, y, line, colors::kDim), y += 12;
         y += 8;
         if (!d.problem.empty())
             for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;
