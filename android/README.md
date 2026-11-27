@@ -46,11 +46,12 @@ What the app is made of:
    is remembered.
 3. Bluetooth and USB controllers work at once. Without one, on-screen touch controls appear: a
    D-pad and face buttons over the game's menus, the driving controls in a race. They hide when
-   a controller is used. The app's own pages (the home screen, Settings) are tapped.
+   a controller is used. The app's own pages (the home screen, Settings) are tapped, and so are the
+   game's: a tap moves the focus to an item, a second tap chooses it; lists and the map follow a drag.
 
 The Android back button goes back (Triangle); in a race being driven it pauses (Start). The
 on-screen controls' settings (steering by drag, tilt or buttons, the pedals, opacity, size, a
-left-handed layout) and phone vibration are in **Settings › Controls**. Phones and tablets start
+left-handed layout, each control's place and size in **Layout**) and phone vibration are in **Settings › Controls**. Phones and tablets start
 with dynamic resolution on and 2x anti-aliasing (devices without 2x get 4x).
 
 The user data folder (settings, saves, mods, screenshots, `gt4r.log`) is the app's own storage;

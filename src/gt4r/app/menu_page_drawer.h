@@ -18,6 +18,7 @@
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/pointer.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/text_layout.h"
 #include "gt4r/menu/transform.h"
@@ -95,6 +96,9 @@ public:
     // to the screen's edges (the race's menus' shades and strips over a wide picture).
     float beside = 0;
     int widgets_drawn = 0;
+    // Where each widget was drawn (the page's 640 x 480, through its transforms, cut to its clip), in drawing order, when
+    // set: what the mouse and fingers are over (menu/pointer.h). The caller empties it.
+    std::vector<menu::DrawnBox>* boxes = nullptr;
     u64 menu_frame = 0; // the menus' picture count (Runtime::frame()): the flash faces' clock
     // A face whose content is not the layout's pictures and text (a movie, a 3D view): drawn by
     // this in its place in the page (`at`: the page's 640 x 480; `dst`: on the screen).
@@ -843,6 +847,7 @@ private:
             Affine was;
             ~Restore() { m = was; }
         } restore{m_, outer};
+        if (boxes) boxes->push_back({&live, menu::cut(clip, bounds(at)), live.weak_from_this()});
         std::vector<Rgba> colors = w.colors("color");
         if (colored && w.has("alpha")) {
             if (colors.empty()) colors.push_back(Rgba{});
