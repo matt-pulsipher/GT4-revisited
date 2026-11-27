@@ -139,6 +139,9 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
         o.reflection_by_draw = true;
         const u32 pick = u32(std::max(color, 0));
         o.paint = paints.empty() ? pick : paints[pick % paints.size()];
+        if (car::CarFile::is_car(*file))
+            if (std::optional<race::ModCarBody> b = race::mod_car_body(*db, code, true, 0, int(pick))) // (a mod car's body: mod_car_body.h)
+                o.mod_body = std::make_shared<const race::ModCarBody>(std::move(*b));
         render::GpuContext* gpu = app_.gpu();
         c->loading = std::async(std::launch::async, [gpu, f = std::move(*file), p = pat ? std::move(*pat) : Bytes{}, spec = c->spec, o, code]() {
             return race::CarVisual::make_unuploaded(*gpu, f, p, spec, o, code);

@@ -28,6 +28,7 @@ struct ModCarDef {
     std::optional<u32> price;
     std::optional<u8> category; // GENERIC_CAR +0x11: 0 normal, 1 racing, 2 tuning, 3 concept
     bool for_sale = true;       // [dealer] for_sale
+    bool fit_body = true;       // [car] fit_body: the borrowed body stretched to the car's dimensions
 
     // [body]
     std::optional<u16> weight_kg, length_mm, width_mm, height_mm, wheelbase_mm, front_track_mm, rear_track_mm, ride_height_mm;
@@ -61,7 +62,11 @@ struct ModCarDef {
     std::array<std::string, 3> model_time; // day, eve, night
     std::string wheel;
     float model_lower_mm = 0;
-    std::vector<std::pair<std::string, std::array<u8, 3>>> paints;
+    std::vector<std::pair<std::string, std::array<u8, 3>>> paints; // [paints] name = #RRGGBB, in order (a body of its own)
+    // The mod's folder (the one cars/ is in), with its slash: the files the car names are under it.
+    std::string folder() const;
+    // The body of its own for the menus (`menu`) or a race at a time of day (0 day, 1 evening, 2 night): its host path, "" none.
+    std::string model_path(bool menu, int time_of_day) const;
 
     // [dealer]
     std::string description, picture, thumb, logo;
@@ -145,6 +150,8 @@ private:
         u32 from = 0, to = 0;              // the donor's (or body car's) paint group and the car's
         float scale_box[4] = {1, 1, 1, 1}; // VARIATION +0x10 height, +0x14 width, +0x18 ahead, +0x1C behind
         std::optional<float> frontal_area; // +0x20, m2 (else the donor's x the width and height scales)
+        std::vector<std::array<u8, 3>> rgb; // [paints]: a row each in place of the body car's
+        std::map<std::string, std::vector<u32>> names; // their names' texts by VARIATION<language> table
     };
     struct Names {
         u32 car_id = 0;

@@ -3,6 +3,7 @@
 #include "base/log.h"
 #include "formats/course/course_model.h"
 #include "formats/model/brake_model.h"
+#include "formats/model/gltf.h"
 #include "gt4r/race/car_pose.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/picture_scale.h"
@@ -211,6 +212,44 @@ Mat4 basis(const render::Vec3& right, const render::Vec3& up, const render::Vec3
 
 } // namespace
 
+namespace {
+
+// A point of the body's frame where gt3r::fit_body puts the body's (the lamps, the camera places).
+render::Vec3 fit_point(const gt3r::BodyFit& f, render::Vec3 p) {
+    if (f.from_wheelbase <= 0 || f.to_wheelbase <= 0 || f.from_width <= 0 || f.from_height <= 0) return p;
+    const float hw0 = f.from_wheelbase * 0.0005f, hw1 = f.to_wheelbase * 0.0005f;
+    const float oh0 = f.from_length - f.from_wheelbase, oh1 = f.to_length - f.to_wheelbase;
+    const float kz = hw1 / hw0, ko = oh0 > 1 && oh1 > 1 ? oh1 / oh0 : kz;
+    const float a = std::fabs(p.z);
+    p.z = a <= hw0 ? p.z * kz : std::copysign(hw1 + (a - hw0) * ko, p.z);
+    p.x *= f.to_width / f.from_width, p.y *= f.to_height / f.from_height;
+    return p;
+}
+
+// A mod's body of its own in place of the model's (a glTF: origin on the ground, the car facing +z, metres; the loader turns
+// it to this frame), moved down to the body frame's height (the ride height above the road: car_pose.cpp body_matrix), drawn
+// at the nearest level for every distance. Its reflection passes weighed as the model's own paint's are: the course's
+// factors, as GT4 draws a car (weigh_reflections).
+scene::Model own_body(const ModCarBody& b, const CarSpec& spec, const std::string& name) {
+    gt3r::GlbOptions go;
+    go.paint = b.paint;
+    scene::Model m = gt3r::load_glb(*b.glb, go, name + "/own");
+    const float down = 0.5f * (spec.ride_height[0] + spec.ride_height[1]) + b.lower;
+    for (scene::Mesh& mesh : m.meshes) {
+        mesh.lod = 0;
+        for (scene::Vertex& v : mesh.vertices) v.pos[1] -= down;
+        for (scene::Primitive& p : mesh.primitives)
+            if (p.flags & scene::kEnvironmentMap) {
+                p.env_rows = true;
+                for (int i = 0; i < 3; ++i) p.env_c0[i] = 1, p.env_c1[i] = 0;
+            }
+    }
+    m.compute_bounds();
+    return m;
+}
+
+} // namespace
+
 CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const CarSpec& spec, const Options& opt, const std::string& name)
     : spec_(spec), ctx_(&ctx) {
     if (!car::CarFile::is_car(file) && is_gt3_car(file)) {
@@ -332,17 +371,33 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         }
         return m;
     };
+    const ModCarBody* mod = opt.mod_body.get();
+    std::optional<scene::Model> own;
+    if (mod && mod->glb) try {
+            own = own_body(*mod, spec, name);
+            moving_.reset(); // (the model's moving parts are its body's)
+        } catch (const std::exception& e) {
+            LOG_WARN("Car %s: its body of its own (%s): %s; the model's is drawn", name.c_str(), mod->glb_path.c_str(), e.what());
+        }
     for (int brake = 0; brake < 2; ++brake) {
         // With turned parts: the body without them, and each part alone.
         const int turned = moving_ && !moving_->parts.empty() ? -1 : -2;
-        scene::Model m = body_levels(brake, -1, turned);
+        scene::Model m = own ? *own : body_levels(brake, -1, turned);
+        if (!own && mod && mod->fit) gt3r::fit_body(m, *mod->fit);
         if (moving_ && !moving_->weights.empty()) {
             std::vector<scene::Model> ends;
-            for (u16 w : moving_->weights) ends.push_back(body_levels(brake, -1, turned, {{w, 1.0f}}));
+            for (u16 w : moving_->weights) {
+                ends.push_back(body_levels(brake, -1, turned, {{w, 1.0f}}));
+                if (mod && mod->fit) gt3r::fit_body(ends.back(), *mod->fit);
+            }
             split_band(m, ends, moving_->band[size_t(brake)]);
         }
         if (moving_)
-            for (Moving::Part& part : moving_->parts) to_gpu(part.gpu[size_t(brake)], body_levels(brake, -1, int(part.cell)));
+            for (Moving::Part& part : moving_->parts) {
+                scene::Model pm = body_levels(brake, -1, int(part.cell));
+                if (mod && mod->fit) gt3r::fit_body(pm, *mod->fit);
+                to_gpu(part.gpu[size_t(brake)], std::move(pm));
+            }
         if (m.meshes.empty()) throw FormatError("The car's body has nothing to draw.");
         if (brake == 0) {
             m.compute_bounds();
@@ -440,8 +495,11 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         gt3r::gtm1::Options o;
         o.node = int(k + 1);
         shadow_src_[k] = mdls::build_model(body, o, sc, name + "/shadow");
+        if (mod && mod->fit) gt3r::fit_body(shadow_src_[k], *mod->fit);
     }
     mounts_ = read_camera_mounts(file);
+    if (mod && mod->fit)
+        for (CameraMount& cm : mounts_) cm.pos = fit_point(*mod->fit, cm.pos);
     build_driver(file, opt, name);
     // The lamps (info +0x18, +0x20, +0x28: count and offset from the file's start; 0x70 bytes
     // each): a matrix whose rows are the lamp's axes and place (the third axis points into the
@@ -469,6 +527,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 r.exponent = int(std::min(rd32(file, o + 0x60), 32u));
                 r.fade = (rd16(file, o + 0x64) & 1) != 0;
                 if ((rd16(file, o + 0x64) & 2) && spoiler != 0) continue; // a lamp of the stock spoiler, which a wing replaces
+                if (mod && mod->fit) r.pos = fit_point(*mod->fit, r.pos), r.test = fit_point(*mod->fit, r.test);
                 lists[l]->push_back(r);
                 lamp_colors_[l].push_back(r.rgb);
                 lamp_powers_[l].push_back(float(rd32(file, o + 0x60)));

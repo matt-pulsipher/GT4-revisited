@@ -460,3 +460,84 @@ TEST(mod_car_electric_refused) {
     CHECK(st.size() == 1 && !st[0].loaded() && st[0].error.find("no electric drive") != std::string::npos);
     CHECK(!db::car_parts(sdb, "gt4r_test_ev_26"));
 }
+
+#include "gt4r/race/mod_car_body.h"
+#include "formats/model/gltf.h"
+#include "formats/model/gltf_export.h"
+
+// A mod car's body: the borrowed one stretched to its dimensions, or one of its own (a .glb) with its [paints].
+TEST(mod_car_body) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    // A body of its own: a triangle as the loader reads it.
+    gt3r::scene::Model tri;
+    gt3r::scene::Mesh mesh;
+    mesh.name = "body";
+    for (int i = 0; i < 3; ++i) {
+        gt3r::scene::Vertex v;
+        v.pos[0] = float(i == 1), v.pos[1] = float(i == 2), v.normal[2] = 1;
+        mesh.vertices.push_back(v);
+        mesh.indices.push_back(u32(i));
+    }
+    gt3r::scene::Primitive p;
+    p.index_count = 3;
+    mesh.primitives.push_back(p);
+    tri.meshes.push_back(mesh);
+    const Bytes glb = gt3r::export_glb(tri);
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r_test_mod_cars";
+    std::filesystem::create_directories(dir / "models");
+    gt3r::write_host_file((dir / "models" / "own.glb").string(), ByteSpan(glb));
+    CHECK(!gt3r::load_glb(glb).meshes.empty());
+
+    std::string list = write_car("gt4r_test_own_26.ini", "[car]\nlabel = gt4r_test_own_26\nname = Own `26\ndonor = _350z_03\n"
+                                                         "[model]\nfile = models/own.glb\nlower_mm = 10\n"
+                                                         "[paints]\nRed = #FF0000\nPearl White = #E7E5DF\nBlue = #0000FF\n");
+    list += write_car("gt4r_test_long_26.ini", "[car]\nlabel = gt4r_test_long_26\nname = Long `26\ndonor = impreza_wrx_sti_00\n"
+                                               "[body]\nlength_mm = 5200\nwheelbase_mm = 3100\nheight_mm = 1250\n");
+    list += write_car("gt4r_test_same_26.ini", "[car]\nlabel = gt4r_test_same_26\nname = Same `26\ndonor = impreza_wrx_sti_00\n"
+                                               "[body]\nlength_mm = 5200\n[paints]\nRed = #FF0000\n");
+    list += write_car("gt4r_test_unfit_26.ini", "[car]\nlabel = gt4r_test_unfit_26\nname = Unfit `26\ndonor = impreza_wrx_sti_00\nfit_body = no\n"
+                                                "[body]\nlength_mm = 5200\n");
+    db::SpecDb sdb = open_db(*disc, list);
+    for (const db::ModCarStatus& s : sdb.mod_cars().statuses()) CHECK(s.loaded());
+
+    // [paints]: the car's paint rows, their names and colors.
+    bool listed = false;
+    for (const db::CarEntry& e : sdb.cars())
+        if (e.label == "gt4r_test_own_26") listed = e.paints == 3;
+    CHECK(listed);
+    const db::Table* names = sdb.table("VARIATIONamerican");
+    const db::Strings* pool = sdb.strings("american_StrDB");
+    const db::Table* link = sdb.table("CAR_VARIATION_american");
+    const std::optional<u32> id = sdb.labels("GENERIC_CAR")->id("gt4r_test_own_26");
+    CHECK(names && pool && link && id);
+    if (names && pool && link && id) {
+        size_t first = 0;
+        const size_t n = names->rows(rd32(link->row(*id), 0), first);
+        CHECK(n == 3);
+        if (n == 3) {
+            const ByteSpan r = names->row_at(first + 1);
+            CHECK(rd32(r, 4) == 2 && pool->at(rd32(r, 0x0C)) == "Pearl White" && r[0x24] == 0xE7 && r[0x25] == 0xE5 && r[0x26] == 0xDF);
+        }
+    }
+    // The body: its own, in the paint chosen.
+    const std::optional<race::ModCarBody> own = race::mod_car_body(sdb, "gt4r_test_own_26", false, 0, 1);
+    CHECK(own && own->glb && *own->glb == glb && !own->fit && std::fabs(own->lower - 0.01f) < 1e-6f);
+    if (own && own->paint) CHECK(std::fabs((*own->paint)[0] - 0xE7 / 255.0f) < 1e-6f);
+    // Stretched: from the donor's dimensions to the car's.
+    const std::optional<race::ModCarBody> longer = race::mod_car_body(sdb, "gt4r_test_long_26", false, 0, 0);
+    CHECK(longer && !longer->glb && longer->fit);
+    if (longer && longer->fit) {
+        CHECK(longer->fit->to_length == 5200 && longer->fit->to_wheelbase == 3100 && longer->fit->to_height == 1250);
+        CHECK(std::fabs(longer->fit->to_width - longer->fit->from_width) < 1); // (the width the donor's)
+        CHECK(longer->fit->from_length > 4000 && longer->fit->from_length < 4800);
+    }
+    CHECK(!race::mod_car_body(sdb, "gt4r_test_unfit_26", false, 0, 0));
+    CHECK(!race::mod_car_body(sdb, "impreza_wrx_sti_00", false, 0, 0));
+    // [paints] without a body of its own: warned, the body car's paints kept.
+    bool warned = false;
+    for (const db::ModCarStatus& s : sdb.mod_cars().statuses())
+        if (s.label == "gt4r_test_same_26")
+            for (const std::string& w : s.warnings) warned = warned || w.find("[paints]") != std::string::npos;
+    CHECK(warned);
+}

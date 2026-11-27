@@ -110,6 +110,24 @@ std::optional<u32> table_id_of(std::string_view name) {
 
 } // namespace
 
+std::string ModCarDef::folder() const {
+    std::string root = file.substr(0, file.find_last_of('/') + 1);
+    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    return root;
+}
+
+std::string ModCarDef::model_path(bool menu, int time_of_day) const {
+    // The menus: menu, else file, else the race's; a race: its time of day's, else race, else file, else another time's, else
+    // menu.
+    std::vector<const std::string*> order;
+    const int t = std::clamp(time_of_day, 0, 2);
+    if (menu) order = {&model_menu, &model_file, &model_race, &model_time[0], &model_time[1], &model_time[2]};
+    else order = {&model_time[size_t(t)], &model_race, &model_file, &model_time[0], &model_time[1], &model_time[2], &model_menu};
+    for (const std::string* p : order)
+        if (!p->empty()) return (*p)[0] == '/' || p->find("..") != std::string::npos ? std::string() : folder() + *p; // (inside the mod)
+    return {};
+}
+
 std::optional<ModCarDef::TireSize> parse_tire_size(std::string_view s) {
     // "255/35R21", "255/35 R21", "255/35ZR21", "205/60R15.5"
     std::string t;
@@ -192,8 +210,10 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
                     else if (c == "concept") d.category = 3;
                     else if (c == "rally") warn("[car] category: this game has no rally category; the donor's is kept");
                     else return fail("[car] category is normal, racing, tuning or concept, not '" + v + "'");
-                } else if (key == "fit_body" || key == "driver_side") {
-                    // (the body's: read with [model])
+                } else if (key == "fit_body") {
+                    d.fit_body = yes(v);
+                } else if (key == "driver_side") {
+                    // (the other game's VR seat: this game's cockpits say)
                 } else known = false;
             } else if (sn == "body") {
                 if (key == "weight_kg") set_u16(d.weight_kg);
@@ -310,6 +330,13 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
             if (!known) warn("[" + sec.name + "] unknown key '" + key_raw + "'");
         }
     }
+    if (!d.paints.empty() && d.model_file.empty() && d.model_menu.empty() && d.model_race.empty() && d.model_time[0].empty() &&
+        d.model_time[1].empty() && d.model_time[2].empty()) {
+        warn("[paints]: only a body of the mod's own ([model]) takes them; the body car's paints are kept");
+        d.paints.clear();
+    }
+    if (d.paints.size() > 64) return fail("[paints]: at most 64");
+    if (!d.wheel.empty()) warn("[model] wheel: not in this game yet; the body car's wheels are kept");
     if (!valid_label(d.label)) return fail("[car] label is 1 to 40 characters of a-z, 0-9 and _");
     if (d.name.empty()) return fail("[car] name is needed");
     if (d.donor.empty()) return fail("[car] donor is needed (a car of the disc its other parts are taken from)");
@@ -835,6 +862,7 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     // The names (CAR_NAME_<language>: four string numbers of <language>_StrDB, +0x00 the name, +0x08 the short one) and the
     // paints (CAR_VARIATION_<language>: {u32 the car's rows of VARIATION<language>, u32 42}).
     const u32 group = new_id(d.label, "VARIATION", 0);
+    std::map<std::string, std::vector<u32>> paint_names; // [paints]' names in each VARIATION<language>'s pool
     const std::string group_label = label_of("VARIATIONamerican", body_group);
     for (const std::string& t : db.table_names()) {
         if (t.rfind("CAR_NAME_", 0) == 0) {
@@ -851,9 +879,12 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
             out.labels_[t].emplace_back(d.label, car_id);
         } else if (t.rfind("VARIATION", 0) == 0 && !group_label.empty()) {
             out.labels_[t].emplace_back(group_label, group); // (the same label: the model's files are named by it)
+            for (const auto& [name, rgb] : d.paints) paint_names[t].push_back(pool_index(t.substr(9) + "_StrDB", name));
         }
     }
     ModCars::PaintGroup pg;
+    for (const auto& [name, rgb] : d.paints) pg.rgb.push_back(rgb);
+    pg.names = std::move(paint_names);
     pg.from = body_group, pg.to = group;
     const float scale_len = d_len ? float(len) / float(d_len) : 1;
     pg.scale_box[0] = d_height ? float(height) / float(d_height) : 1;
@@ -1056,11 +1087,21 @@ void ModCars::extend(const std::string& table, Table& t) const {
         for (const PaintGroup& g : paint_groups_) {
             size_t first = 0;
             const size_t n = t.rows(g.from, first);
-            for (size_t i = 0; i < n; ++i) {
-                const ByteSpan r = t.row_at(first + i);
+            // [paints]: a row each (the body car's first as the pattern: +0x04 the paint's number + 1, +0x0C its name, +0x24 its
+            // color, one color), else the body car's rows.
+            const auto names = g.names.find(table);
+            const size_t count = !g.rgb.empty() && n ? g.rgb.size() : n;
+            for (size_t i = 0; i < count; ++i) {
+                const ByteSpan r = t.row_at(first + (g.rgb.empty() ? i : 0));
                 Bytes b(r.begin(), r.end());
                 for (int k = 0; k < 4; ++k) putf(b, 0x10 + 4 * size_t(k), std::round(getf(b, 0x10 + 4 * size_t(k)) * g.scale_box[k]));
                 if (g.frontal_area) putf(b, 0x20, *g.frontal_area);
+                if (!g.rgb.empty()) {
+                    put32(b, 0x04, u32(i + 1));
+                    if (names != g.names.end() && i < names->second.size()) put32(b, 0x0C, names->second[i]);
+                    for (size_t k = 0x24; k < 0x34 && k < b.size(); ++k) b[k] = 0;
+                    put8(b, 0x24, g.rgb[i][0]), put8(b, 0x25, g.rgb[i][1]), put8(b, 0x26, g.rgb[i][2]), put8(b, 0x27, 1);
+                }
                 add.emplace_back(g.to, std::move(b));
             }
         }
@@ -1091,8 +1132,7 @@ std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
     const ModCarDef* d = def(label);
     if (!d) return std::nullopt;
     // The mod's files are named from its folder (the one cars/ is in).
-    std::string root = d->file.substr(0, d->file.find_last_of('/') + 1);
-    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+    const std::string root = d->folder();
     auto own = [&](const std::string& p) { return p.empty() ? std::string() : p[0] == '/' ? p : root + p; };
     const std::string body = d->body.empty() ? d->donor : d->body;
     const std::string stand_in = (pack ? "image/piece/" : "piece/") + folder + "/" + body + std::string(ext);
