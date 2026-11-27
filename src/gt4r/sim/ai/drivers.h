@@ -345,6 +345,8 @@ public:
         bool on = false;
     };
     void set_band(const Band& b) { band_ = b; }
+    // The race prepared (the conductor's virtual 27): the spreads' switches set, as the first step sets them (SCPS-17001 v1.05).
+    void prepared() { spread_live_ = true; }
     const Band& band() const { return band_; }
 
     // For checks against another race's drivers: a driver's plan and traffic state set as that race's driver object
@@ -440,6 +442,7 @@ private:
     void prologue_decide(Driver& d, bool plans_only, race::CarInput& in);
     void suggest(Driver& d);
     Tables tables_;
+    bool spread_live_ = true; // the spreads' switches set (SCPS-17001 v1.05: by the race's preparation, after the set-up)
     CourseLines lines_;
     Pace pace_;
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)

@@ -26,7 +26,7 @@ constexpr u32 kGenerator = 0x874D50; // the program's generator's state
 constexpr u32 kArcadeTables = 0x623800; // the tables the program opens when first asked (0x447A78): ARCADEINFO_NORMAL, _TUNED
 constexpr u32 kTableCtor = 0x448F18, kTableOpen = 0x4490F8;
 constexpr u32 kEntry = 0x44;
-constexpr u32 kConditionFactor = 0x350868, kConditionLimits = 0x620320; // (limits, condition block)          // a candidate: its label (0x40 bytes), its evaluation
+constexpr Pa kConditionFactor{0x350868}, kConditionLimits{0x620320}; // (limits, condition block)          // a candidate: its label (0x40 bytes), its evaluation
 
 double relative(float a, float b) {
     const double d = std::fabs(double(a) - double(b)), m = std::fmax(std::fabs(double(a)), std::fabs(double(b)));

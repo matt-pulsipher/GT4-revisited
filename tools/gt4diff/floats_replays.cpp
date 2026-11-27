@@ -147,13 +147,14 @@ struct Beside {
                 const u32 D = sim::layout::kDriver, F0 = kF;
                 const sim::ai::Field::Probe p = field->probe_get(size_t(i));
                 std::string out;
+                const bool all = std::getenv("GT4R_FLOATS_ALLCAR") && std::atoi(std::getenv("GT4R_FLOATS_ALLCAR")) == i; // (every word, equal or not)
                 auto bits = [&](const char* what, u32 a, u32 b) {
                     char t[96];
-                    if (a != b) std::snprintf(t, sizeof t, " %s %08X %08X (%g %g)", what, a, b, double(gt3r::ee::F::raw(a).host()), double(gt3r::ee::F::raw(b).host())), out += t;
+                    if (a != b || all) std::snprintf(t, sizeof t, " %s %08X %08X (%g %g)", what, a, b, double(gt3r::ee::F::raw(a).host()), double(gt3r::ee::F::raw(b).host())), out += t;
                 };
                 auto num = [&](const char* what, int a, int b) {
                     char t[64];
-                    if (a != b) std::snprintf(t, sizeof t, " %s %d %d", what, a, b), out += t;
+                    if (a != b || all) std::snprintf(t, sizeof t, " %s %d %d", what, a, b), out += t;
                 };
                 const bool pad = w8(i, F0 + 0x466) == 0 && w8(i, F0 + 0x467) == 0;
                 if (pad && !std::getenv("GT4R_FLOATS_SHADOW")) continue; // (a pad car's driver only plans)

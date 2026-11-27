@@ -40,6 +40,7 @@ Tables tables(const Program& program, const ex::Statics&) {
     {
         const ConditionTable L = condition_table(program);
         for (size_t i = 0; i < 9; ++i) t.condition[i] = L.l[i];
+        t.condition_japan = L.japan;
     }
     t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
@@ -63,7 +64,7 @@ void step_params(const Spec& s, Record& r) {
 }
 
 void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip) {
-    engine_torques(c, x.drive, t.condition);
+    engine_torques(c, x.drive, t.condition, t.condition_japan);
     // F +0x5BC (0x357700): the resistances against the weight's part along the ground's slope
     x.aids.road_load = -((c.rolling + c.drag) + (-(((c.ground_fwd.z * c.p.mass) * F::raw(0x411CCCCC)))));
     const bool wear = wear_grip(c, x.wear, x.tires, l, t.wear);

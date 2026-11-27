@@ -734,7 +734,8 @@ void base_grips(const Program& program, ParamBlock& p, u32 axles = 3) {
 
 // ---- the top speed (0x360780 with 0x34F3F8, 0x360520, 0x3F3278, 0x3F86E8) ----
 
-// 0x350868: the engine's torque factor of its condition (1 for a fresh engine).
+// 0x350868: the engine's torque factor of its condition (1 for a fresh engine). SCPS-17001 v1.05's (0x34AFD0): the oil's
+// gain while it is fresh only, no loss once it is old.
 F condition_factor(const ConditionTable& L, const u8* cond) {
     if (cond == nullptr || cond[0x14] != 0) return kOne;
     F w4, w8;
@@ -751,7 +752,7 @@ F condition_factor(const ConditionTable& L, const u8* cond) {
     F b = kOne;
     if (x < L.l[5]) b = L.l[6] + b;
     else if (x < kZero) b = ((x * L.l[6]) / L.l[5]) + b;
-    else if (L.l[8] < x) {
+    else if (!L.japan && L.l[8] < x) {
         F t = (x - L.l[8]) / (L.l[7] - L.l[8]);
         if (b < t) t = b;
         b = b - L.l[6] * t;
@@ -887,7 +888,7 @@ F pace_figure(const Program& program, const ParamBlock& p, const EnginePeak& e) 
     F lift = down - p.f(0x1068);
     lift = lift + kOne;
     F grip = (p.f(0xFD0) + p.f(0xFD4)) * kHalf;
-    if (p.b(0x1077) == 7) grip = grip * ((p.f(0x1084) / p.f(0x103C)) + kOne);
+    if (p.b(0x1077) == 7 && program.release() != Release::Japan) grip = grip * ((p.f(0x1084) / p.f(0x103C)) + kOne); // (none in SCPS-17001 v1.05's 0x3F13A0)
     F g0 = p.f(0x418);
     F m = p.f(0x48);
     const F root_m = gt3r::ee::sqrt(m);
@@ -954,6 +955,7 @@ ConditionTable condition_table(const Program& program) {
     c.l[5] = (-big(0xD5)) * kHalf;
     c.l[7] = big(0xD7);
     c.l[8] = big(0xD8);
+    c.japan = program.known() && program.release() == Release::Japan;
     return c;
 }
 
@@ -1102,7 +1104,7 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
         p.set_f(0x107C, int_to_f(s.b(0x4E)) * kKmh);
         p.set_f(0x1080, s.b(0x4F) ? F::raw(0x41200000) / int_to_f(s.b(0x4F)) : F::raw(0x43960000));
         p.set_f(0x1084, q * (int_to_f(s.b(0x50)) * kCenti));
-        if (p.b(0x1077) == 7) p.set_f(0x1084, int_to_f(s.b(0x50)) * F::raw(0x42C3FFFF));
+        if (p.b(0x1077) == 7 && program.release() != Release::Japan) p.set_f(0x1084, int_to_f(s.b(0x50)) * F::raw(0x42C3FFFF)); // (SCPS-17001 v1.05: no kind 7 of its own)
     } else p.set_w(0x1078, 0), p.set_w(0x107C, 0), p.set_w(0x1080, 0), p.set_w(0x1084, 0);
     p.set_f(0x1068, p.f(0x1068) + (p.f(0x106C) + p.f(0x1070)) * (int_to_f(program.b(Program::kStatic + 0x0A)) * kMilli));
     // The brakes: each axle's torque (x 98 N m), the brake controller's two values, the ABS's terms.
@@ -1203,7 +1205,7 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
         const s16 mm = s.sh(0x9A + 2 * a);
         p.set_f(0x40 + 4 * a, mm != 0 ? int_to_f(mm) * kMilli : int_to_f(s.b(0x8A + a)) * kMilli);
     }
-    if (p.b(0x1077) == 7) {
+    if (p.b(0x1077) == 7 && program.release() != Release::Japan) {
         F d = p.f(0x40) - p.f(0x44);
         if (d < kZero) d = -d;
         if (F::raw(0x3CF5C28F) < d) p.set_f(0x1084, kZero), p.set_b(0x1077, 0);

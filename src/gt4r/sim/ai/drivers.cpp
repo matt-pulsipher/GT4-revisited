@@ -179,6 +179,8 @@ Field::Field(const Cars& cars, const course::AiData& data, const Program& progra
 void Field::init(const course::AiData& data, const Program& program, std::span<const size_t> computer) {
     const Cars& session = *session_;
     if (!pace_.random_spread) tables_.tuning.corner_spread = 0, tables_.tuning.brake_spread = 0;
+    // (SCPS-17001 v1.05: the switches are set by the race's preparation, after every car is set up: off for the set-up's plans)
+    spread_live_ = !tables_.japan;
     sets_ = data.sets;
     if (program.known())
         for (u32 m = 0; m < 24; ++m) soft_[m] = program.w(Program::kSoft + 4 * m);
@@ -369,7 +371,9 @@ void Field::command(size_t car, const BSpecCommand& c) {
     }
     if (c.overtake >= 0 && bool(c.overtake) != d.overtake) {
         d.overtake = c.overtake != 0;
-        if (!d.overtake && d.kind == 0 && (d.line == 1 || d.line == 2)) request_line(d, CourseLines::kMain, false);
+        // (0x3F19E0 command 5: passing turned off sends a driver on a passing line back to the main line; SCPS-17001 v1.05's
+        // 0x3EA7E8 keeps the line)
+        if (!d.overtake && !tables_.japan && d.kind == 0 && (d.line == 1 || d.line == 2)) request_line(d, CourseLines::kMain, false);
     }
 }
 
@@ -564,7 +568,7 @@ F Field::corner_speed(const Driver& d, int i) {
     }
     F m = d.control == 0 && !japan ? kOne : d.corner_mult;
     const Tuning& t = tables_.tuning;
-    if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
+    if (t.corner_spread && spread_live_ && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
     F scale = d.p.corner_scale * m;
     if (d.control == 1 && d.kind == 0) scale = scale * d.pace_corner;
     if (const auto& zc = near_[d.car].zone; t.alongside_slow && (zc[kFrontLeft] || zc[kLeft] || zc[kRight] || zc[kFrontRight]))
@@ -670,7 +674,7 @@ F Field::braking(Driver& d) {
         F kb = d.p.brake;
         F m = d.control == 0 ? kOne : d.brake_mult;
         const Tuning& t = tables_.tuning;
-        if (t.brake_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.brake_lo.at(m), t.brake_hi.at(m));
+        if (t.brake_spread && spread_live_ && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.brake_lo.at(m), t.brake_hi.at(m));
         kb = kb * m;
         if (d.control == 1 && d.kind == 0) kb = kb * d.pace_brake;
         const LinePoint& q = pts[size_t(bp)];
@@ -976,12 +980,26 @@ void Field::finish(size_t car, int mode, bool player_car) {
         } else d.kind = 7;
         return;
     }
+    if (tables_.japan) {
+        // SCPS-17001 v1.05 (0x33FAA8, 0x33FCC8, 0x33FC48, 0x33FD48): no change for control source 4; the main line asked
+        // for from any line, blended, and the kind set only when the change is made (on the drag strip, modes 1 and 3 keep
+        // the lane).
+        if (d.control == 4) return;
+        const bool driven = (d.kind >= 2 && d.kind <= 4) || (d.control == 0 && d.kind == 0);
+        if (mode == 0) {
+            if (!driven || request_line(d, CourseLines::kMain, false)) d.kind = 1;
+        } else if (mode == 1 || mode == 3) {
+            if (pace_.strip || request_line(d, CourseLines::kMain, false)) set_kind(d, mode == 3 ? 5 : 6);
+        } else set_kind(d, 7);
+        return;
+    }
     if (mode == 0) {
         // 0x3452F0: the computer drives on (a pad car of kind 0 too), off the passing line 7.
         if (d.line == 7) request_line(d, CourseLines::kMain, true);
         d.kind = 1;
     } else if (mode == 1 || mode == 3) {
-        if (d.line == 7) request_line(d, CourseLines::kMain, true);
+        // 0x345520 / 0x3454A8: off the passing line 7 but on the drag strip (K +0xCBE1).
+        if (d.line == 7 && !pace_.strip) request_line(d, CourseLines::kMain, true);
         set_kind(d, mode == 3 ? 5 : 6);
     } else set_kind(d, 7);
 }
@@ -1060,8 +1078,11 @@ void Field::set_shadow(size_t car) {
     if (!d) return;
     d->control = 0;
     setup(*d); // (its parameters without a computer driver's spread: 0x467148 runs for control source 2 only)
-    const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[0]]; // (0x3F1890: the player's starting level, whoever drives)
-    d->pace = tables_.pace_start[0], d->overtake = false, d->pace_brake = l.brake, d->pace_corner = l.corner, d->shift = l.shift;
+    // 0x3F1890: the player's starting level, whoever drives, no passing. Japan's (0x3EA6A8) gives it only to control source 1:
+    // a pad car's driver takes the computer drivers' level, passing allowed but in a run alone.
+    const int k = tables_.japan ? 1 : 0;
+    const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[size_t(k)]];
+    d->pace = tables_.pace_start[size_t(k)], d->overtake = tables_.japan && !pace_.solo, d->pace_brake = l.brake, d->pace_corner = l.corner, d->shift = l.shift;
 }
 
 Field::Suggestion Field::suggestion(size_t car) const {
@@ -1114,6 +1135,8 @@ bool Field::hold_rolling(size_t car) {
     const bool driven = (d->kind >= 2 && d->kind <= 4) || (d->control == 0 && d->kind == 0);
     if (prologue_) { // (0x3C99E4: a pad's car; 0x3B3FD0: onto the main line, blended)
         if (d->control != 0) return false;
+        if (driven && !request_line(*d, CourseLines::kMain, false)) return false;
+    } else if (tables_.japan) { // (SCPS-17001 v1.05's 0x33FAA8: onto the main line from any line, blended; held only when it is made)
         if (driven && !request_line(*d, CourseLines::kMain, false)) return false;
     } else if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
     d->kind = 1;
@@ -1951,6 +1974,7 @@ void Field::blip(Driver& d, u32 count) {
 }
 
 void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
+    spread_live_ = true; // (the race prepared: the spreads' switches set)
     begin_step(false);
     hold_count_ = count;
     // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
