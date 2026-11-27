@@ -5,6 +5,7 @@
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/save_editor.h"
 
+#include "base/config.h"
 #include "base/log.h"
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/sim/car_spec.h"
@@ -82,13 +83,15 @@ bool drawable_text(const std::string& s) {
     return true;
 }
 
-// A name's letters of the Japanese character set that have a Latin form: the middle dot (U+30FB, "V・spec") as the Latin one,
-// full-width letters and the ideographic space as the plain ones.
+// A name's letters of the Japanese character set that have a Latin form: the middle dots (U+30FB, U+FF65: "V・spec") as the Latin
+// one, the stars ("FALKEN☆GT-R") as an asterisk, full-width letters and the ideographic space as the plain ones.
 std::string latin(const std::string& s) {
     std::string out;
     for (size_t i = 0; i < s.size(); ++i) {
         const u8 c = u8(s[i]);
         if (c == 0xE3 && i + 2 < s.size() && u8(s[i + 1]) == 0x83 && u8(s[i + 2]) == 0xBB) out += "\xC2\xB7", i += 2;
+        else if (c == 0xEF && i + 2 < s.size() && u8(s[i + 1]) == 0xBD && u8(s[i + 2]) == 0xA5) out += "\xC2\xB7", i += 2; // (U+FF65)
+        else if (c == 0xE2 && i + 2 < s.size() && u8(s[i + 1]) == 0x98 && (u8(s[i + 2]) == 0x85 || u8(s[i + 2]) == 0x86)) out += '*', i += 2; // (the stars)
         else if (c == 0xE3 && i + 2 < s.size() && u8(s[i + 1]) == 0x80 && u8(s[i + 2]) == 0x80) out += ' ', i += 2;
         else if (c == 0xEF && i + 2 < s.size() && (u8(s[i + 1]) == 0xBC || u8(s[i + 1]) == 0xBD)) {
             const u32 cp = 0xF000 | u32(u8(s[i + 1]) & 0x3F) << 6 | (u8(s[i + 2]) & 0x3F);
@@ -218,7 +221,7 @@ void CarDatabase::read_cars() {
     std::map<int, std::vector<size_t>> by_tuner;
     for (const auto& [i, t] : tuner) by_tuner[t].push_back(i);
     for (const auto& [t, list] : by_tuner) {
-        if (!cars_[list[0]].maker.empty()) continue;
+        if (!cars_[list[0]].maker.empty() || prologue_) continue; // (Prologue's database names no makers)
         std::string common;
         if (list.size() > 1) {
             common = cars_[list[0]].name;
@@ -311,7 +314,7 @@ std::vector<CarDatabase::Row> CarDatabase::specs(const std::string& label) {
             out.push_back({"Gearbox", fmt("%d-speed, final %.3f", g->gears, g->final_drive / 1000.0)});
             std::string ratios;
             for (int i = 0; i < g->gears && i < 11; ++i) ratios += fmt(i ? " %.3f" : "%.3f", g->ratio[size_t(i)] / 1000.0);
-            out.push_back({"Ratios", ratios});
+            if (g->ratio[0]) out.push_back({"Ratios", ratios}); // (a gearbox whose ratios are made from its slider keeps none)
         }
     }
     auto tire = [&](db::PartTable t) -> std::string {
@@ -443,8 +446,22 @@ std::vector<CarDatabase::Event> CarDatabase::events(const std::string& label) {
         for (const SaveEditor::Event& e : list.events) {
             if (e.races.empty()) continue;
             Event ev;
-            ev.hall = drawable(list.title) ? list.title : std::string();
-            ev.name = drawable(e.name) ? e.name : e.code;
+            // (A disc whose words the app cannot draw: the hall's place in the lists and the event's code as words,
+            // "jprjp_70_0000" -> "Jp 70".)
+            ev.hall = drawable(list.title) ? list.title : "Event hall " + std::to_string(&list - ed.events().data() + 1);
+            if (drawable(e.name)) ev.name = e.name;
+            else {
+                std::string key = e.code.size() > 5 ? e.code.substr(0, e.code.size() - 5) : e.code;
+                if (key.size() > 3 && key[2] == '_') key = key.substr(3);
+                else if (key.size() > 5 && key.compare(2, 1, "r") == 0) key = key.substr(5);
+                ev.name.clear();
+                for (std::string_view w : gt3r::split(key, '_')) { // ("ff" -> "FF", "sunday" -> "Sunday")
+                    std::string word(w);
+                    for (size_t i = 0; i < word.size(); ++i)
+                        if (word.size() <= 3 || i == 0) word[i] = char(std::toupper(static_cast<unsigned char>(word[i])));
+                    ev.name += (ev.name.empty() ? "" : " ") + word;
+                }
+            }
             ev.code = e.code, ev.level = drawable(e.level) ? e.level : std::string();
             // The event hall's check (GTmodeProject's onInitialize of the event's page): the regulation of its first race.
             const std::string& race_code = e.races[0].label;

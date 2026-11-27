@@ -38,7 +38,10 @@ menu::RuntimeConfig config(Disc& d) {
     c.program_image = [&d] { return d.program_image(); };
     c.region = d.info().region, c.product = d.info().product;
     const std::vector<std::string> languages = menu::project_languages(c.list, d.info().game == Game::Prologue ? "prologue" : "boot");
-    if (!languages.empty()) c.language = languages[0];
+    if (!languages.empty()) {
+        c.language = languages[0];
+        if (std::find(languages.begin(), languages.end(), d.info().language) != languages.end()) c.language = d.info().language;
+    }
     return c;
 }
 
@@ -150,4 +153,32 @@ TEST(disc_car_database_prologue) {
     }
     CHECK(curves >= cdb.cars().size() / 2);
     CHECK(cdb.upgrades(cdb.cars()[0].label).empty() && cdb.events(cdb.cars()[0].label).empty());
+}
+
+// Every Gran Turismo 4 release: the names, makers and events in words the app's font draws (the Japanese disc's own are kana:
+// its American car names, the makers by their cars' names, our words for the rest).
+TEST(disc_car_database_each_release) {
+    size_t seen = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game == Game::Prologue) continue;
+        ++seen;
+        menu::CarDatabase cdb(reader(*d), config(*d));
+        CHECK(cdb.error().empty());
+        CHECK(cdb.cars().size() >= 700);
+        for (const menu::CarDatabase::Car& c : cdb.cars()) {
+            if (!menu::CarDatabase::drawable(c.name) || !menu::CarDatabase::drawable(c.maker)) std::printf("  not drawn: %s [%s] [%s]\n", c.label.c_str(), c.name.c_str(), c.maker.c_str());
+            CHECK(menu::CarDatabase::drawable(c.name) && menu::CarDatabase::drawable(c.maker));
+        }
+        const std::string label = cdb.cars()[size_t(cdb.cars().size() / 2)].label;
+        const auto events = cdb.events(label);
+        CHECK(events.size() > 100);
+        for (const menu::CarDatabase::Event& e : events) {
+            CHECK(menu::CarDatabase::drawable(e.name) && menu::CarDatabase::drawable(e.hall));
+            for (const menu::CarDatabase::Row& r : e.rules) CHECK(menu::CarDatabase::drawable(r.label) && menu::CarDatabase::drawable(r.value));
+        }
+        for (const menu::CarDatabase::PartKind& k : cdb.upgrades(label))
+            for (const menu::CarDatabase::Part& p : k.parts) CHECK(menu::CarDatabase::drawable(p.name));
+        std::printf("  %s: %zu cars, %zu events\n", d->info().product.c_str(), cdb.cars().size(), events.size());
+    }
+    if (!seen) SKIP("no Gran Turismo 4 disc");
 }

@@ -312,7 +312,7 @@ private:
             case Sort::Power: right = c.power ? std::to_string(c.power) + cdb_->power_unit() : "--"; break;
             case Sort::Price: right = c.for_sale ? CarDatabase::credits(c.price) : "not sold"; break;
             case Sort::Year: right = c.year > 0 ? std::to_string(c.year) : "--"; break;
-            default: right = c.maker; break;
+            default: right = !c.maker.empty() ? c.maker : c.power ? std::to_string(c.power) + cdb_->power_unit() : std::string(); break;
             }
             const float rw = std::min(80.0f, Ui::text_width(right));
             ui.text_right(kListX + kListW - 4, y + 3, Ui::clip(right, 80), colors::kDim);
@@ -347,7 +347,7 @@ private:
         std::string sub = c.maker;
         if (c.year > 0) sub += "  " + std::to_string(c.year);
         if (!c.country.empty()) sub += "  " + c.country;
-        ui.text(x, y + 2, Ui::clip(sub, text_w), colors::kDim);
+        if (!sub.empty()) ui.text(x, y + 2, Ui::clip(sub, text_w), colors::kDim);
         std::string figures = c.power ? std::to_string(c.power) + cdb_->power_unit() : std::string("--");
         figures += "   " + (c.weight ? std::to_string(c.weight) + "kg" : std::string("--")) + "   " + c.drivetrain;
         if (!prologue_) figures += "   " + (c.for_sale ? CarDatabase::credits(c.price) : std::string("Not for sale"));

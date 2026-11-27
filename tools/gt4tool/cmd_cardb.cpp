@@ -7,6 +7,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/menu/car_database.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -26,7 +27,10 @@ int cmd_cardb(Disc& disc, const std::vector<std::string>& a) {
     config.program_image = [&disc] { return disc.program_image(); };
     config.region = disc.info().region, config.product = disc.info().product;
     const std::vector<std::string> languages = menu::project_languages(config.list, disc.info().game == Game::Prologue ? "prologue" : "boot");
-    if (!languages.empty()) config.language = languages[0];
+    if (!languages.empty()) {
+        config.language = languages[0];
+        if (std::find(languages.begin(), languages.end(), disc.info().language) != languages.end()) config.language = disc.info().language;
+    }
     menu::CarDatabase cdb(gt4tool::disc_reader(disc), config);
     if (!cdb.error().empty()) std::printf("%s\n", cdb.error().c_str());
     std::printf("%zu cars, %s, %s / %s\n", cdb.cars().size(), cdb.prologue() ? "Prologue" : "Gran Turismo 4", cdb.power_unit().c_str(), cdb.torque_unit().c_str());
