@@ -2465,6 +2465,23 @@ public:
         }
         return t0 <= t1 && t1 > 0 ? std::max(t0, 0.1f) : far;
     }
+    // Whether a point is in the followed car's box grown by `margin` (0x3FDD60: across and along, and up from its floor).
+    bool photo_in_car(const RVec& point, float margin) const {
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const race::CarVisual& v = world_->visual(f);
+        const render::Mat4 body = v.body_matrix(cars[f]);
+        const RVec o = body.transform_point({0, 0, 0});
+        const RVec d = point - o;
+        const RVec ax[3] = {body.transform_point({1, 0, 0}) - o, body.transform_point({0, 1, 0}) - o, body.transform_point({0, 0, 1}) - o};
+        const float lo[3] = {v.bounds_min().x - margin, std::min(0.0f, v.bounds_min().y), v.bounds_min().z - margin};
+        const float hi[3] = {v.bounds_max().x + margin, v.bounds_max().y + margin, v.bounds_max().z + margin};
+        for (int k = 0; k < 3; ++k) {
+            const float len = render::length(ax[k]), p = len > 0 ? render::dot(d, ax[k]) / (len * len) : 0;
+            if (p < lo[k] || p > hi[k]) return false;
+        }
+        return true;
+    }
     // The focus on the followed car by itself (0x3FD3D8): where its nearest point blurs by 1/960 of the picture (photo::auto_focus).
     std::optional<float> photo_car_focus(const render::Mat4& view, float f_number, float fov_degrees) const {
         const std::span<const race::CarState> cars = shown();
@@ -3845,6 +3862,7 @@ private:
         };
         r.world.middle_depth = [race](const RVec& eye, const render::Mat4& view) { return race->photo_middle_depth(eye, view); };
         r.world.car_focus = [race](const render::Mat4& view, float f_number, float fov) { return race->photo_car_focus(view, f_number, fov); };
+        r.world.in_car = [race](const RVec& point, float margin) { return race->photo_in_car(point, margin); };
         r.car_frame = [race](const render::Mat4& view, float px, float py) { return race->photo_car_frame(view, px, py); };
         race_->pause_sound(true);
         photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), race_->photo_scene(u32(SDL_GetTicksNS() >> 10) | 1), menus_ ? &menus_->game() : nullptr);

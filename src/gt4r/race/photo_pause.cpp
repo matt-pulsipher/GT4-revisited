@@ -16,6 +16,7 @@ constexpr int kMostShots = 64;   // 0x3FFD10: 0x1D00 bytes of records
 
 // The default view of a camera `d` metres from the car (0x3FFC68): a stretch of 16 m across the picture's height, 2 .. 83.2 degrees.
 float default_fov(float d) { return std::clamp(2 * std::atan(1 / ((d + d) * 0.0625f)) * kDeg, 2.0f, kWidest); }
+constexpr float kScreenValue = 0; // the camera manager's +0xA04 (its screen +0x44)
 // The closest view (0x37FD10): a stretch of 0.7 m.
 float closest_fov(float d) { return std::max(2 * std::atan(1 / ((d + d) / 0.7f)) * kDeg, 2.0f); }
 // The way a roadside camera first looks (0x36EBE8): above the car by a share of its view (the car below the middle).
@@ -202,6 +203,19 @@ ShotCamera::Events ShotCamera::step(const Pad& pad, const World& world) {
     if (s.fov_max < fov) fov = s.fov_max, hit = true;
     if (hit && !at_fov_limit_) e.refused = true;
     at_fov_limit_ = hit;
+    // The scenery's check of the new view (0x380C50 -> 0x3FDD60): not with the eye in the followed car's box grown by
+    // 0.5 m + 0.7 x the manager's screen value +0x44 / tan(half the angle) (❓ that value: its setter 0x5F53C8 is never called, so
+    // 0 here), nor closer than a 0.7 m stretch at the car's distance. The first time it fails the view stays and becomes the
+    // shot's closest (when wider than it was).
+    if (world.in_car) {
+        const float margin = kScreenValue * 0.7f / std::tan(fov * 0.5f * kPi / 180.0f) + 0.5f;
+        const bool allowed = !world.in_car(s.eye, margin) && !(fov < 2 * std::atan(0.35f / s.distance) * kDeg);
+        if (!allowed && !s.fov_min_found) {
+            if (s.fov_min < fov) s.fov_min = fov;
+            s.fov_min_found = true;
+            fov = old;
+        }
+    }
     // The turn (the left stick), faster for 18 steps up to 2 / 60 of the view's angle a step; the roll (the right stick across),
     // up to 2 degrees a step, held at 0 for 30 steps when it crosses it, within 90 degrees each way.
     const float k = turn_.step(pad.left_x != 0 || pad.left_y != 0, 2) * fov / 60;

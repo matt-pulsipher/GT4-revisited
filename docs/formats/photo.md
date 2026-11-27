@@ -19,7 +19,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The finder's color correction | the shared engine's grade pass, a curve through the gamma's middle value | 🔎 the photo itself uses the program's gamma table |
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
-| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎, the scenery's zoom check and the recomposing shutter not done; the B-spec panel's refusal not done |
+| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎, the recomposing shutter not done; the B-spec panel's refusal not done |
 | Not built | saving and developing a film (the dialog answers the photo) | |
 
 ## The sequence
@@ -188,8 +188,11 @@ race screen's `open_photo` / `update_photo`.
   the focused place, ❓ the recomposing 0x37FA38 not done); L2 the white balance; R1 the aperture; R2 the shutter speed.
 - **A step of the camera** (`CameraShot::vf10` 0x37FFB0; begun by vf39 0x37FBE0): the eye's height by up to 0.05 m a step
   (faster over 30 steps, 0x36F6A0); the zoom by the right stick up and down, up to 5 % a step (18 steps), between the closest view
-  (2 atan(0.35 / d): a 0.7 m stretch, at least 2 degrees, set once a camera) and 83.2 degrees; ❓ the scenery's check of a
-  closer view (0x380C50 -> 0x3FDD60) not done; the turn by the left stick, up to 2 / 60 of the view's angle a step (18 steps),
+  (2 atan(0.35 / d): a 0.7 m stretch, at least 2 degrees, set once a camera) and 83.2 degrees; the check of the new view (0x380C50 ->
+  0x3FDD60): refused with the eye in the followed car's box (its width +0x0C, its length +0x00 + +0x50 ahead and +0x04 - +0x50
+  behind, from its floor to its height +0x08) grown by 0.5 m + 0.7 x the camera manager's +0xA04 / tan(half the view's angle)
+  (❓ +0xA04: its setter 0x5F53C8 is never called, taken as 0; ours the drawn car's box 🔎), or closer than 2 atan(0.35 / d); the
+  first refusal keeps the view and makes it the camera's closest (when wider; +0x6C set, 0x3801D4); the turn by the left stick, up to 2 / 60 of the view's angle a step (18 steps),
   turned by the roll, the view's edges kept within the widest view's frame across (x 4/3) and between straight up and 41.6
   degrees under the first way (0x37FEE0); the roll by the right stick across, up to 2 degrees a step, held at 0 for 30 steps
   when it crosses it, within 90 degrees; a limit met says `disable` once. The settings' steps (0x620EB0 ..): F1.4 1.8 2 2.2 2.5

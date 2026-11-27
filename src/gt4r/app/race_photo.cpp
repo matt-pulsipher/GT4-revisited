@@ -144,7 +144,10 @@ void RacePhotoPause::step(const race::photo::PadButtons& b) {
         index_ = size_t((int(index_) + p.camera + int(shots_.size())) % int(shots_.size()));
         camera_.begin(shots_[index_], kAspect);
     }
+    const bool found = camera_.shot().fov_min_found;
     const race::photo::ShotCamera::Events e = camera_.step(p, race_.world);
+    if (!found && camera_.shot().fov_min_found)
+        LOG_INFO("Photo pause: camera %zu: the zoom stops at %.1f degrees (the eye by the car, 0x380C50)", index_ + 1, double(camera_.shot().fov_min));
     if (e.refused) play("disable");
     focus_told_ = e.focused;
     if (e.shutter) {
