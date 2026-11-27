@@ -230,6 +230,9 @@ grip_pct = 105               ; its tires as sold
 [dealer]
 for_sale = yes               ; at its maker's dealer in Gran Turismo mode
 thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's; logo = the name's artwork (PNG)
+[opponent]
+races = am_sunday_*          ; Gran Turismo mode's races whose opponents it may be drawn among (gt4tool ai <disc> events
+                             ;   lists the labels; * at the end: every race whose label starts so), as sold
 [raw.CHASSIS]                ; bytes of the car's own rows of BRAKE, SUSPENSION, CHASSIS, RACINGMODIFY, DRIVETRAIN,
 0x1D = 120                   ;   GEAR, ENGINE, FRONTTIRE or REARTIRE (docs/formats/database.md): 0x30:u16 = 1000
 ```

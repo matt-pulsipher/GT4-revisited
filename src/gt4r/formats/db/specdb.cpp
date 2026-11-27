@@ -280,6 +280,15 @@ std::optional<Bytes> SpecDb::car_file(u64 code) {
     return read_(folder_ + name);
 }
 
+std::optional<Bytes> SpecDb::race_file(u32 race_row) {
+    prepare_mods();
+    if (mods_)
+        if (std::optional<Bytes> f = mods_->race_file(race_row)) return f;
+    char name[40];
+    std::snprintf(name, sizeof name, "RACES/%08X%08X", 35u, race_row);
+    return read_(folder_ + name);
+}
+
 const Table* SpecDb::table(const std::string& name) {
     prepare_mods();
     auto it = tables_.find(name);

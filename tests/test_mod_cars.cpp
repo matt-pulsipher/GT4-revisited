@@ -402,3 +402,51 @@ TEST(mod_car_save_without_its_mod) {
     CHECK(h.text_of("cars") == "1/1 cars");
     CHECK(h.clean());
 }
+
+#include "gt4r/formats/db/race_events.h"
+
+// A mod car in Gran Turismo mode's pools of opponents ([opponent] races): at the end of each race's pool it names, as sold.
+TEST(mod_car_opponent) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    const std::string list = write_car("gt4r_test_alfa_26.ini", "[car]\nlabel = gt4r_test_alfa_26\nname = Alfa Test `26\ndonor = _147_20_twinspark_02\n"
+                                                                "[opponent]\nraces = am_sunday_*, no_such_race\n");
+    db::SpecDb plain = open_db(*disc, ""), sdb = open_db(*disc, list);
+    gt3r::Volume* vol = &disc->volume();
+    auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    const db::RaceEvents before(plain, read), after(sdb, read);
+    int joined = 0;
+    for (const std::string& label : after.labels()) {
+        const std::optional<db::RaceEvent> e = after.event(label), e0 = before.event(label);
+        if (!e || !e0) continue;
+        const std::vector<db::Opponent> p = after.pool(*e), p0 = before.pool(*e0);
+        const bool sunday = label.rfind("am_sunday_", 0) == 0;
+        if (!sunday || p0.empty()) {
+            CHECK(p.size() == p0.size());
+            continue;
+        }
+        ++joined;
+        CHECK(p.size() == p0.size() + 1);
+        if (p.empty()) continue;
+        const db::Opponent& o = p.back();
+        // (its parts as sold: the set its car row names, the donor's df_pt_sim_ made its own)
+        CHECK(o.car == "gt4r_test_alfa_26" && o.parts == "df_pt_sim_gt4r_test_alfa_26" && o.paint == -1);
+    }
+    CHECK(joined > 0);
+    std::printf("  joined %d pools\n", joined);
+    bool warned = false;
+    for (const db::ModCarStatus& s : sdb.mod_cars().statuses()) warned = warned || !s.warnings.empty();
+    CHECK(!warned); // (one name matched)
+    // The race draws it as it draws the disc's cars.
+    const std::optional<db::RaceEvent> sunday = after.event("am_sunday_0001");
+    CHECK(sunday);
+    if (sunday) {
+        const size_t n = after.pool(*sunday).size();
+        float x = 0.999f; // the last entry first
+        const std::vector<db::Opponent> drawn = after.draw(*sunday, 1, [&] { return x; });
+        CHECK(drawn.size() == 1 && drawn[0].car == "gt4r_test_alfa_26" && n > 1);
+    }
+}

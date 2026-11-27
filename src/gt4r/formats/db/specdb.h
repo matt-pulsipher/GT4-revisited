@@ -122,6 +122,9 @@ public:
     std::vector<std::string> add_mod_cars();
     // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
     std::optional<Bytes> car_file(u64 code);
+    // A race's pool of opponents (specdb/<set>/RACES/<35, the RACE row>), with the mod cars that join it; none without one.
+    // Gran Turismo 4's tables (Prologue's files are named otherwise: specdb_prologue.h).
+    std::optional<Bytes> race_file(u32 race_row);
     // A mod car's alone, once the mods' cars are worked out (any table read); none for a disc car.
     std::optional<Bytes> mod_car_file(u64 code) const;
 

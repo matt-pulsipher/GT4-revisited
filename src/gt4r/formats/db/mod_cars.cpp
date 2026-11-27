@@ -298,6 +298,10 @@ std::optional<ModCarDef> parse_mod_car(std::string_view text, std::string* error
                 else if (key == "logo") d.logo = v;
                 else if (key == "picture_paint") {
                 } else known = false;
+            } else if (sn == "opponent") {
+                if (key == "races")
+                    for (const std::string& w : words(v)) d.opponent_races.push_back(to_lower(w));
+                else known = false;
             } else if (sn == "reference" || sn == "arcade" || sn == "sound") {
                 // ([reference]: figures for the checking tool; [arcade], [sound]: the other game's)
             } else {
@@ -877,6 +881,37 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         out.labels_["ARCADEINFO_NORMAL"].emplace_back(d.label, id);
         out.rows_["ARCADEINFO_NORMAL"].emplace_back(id, std::move(row));
     }
+    // [opponent] races: an ENEMY_CARS row of the car as sold (no settings of its own, as the pools' cars), added to the end of
+    // each race's pool (RACES/<35, row>: u32 count, u32 0, then {u32 row, u32 table 38, s64 paint + 1, -1 the race's choice}).
+    if (!d.opponent_races.empty()) {
+        const Labels* races = db.labels("RACE");
+        if (!races) return fail("[opponent] races: the disc's races are not read");
+        const u32 enemy = new_id(d.label, "ENEMY_CARS", 8);
+        Bytes row(24, 0xFF);
+        put32(row, 0, car_id), put32(row, 4, 0), put32(row, 8, set_ids[0]), put32(row, 12, kDefaultParts);
+        out.rows_["ENEMY_CARS"].emplace_back(enemy, std::move(row));
+        out.labels_["ENEMY_CARS"].emplace_back("gt4mod_" + d.label, enemy);
+        size_t joined = 0;
+        for (const auto& [label, race] : races->entries) {
+            const bool match = std::any_of(d.opponent_races.begin(), d.opponent_races.end(), [&](const std::string& w) {
+                return !w.empty() && w.back() == '*' ? label.compare(0, w.size() - 1, w, 0, w.size() - 1) == 0 : label == w;
+            });
+            if (!match) continue;
+            Bytes f;
+            if (const auto it = out.race_files_.find(race); it != out.race_files_.end()) f = it->second;
+            else if (const std::optional<Bytes> file = db.race_file(race)) f = *file;
+            if (f.size() < 8) continue; // (a race without a pool: a license test's, a mission's)
+            const u32 n = get32(f, 0);
+            f.resize(8 + 16 * size_t(n));
+            Bytes entry(16, 0xFF);
+            put32(entry, 0, enemy), put32(entry, 4, kEnemyCars);
+            f.insert(f.end(), entry.begin(), entry.end());
+            put32(f, 0, n + 1);
+            out.race_files_[race] = std::move(f);
+            ++joined;
+        }
+        if (!joined) st.warnings.push_back("[opponent] races: no race of this disc with a pool of opponents matches");
+    }
     if (const std::optional<u32> t = id_of("TUNER_LIST", d.donor)) {
         const ByteSpan r = disc_row("TUNER_LIST", *t);
         const u32 id = new_id(d.label, "TUNER_LIST", 0);
@@ -962,6 +997,7 @@ void ModCars::merge(ModCars&& more) {
     paint_groups_.insert(paint_groups_.end(), more.paint_groups_.begin(), more.paint_groups_.end());
     names_.insert(names_.end(), more.names_.begin(), more.names_.end());
     for (auto& [code, f] : more.car_files_) car_files_[code] = std::move(f);
+    for (auto& [race, f] : more.race_files_) race_files_[race] = std::move(f); // (made on these)
 }
 
 
@@ -1062,6 +1098,12 @@ std::optional<ModCars::Picture> ModCars::picture(std::string_view path) const {
     else if (folder == "car_logo" || folder == "car_logo2") out.png = own(d->logo);
     else return std::nullopt;
     return out;
+}
+
+std::optional<Bytes> ModCars::race_file(u32 race_row) const {
+    const auto it = race_files_.find(race_row);
+    if (it == race_files_.end()) return std::nullopt;
+    return it->second;
 }
 
 std::optional<Bytes> ModCars::car_file(u64 code) const {

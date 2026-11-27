@@ -243,9 +243,16 @@ Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `sr
   number and texts; `DRIVETRAIN` the layout, a four wheel drive system the disc's four wheel drive cars have most when the
   car becomes one, the front share; `GEAR` the ratios as written (a box of steps), reverse, the final drive; the tires'
   `TIRESIZE` row (the disc's of that size, else a new one) and copies of the stock tires' compounds with the grip scaled.
-- Its own: a `GENERIC_CAR` row (the donor's with its set, price, year, maker and the maker's country, category, for sale),
+- Its own: a `GENERIC_CAR` row (the donor's with its set, price, year, maker with the maker's country and the brand
+  (+0x10) most of the maker's cars have, category, for sale),
   new `DEFAULT_PARTS` sets, `CAR_NAME_<language>` rows (the name in each language's pool), `CAR_VARIATION_<language>` rows
   naming a new paint group, which is the body car's `VARIATION<language>` rows with the box and frontal area scaled, under
   the body car's label (so the car's model files are the body car's), the donor's `ARCADEINFO_NORMAL` row with its dirt and
   snow `ENEMY_CARS` rows made the car's, the donor's `TUNER_LIST` row, and a `CARS/` file of the donor's parts (its clones
   in their places).
+- `[opponent] races`: an `ENEMY_CARS` row of the car as sold (its `GENERIC_CAR` set, no settings: the pools' own cars have
+  none) at the end of each named race's pool (`RACES/<35, row>`, `SpecDb::race_file`), which the race draws from as it draws
+  the disc's.
+- A mod installed while the game runs: its cars are worked out on the tables as they are then (their ids kept clear of the
+  cars in) and added to every table, list and pool already read (`SpecDb::add_mod_cars`); the menus add them to the makers'
+  lists they have read (`menu::refresh_mod_cars`).

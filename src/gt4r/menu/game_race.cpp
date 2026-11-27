@@ -40,11 +40,9 @@ std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::st
     std::vector<std::pair<std::string, int>> out;
     const u64 code = d.code(kRaceTable, race);
     if (code == kNoCode || !d.db) return out;
-    char name[40];
-    std::snprintf(name, sizeof name, "RACES/%016llX", static_cast<unsigned long long>(code));
     // (Prologue's files carry its own table numbers: specdb_prologue.h.)
-    const std::string path = d.db->prologue() ? db::prologue::races_file(u32(code)) : std::string(name);
-    const std::optional<Bytes> file = d.rt->reader()(d.db->folder() + path);
+    // (the mods' cars that join the pool with it: SpecDb::race_file)
+    const std::optional<Bytes> file = d.db->prologue() ? d.rt->reader()(d.db->folder() + db::prologue::races_file(u32(code))) : d.db->race_file(u32(code));
     if (!file || file->size() < 8) return out;
     const u32 n = r32(*file, 0);
     for (u32 i = 0; i < n && 8 + (i + 1) * 16 <= file->size(); ++i) {

@@ -66,6 +66,10 @@ struct ModCarDef {
     // [dealer]
     std::string description, picture, thumb, logo;
 
+    // [opponent] races: Gran Turismo mode's races whose pools of opponents it joins, as sold (labels of RACE; "am_sunday_*" any
+    // that starts so)
+    std::vector<std::string> opponent_races;
+
     // [raw.<TABLE>] bytes of the car's own rows of a table (its clones of the donor's).
     struct Poke {
         std::string table; // "CHASSIS"
@@ -121,6 +125,8 @@ public:
     void extend(const std::string& pool, Strings& s) const;
     // A mod car's CARS/<code> file (the parts that fit it); none for any other code.
     std::optional<Bytes> car_file(u64 code) const;
+    // A race's pool of opponents with the cars that join it ([opponent] races); none for a race none joins.
+    std::optional<Bytes> race_file(u32 race_row) const;
 
     // A mod car's picture the menus ask for by its label, "piece/<folder>/<label>.img" of the disc or
     // "image/piece/<folder>/<label>.png" of a page's pack (a leading slash or none): the strip's
@@ -153,6 +159,7 @@ private:
     std::vector<PaintGroup> paint_groups_;                                         // VARIATION<language>
     std::vector<Names> names_;                                                     // CAR_NAME_<language>, CAR_VARIATION_<language>
     std::map<u64, Bytes> car_files_;
+    std::map<u32, Bytes> race_files_; // by RACE row
     friend struct ModCarBuilder;
 };
 

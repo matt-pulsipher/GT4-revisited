@@ -8,7 +8,7 @@ namespace gt4r::db {
 
 namespace {
 
-constexpr u32 kRaceTable = 35;
+
 
 std::string label_of(SpecDb& db, const char* table, u32 id) {
     const Labels* l = db.labels(table);
@@ -85,9 +85,8 @@ std::optional<Opponent> RaceEvents::opponent(u32 enemy_id) const {
 std::vector<Opponent> RaceEvents::pool(const RaceEvent& e) const {
     std::vector<Opponent> out;
     // The pool's file is named by the event as a part: its table (35) in the high word, its row in the low one.
-    char name[32];
-    std::snprintf(name, sizeof name, "RACES/%08X%08X", kRaceTable, e.id);
-    const std::optional<Bytes> f = read_(db_->folder() + (db_->prologue() ? prologue::races_file(e.id) : std::string(name)));
+    // (the mods' cars that join it with it: SpecDb::race_file)
+    const std::optional<Bytes> f = db_->prologue() ? read_(db_->folder() + prologue::races_file(e.id)) : db_->race_file(e.id);
     if (!f || f->size() < 8) return out;
     const ByteSpan d(*f);
     const u32 n = rd32(d, 0);
