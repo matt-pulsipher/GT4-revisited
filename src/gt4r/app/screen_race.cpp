@@ -1908,7 +1908,7 @@ public:
     float bspec_distance() const { return bspec_distance_; } // those of them the B-spec driver drove
     float lap_length() const { return world_->lap_length(); }
     // The race's words for one lap and several (the results' "+1Lap").
-    void set_card(int tire, std::string race_word) { tire_index_ = tire, race_word_ = std::move(race_word); }
+    void set_card(int tire, std::string race_word, int number = -1) { tire_index_ = tire, race_word_ = std::move(race_word), race_number_ = number; }
     void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
     int beeps() const { return beeps_; }
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
@@ -2024,7 +2024,8 @@ public:
             const std::string t1 = tire_word(0), t2 = tire_word(1);
             std::string line = hud.word("RaceInfoFormat");
             // (The race's name: a race word, or "=<text>" written as it is: a license test's title.)
-            const std::string name = race_word_.rfind('=', 0) == 0 ? race_word_.substr(1) : hud.word(race_word_);
+            std::string name = race_word_.rfind('=', 0) == 0 ? race_word_.substr(1) : hud.word(race_word_);
+            if (race_number_ > 0) name += std::to_string(race_number_);
             const std::string parts[3] = {power, t1 + "/" + t2, name};
             for (const std::string& part : parts)
                 if (const size_t at = line.find("%s"); at != std::string::npos) line.replace(at, 2, part);
@@ -2912,6 +2913,7 @@ private:
     bool built_ = false, last_race_ = false, license_sounded_ = false; // (the race's music: a series' last race, a test's result heard)
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
+    int race_number_ = -1;                          // and its number after it ("%s%d" when above 0: a mission's)
     bool throttle_held_ = false;
     bool stale_ = false; // the cars were set up before the player's last choice
     int gear_shown_ = 1;
@@ -5565,13 +5567,14 @@ private:
             if (const auto l = setup_.options.find("language"); l != setup_.options.end())
                 if (const std::string* code = std::get_if<std::string>(&l->second)) hud_->set_language(app, *code);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
-            // The replay card's tires and race name.
+            // The replay card's tires and race name: the race's mode by its name in the race's words and its number (RaceDisplay::vf45
+            // 0x39C838 with the race's vf97: RaceBase's 0x38A328 the name of vf95's mode, the race's +0xD68 its class sets: Arcade's
+            // 1, the free run's 11, the free practice's 12, RaceGTmode's 13 (an event's race, the photo drive), the championship's
+            // 14; a mission's with its number, 0x3BFA78: "Mission 5"). ✔ The original's photo drive replay: "Event Race".
             const std::string& seq = setup_.sequence;
-            race_->set_card(menus_ ? menus_->game().race.tire : 4,
-                            is_license(seq)      ? "=" + license_title()
-                            : seq == "time_trial" ? "ARCADE_TIME_TRIAL"
-                            : seq == "solo_event" || seq == "championship" ? "GTMODE_EVENT_RACE"
-                                                                           : "ARCADE_SINGLE_RACE");
+            const std::pair<std::string, int> mode = menus_ && !is_license(seq) ? race_mode() : std::pair<std::string, int>{"NOTHING", -1};
+            race_->set_card(menus_ ? menus_->game().race.tire : 4, is_license(seq) ? "=" + license_title() : mode.first != "NOTHING" ? mode.first : "ARCADE_SINGLE_RACE",
+                            seq == "mission" ? mode.second : -1);
             work_ms_.clear(), interval_ms_.clear();
             last_frame_ns_ = 0, clock_ = 0;
         } catch (const std::exception& e) {
