@@ -567,6 +567,9 @@ GT4R_DATA_DIR=<a scratch folder> GT4R_RACE="course=nurburgring,car=ford_gt_05,ca
   side (96 units) too; on a picture wider than 16:9 those parts go out with the picture's edge, and on one narrower
   than 4:3 (fill on a screen squarer than 4:3, down to 1:1) the display fits the width with its top and bottom parts at
   the picture's edges (ours: `race/game_area.h`, `RaceHud`'s EdgeScope; Prologue's display likewise: its own EdgeScope in `race_hud_prologue.cpp`, the middle's messages staying).
+  Its texts are laid out by GT4's text renderer's rule and land on the original's frame pixels and lines through the display's
+  projection (`race::text_start`; race_display.md "Where a text lands"); on a picture of another shape than 4:3 or 16:9 the
+  frame's canvas is that picture's (ours).
   The 3D view of a race or replay shows more at the sides on a picture wider than 4:3 and keeps 4:3's width of the scene,
   showing more above and below, on a narrower one (ours: `ViewPose::fovy(aspect)`). With touch controls up, the chase
   panel's side groups move clear of them; where that would bring a group onto the sideways G meter it is drawn smaller about its

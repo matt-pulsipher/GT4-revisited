@@ -32,8 +32,9 @@ struct VersionAnswer {
     std::string url;                // the release page ("" none or not a web page)
 };
 
-// The package a release has for this platform under a stable name ("" none: the release page instead).
-std::string release_asset(RvPlatform platform, bool arm64);
+// The package a release has for this platform under a stable name ("" none: the release page instead); vr: the VR builds'
+// own (GT3R_XR: the PC VR package, the Meta Quest APK).
+std::string release_asset(RvPlatform platform, bool arm64, bool vr = false);
 std::string this_release_asset();
 
 // The online session names this game to relay servers: its requests carry the game tag (our id and version), so a relay that

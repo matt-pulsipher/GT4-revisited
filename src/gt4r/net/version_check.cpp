@@ -24,20 +24,26 @@ void name_the_game(rv::Session& session) {
     session.set_game_version(this_version());
 }
 
-std::string release_asset(RvPlatform platform, bool arm64) {
+std::string release_asset(RvPlatform platform, bool arm64, bool vr) {
     switch (platform) {
-    case RvPlatform::Windows: return arm64 ? "" : "gt4r-windows-x64.zip";
-    case RvPlatform::MacOS: return arm64 ? "gt4r-macos-arm64.zip" : "";
-    case RvPlatform::Linux: return arm64 ? "" : "gt4r-linux-x86_64.tar.gz";
-    case RvPlatform::Android: return "gt4r-android.apk"; // one APK for arm64-v8a and x86_64
+    case RvPlatform::Windows:
+        if (arm64) return "";
+        return vr ? "gt4r-windows-x64-vr.zip" : "gt4r-windows-x64.zip";
+    case RvPlatform::MacOS: return arm64 && !vr ? "gt4r-macos-arm64.zip" : "";
+    case RvPlatform::Linux: return arm64 || vr ? "" : "gt4r-linux-x86_64.tar.gz";
+    case RvPlatform::Android: // one phone APK for arm64-v8a and x86_64; the Quest APK is arm64 only
+        if (vr) return arm64 ? "gt4r-quest.apk" : "";
+        return "gt4r-android.apk";
     default: return "";
     }
 }
 
 std::string this_release_asset() {
 #if GT3R_XR
-    return ""; // (the VR builds have no package of their own: the release page)
+    constexpr bool vr = true; // the VR builds' own packages: PC VR, Meta Quest
 #else
+    constexpr bool vr = false;
+#endif
 #if defined(__aarch64__) || defined(_M_ARM64)
     constexpr bool arm64 = true;
 #elif defined(__x86_64__) || defined(_M_X64)
@@ -45,8 +51,7 @@ std::string this_release_asset() {
 #else
     return "";
 #endif
-    return release_asset(rv::this_platform(), arm64);
-#endif
+    return release_asset(rv::this_platform(), arm64, vr);
 }
 
 void VersionCheck::start(const std::string& server, const GameVersion& ours, RvPlatform platform, int timeout_ms) {

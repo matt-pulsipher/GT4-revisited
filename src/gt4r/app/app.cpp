@@ -38,7 +38,31 @@
 
 namespace gt4r {
 
+namespace icon_data { // (generated from packaging/icon.png: CMakeLists.txt)
+extern const unsigned char kAppIconPng[];
+extern const std::size_t kAppIconPng_size;
+} // namespace icon_data
+
 namespace {
+
+// The window's (and on macOS the Dock's) icon, from the packages' own picture reduced to 256 px. Packaged builds have a bundle
+// icon already; a bare development binary has none.
+void set_window_icon(SDL_Window* window) {
+#if !defined(__ANDROID__)
+    SDL_IOStream* io = SDL_IOFromConstMem(icon_data::kAppIconPng, icon_data::kAppIconPng_size);
+    SDL_Surface* full = io ? SDL_LoadPNG_IO(io, true) : nullptr;
+    if (!full) {
+        LOG_WARN("The application icon could not be read: %s", SDL_GetError());
+        return;
+    }
+    SDL_Surface* small = SDL_ScaleSurface(full, 256, 256, SDL_SCALEMODE_LINEAR);
+    SDL_SetWindowIcon(window, small ? small : full);
+    if (small) SDL_DestroySurface(small);
+    SDL_DestroySurface(full);
+#else
+    (void)window;
+#endif
+}
 
 const SDL_DialogFileFilter kDiscFilters[] = {
     {"PS2 disc images", "iso;chd"},
@@ -220,6 +244,7 @@ bool App::init(int argc, char** argv) {
         LOG_ERROR("Window creation failed: %s", SDL_GetError());
         return false;
     }
+    if (!run_.windowless) set_window_icon(window_);
     gt3r::render::GpuOptions gpu;
     gpu.msaa = video_.msaa, gpu.anisotropy = video_.anisotropy, gpu.vsync = video_.vsync && !run_.windowless;
     gpu.gles = video_.gpu == settings::Gpu::Gles || video_.gpu == settings::Gpu::GlesDriver;

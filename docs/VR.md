@@ -14,8 +14,8 @@ desktop build configured with `-DGT3R_XR=ON`. Every other build compiles none of
 |---|---|
 | Linux + Monado's simulated headset | ✅ the session starts, frames go out, the menus and the app's pages show on the screen (pictures of the canvas: Settings, the opening movie); stereo races in the chase view, the in-car view (the mirror and the display on the panel) and at night (Route 5: the lamps' glows in each eye), the eyes offset from each other; the own car's body round the in-car view sits the player in the car's driver's seat (the NSX-R: on the right) |
 | macOS (a build with `GT3R_XR=ON`) | ✅ compiles; with no OpenXR runtime it opens the normal window (its pictures are the flat build's, byte for byte) |
-| Meta Quest 3 / 3S / Pro / 2 (`-Pquest`) | ⚠️ the APK builds; not run on a headset. Nothing here is checked on a Quest: the frame rate, the controllers, the pointer, the system's menu over the game |
-| PC VR (Quest Link, SteamVR) | ⚠️ not built for Windows; the engine's runtime choice and the window's mirror are in, untried here |
+| Meta Quest 3 / 3S / Pro / 2 (`-Pquest`) | ⚠️ the APK builds (debug, and release signed with the phone APK's key; the release's `gt4r-quest.apk`, job `package-quest`); not run on a headset. Nothing here is checked on a Quest: the frame rate, the controllers, the pointer, the system's menu over the game |
+| PC VR (Quest Link, SteamVR) | ⚠️ the release's `gt4r-windows-x64-vr.zip` (job `package`, with `openxr_loader.dll`), not yet built on Windows; the engine's runtime choice and the window's mirror are in, untried here |
 
 ## How it works
 
@@ -75,7 +75,11 @@ Quest: `android/fetch-sdl.sh --xr`, then `./gradlew assembleDebug -Pquest` in `a
 application id as the phone app, `org.gt4revisited.gt4r`).
 
 Desktop: `cmake -S . -B build-xr -DGT3R_XR=ON` (SDL's development branch at the engine's pinned commit; a local copy with
-`-DFETCHCONTENT_SOURCE_DIR_SDL3=<path>`). Windows also gets the Khronos OpenXR loader next to `gt4r.exe`.
+`-DFETCHCONTENT_SOURCE_DIR_SDL3=<path>`). Windows also gets the Khronos OpenXR loader next to `gt4r.exe`, and the package
+(`cmake --install`) carries it.
+
+Release packages (`.github/workflows/build.yml`, docs/BUILDING.md "Making a release"): `gt4r-quest.apk` and
+`gt4r-windows-x64-vr.zip`. A VR build's **Download update** fetches its own package, never the flat one.
 
 ## Testing without a headset
 

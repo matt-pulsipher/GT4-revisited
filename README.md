@@ -58,6 +58,13 @@ needs one extra step:
   and settings. A copy you built yourself is signed with another key: Android won't update it
   with the release's APK, so uninstall it first, which deletes its storage (move the saves out
   through the Files app, "GT4 Revisited", before).
+- **Meta Quest** (Quest 2, 3, 3S and Pro): `gt4r-quest.apk`, the game in the headset: the menus on a large screen in
+  front of you, races in 3D from the car's seat ([docs/VR.md](docs/VR.md)). Install it with `adb install gt4r-quest.apk`
+  from a computer (the headset in developer mode) or with a sideloading app, copy your disc image to the headset, and
+  choose it in the file picker as on Android. It has the Android app's identity, so a headset holds one or the other.
+- **PC VR** (Windows x64, a headset through Quest Link, SteamVR or another OpenXR runtime): `gt4r-windows-x64-vr.zip`.
+  Unzip it and run `gt4r.exe` with the headset's software running; without a headset it opens its window as the
+  Windows package does.
 
 On a computer, the first start asks for your disc image: press Enter (or Cross) and choose your
 Gran Turismo 4 image (`.iso` or `.chd`, made from your own disc), or drop the file on the window.
@@ -90,6 +97,8 @@ source). The shared engine is the `engine/gt3r` submodule; run
 `git submodule update --init` if it is empty. Linux (on the machine or in Docker) and the other
 platforms: [docs/BUILDING.md](docs/BUILDING.md). Android phones and tablets:
 [android/README.md](android/README.md) (an APK built with Gradle).
+
+VR headsets (the Meta Quest APK, a desktop build with OpenXR): [docs/VR.md](docs/VR.md).
 
 A release package (`gt4r-macos-arm64.zip` or `gt4r-linux-<arch>.tar.gz` with `SHA256SUMS`, built
 from a clean build folder as CI builds it): `tools/release/package.sh`. The app icon is drawn by
