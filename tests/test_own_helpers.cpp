@@ -12,6 +12,7 @@
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/session.h"
 #include "gt4r/formats/db/car_parts.h"
 
 #include <cstdio>
@@ -164,4 +165,15 @@ TEST(disc_prologue_conductors_pit_rule) {
         std::printf("  %s: pits %u, mode %u\n", r.name, pits, mode);
         CHECK(pits == r.pits && mode == r.mode);
     }
+}
+
+// A Prologue race on Grand Canyon is on a dirt course (its spec's dirt rule, core_spec: the course's kind 2, as the program's
+// builder is handed it).
+TEST(disc_prologue_grand_canyon_is_dirt) {
+    Disc* disc = disc_of(Game::Prologue);
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    const std::string cars[] = {"civic_r_98"};
+    const auto s = sim::Session::open(*disc, "grandcanyon", cars);
+    std::printf("  grandcanyon: loose %d, course kind %d\n", int(s->loose()), int(s->course_kind()));
+    CHECK(s->loose() && s->course_kind() == 2);
 }

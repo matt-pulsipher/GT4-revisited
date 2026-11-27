@@ -334,7 +334,9 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
     if (s.b(0x11C) == 0 && program.known()) s.set_b(0x11C, program.b(Program::kSpec11CDefault));
     if (s.b(0x112) == 0 && program.known()) s.set_b(0x112, program.b(Program::kSpec112Default));
     if (s.b(0x01) >= 2 && s.b(0x01) <= 4) s.set_b(0x11C, 0), s.set_b(0x112, 0);
-    if (s.b(0x01) == 2 && (course_kind == 2 || course_kind == 3)) { // a rally car on a loose course
+    // A rally car on a loose course (Gran Turismo 4's: Prologue's builder 0x404620 takes no course, its wrapper 0x3B3998's one
+    // rule is core_spec's)
+    if (program.known() && s.b(0x01) == 2 && (course_kind == 2 || course_kind == 3)) {
         const u32 t = Program::kLooseSetup;
         s.set_b(0xA8, 3);
         s.set_h(0x66, s.h(0x66) + u32(program.b(t + 1))), s.set_h(0x7E, s.h(0x7E) + u32(program.b(t + 1)));

@@ -225,7 +225,9 @@ block's +0x18 / +0x1C hold the steering offset's rate and the offset (Gran Turis
 **The spec and the converter.** The spec builder (0x3B3998 over 0x404620, Gran Turismo 3's builder and layout, 0x3E2 bytes)
 and the converter (0x3C74B8) are ported whole (`convert_prologue.*`); `GT4R_CONVERT=1 gt4r_diff <disc> prologue` runs the
 program's builder and converter in the interpreter on all 83 cars of its database and ours on the same: every spec byte and
-every word of the parameter block equal (test `disc_prologue_converter_equal`).
+every word of the parameter block equal (test `disc_prologue_converter_equal`, at Tsukuba and on Grand Canyon's dirt: the
+builder is handed the course's kind, 2, which only the wrapper's `mtr_gmv_04` rule reads; the inner builder takes no course, so
+Gran Turismo 4's loose set-up of a rally car, 0x6224A0, does not run on a Prologue disc).
 
 - *A made gearbox* (`sim::computed_gears` on a Prologue program, `prologue::gear_ratios`): 0x406190 (Gran Turismo 4's
   0x443240) builds the equipment's spec (0x404620) and calls 0x3E0BE0 (Gran Turismo 4's 0x354FF8) with the slider (equipment
