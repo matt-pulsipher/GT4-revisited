@@ -84,6 +84,10 @@ bool scale_bar_key_after(Runtime& rt, LiveWidget& w, Key k);
 bool list_key_after(Runtime& rt, LiveWidget& w, Key k);
 inline bool class_key_after(Runtime& rt, LiveWidget& w, Key k) { return w.is("ListBox") ? list_key_after(rt, w, k) : scale_bar_key_after(rt, w, k); }
 LiveWidget* list_cursor_row(LiveWidget& list);
+// The pointer's moves (pointer.cpp): a list box's focus put on a row; an open option menu's choice moved to a row (sound,
+// focus; false when it is that row already, insensitive or the menu is closed).
+void list_set_focus(LiveWidget& list, int i);
+bool option_point(Runtime& rt, LiveWidget& menu, int i);
 // `widget.index = i`; `notify`: the script's onValueChanged is called.
 void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify);
 void widget_children_changed(Runtime& rt, LiveWidget& w);

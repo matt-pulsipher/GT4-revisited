@@ -230,6 +230,27 @@ down License.
 script's `setFocus` in `onInitialize`, else the "next" search (0x26EEF8): the candidates by
 their parents' places (y, then x), then their own, then the order they were made in.
 
+### Mouse and touch (ours: `menu/pointer.*`, `app/menu_pointer.h`)
+
+The program reads the pad alone; a mouse and fingers on the game's pages are Gran Turismo 4 Revisited's, made of the
+moves the pad makes, so the scripts see nothing new:
+- **What a point is over**: the app's drawer notes each widget's box as it draws it (through its transforms, cut to its
+  clip, `PageDrawer::boxes`); from the last drawn, the first widget or parent of one that the focus search would take
+  (its candidates, above) is the target: a select box's row, a list box's row (its item), an open option list's row, else
+  the candidate. A widget the pad cannot reach (insensitive, hidden, under a dialog) is none. While an option list is open
+  only its rows are.
+- **A tap or a click** on what does not have the focus puts it there (the page's `navigate_sound`; a select box's index
+  moves with its sound and `onValueChanged`; a list box's row as `focus_index`); on what has it, Accept. On a focused
+  bar whose keys move it (no popup, or its popup open) a tap beside the pinch is the key toward it. Off an open option
+  list, Cancel. On a page with nothing that takes the focus ("press a button"), Accept.
+- **A hover** (a mouse, not a finger) focuses what it is over; a row of a list or select box only when the rows fit
+  (rows that scroll would move under a pointer that stays still). So one click chooses with a mouse, and a finger taps
+  twice.
+- **The wheel** over a list or select box (else the one with the focus): a notch, a key along it. **A drag** that starts
+  on one: a key along it for each row's pitch it goes, the rows following the finger. **The right button**: Cancel.
+- Nothing while the context's `event_mask` is 0 or a transition covers the page. ❓ The map's `ScrollWindow` is not
+  dragged (its `floating` is not read): its places are tapped.
+
 ### States
 
 A widget's four bits are its own. At drawing a face (`is_face`, bit 13 of the flags word at +0x98)
