@@ -36,7 +36,7 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    race set up by hand) and *Quit*. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back) and a touch screen (a tap chooses; **< Back** at the top left of Settings, Controls,
-   Saved games, the Save editor and Developer tools goes back, **< Back to game** where the page was opened from the game's);
+   Saved games, the Save editor and Developer tools goes back, **< Back to game** where the page was opened from the game's).
    The game's pages take them too (ours, [formats/menu.md](formats/menu.md) "Mouse and touch"): a tap or click on an item
    moves the focus there and a second one chooses it (a mouse's hover focuses, so one click chooses); a list or a row of
    cars or courses follows a drag or the wheel, a scroll box's arrows step it, Gran Turismo mode's map follows a drag;
