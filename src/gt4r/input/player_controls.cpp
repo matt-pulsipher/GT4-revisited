@@ -41,20 +41,13 @@ void save_config(const gt3r::InputManager& input, gt3r::IniDocument& ini) {
 }
 
 void register_extra_controls() {
-#if GT4R_EXTRA_CONTROLS
     gt3r::clear_extra_controls();
     gt3r::name_extra_control(kNitrousControl, "Nitrous");
     gt3r::add_extra_control_default(kNitrousControl, "wheel", true, "joy.button6");
-#endif
 }
 
 bool nitrous_held(const gt3r::InputManager& input, int player) {
-#if GT4R_EXTRA_CONTROLS
     return input.race_pad(player).extra_down(kNitrousControl) || input.pad(player).extra_down(kNitrousControl);
-#else
-    (void)input, (void)player;
-    return false;
-#endif
 }
 
 namespace {

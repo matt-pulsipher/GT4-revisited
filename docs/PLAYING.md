@@ -55,7 +55,7 @@ Triangle and Square go back). In races, unless you change it:
 | Reverse | L1 | R | Triangle |
 | Change view | Triangle (Y), Select | C, Tab | Select |
 | Look back | right stick pressed | X | the direction buttons' Down |
-| Nitrous | R1, direction buttons' Down | F | (bind it) |
+| Nitrous | R1, direction buttons' Down | F | R2 button (Controls: *Nitrous*) |
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter (or W) is Cross, Escape and Backspace Triangle, Space Circle, S Square,

@@ -1,6 +1,5 @@
 // Nitrous as the engine's extra control (input/player_controls.h kNitrousControl): held on a player's pads, it presses the game's
 // own nitrous: directly on the modern layout, through the key the button configuration gives Special on the console's.
-// Built against an engine without extra controls, it is skipped (and nothing presses the nitrous that way).
 
 #include "test_framework.h"
 
@@ -12,9 +11,6 @@ using namespace gt4r;
 using namespace gt4r::input;
 
 TEST(input_nitrous_control) {
-#if !GT4R_EXTRA_CONTROLS
-    SKIP("the engine has no extra controls");
-#else
     register_extra_controls();
     CHECK(gt3r::extra_control_name(kNitrousControl) == "Nitrous");
     gt3r::add_extra_control_default(kNitrousControl, "keyboard", true, "key.B"); // (a key to press here)
@@ -42,5 +38,4 @@ TEST(input_nitrous_control) {
     CHECK(read_player(in, 0, c, WheelSettings{}).frame.nitrous == 0);
     gt3r::clear_extra_controls();
     register_extra_controls();
-#endif
 }
