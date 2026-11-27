@@ -305,8 +305,7 @@ private:
         const bool car = car_in_view(s, nearest);
         lens.dof.on = true;
         lens.dof.f_number = car ? f.f_number : 200.0f, lens.dof.focal_mm = 35, lens.dof.focus = car ? f.distance : 10.0f;
-        const gt3r::race::SunParams& env = world_->course().env();
-        lens.dof.far = env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f;
+        lens.dof.far = world_->course().far_clip();
         lens.photo_lists = false; // (Photo Travel's finder: the race view's lists, mPhotoViewFace::vf71)
         lens.photo_map = false;
         world_->set_lens(lens);

@@ -69,6 +69,11 @@ public:
     }
     // The environment block's values (fog, lights, sun, shadows), as the shared engine reads them.
     const gt3r::race::SunParams& env() const { return env_; }
+    // The race view's far plane (m): Env0 +0x20, which the one-view draw puts on the screen every picture (0x33EB9C); every
+    // course of the discs has one (test course_far_planes_disc). Without it the screen keeps the far plane it starts with,
+    // 750 m (0x3FB430).
+    float far_clip() const { return env_.has_env && env_.far_clip > 0 ? env_.far_clip : kScreenFar; }
+    static constexpr float kScreenFar = 750;
     // The picture's scale (Env0 +0x38). The models' stored colors carry race::stored_color_scale of it.
     float color_scale() const { return color_scale_; }
     const course::Runway& road() const { return road_; }

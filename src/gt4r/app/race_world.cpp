@@ -1365,7 +1365,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const float dt = first_view ? kStep : 0.0f; // (what both views show steps once a picture)
     const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
     const gt3r::race::SunParams& env = course_->env();
-    const float far = (env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f) * (split ? 0.5f : 1.0f);
+    const float course_far = course_->far_clip(), far = course_far * (split ? 0.5f : 1.0f);
     s.far = far;
 
     m.pit_shown = int(focus);
@@ -1440,7 +1440,9 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         gt3r::race::TyreSmoke::View sv;
         sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
         sv.proj_x = 1.0f / (std::tan(pose.fovy(aspect) * 0.5f) * std::max(aspect, 1e-3f));
-        sv.near_m = pose.near, sv.far_m = far;
+        // GT4's cull (0x3E7F08): a puff's centre deeper than 0.01 m and nearer than the course's far plane (Env0 +0x20, the
+        // whole of it in a split half too), under two screen widths across and on the screen.
+        sv.near_m = 0.01f, sv.far_m = course_far;
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 

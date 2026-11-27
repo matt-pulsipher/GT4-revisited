@@ -88,7 +88,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | Off | Meaning | Known from |
 |---|---|---|
 | +0x10 | u32 flags (below) | read |
-| +0x20 | far clip (m): 5000 on 65 courses, 600 to 3330 on the others. A two-player half uses half of it. The sun's glare reads it too (the shared engine puts the sun at far / 2) | read |
+| +0x20 | far clip (m): 5000 on 65 courses, 600 to 3330 on the others (Prologue's 62: 200 to 5000, 29 at 5000); every course of the four discs has one (test `course_far_planes_disc`; without one the screen would keep its starting 750 m, 0x3FB430: `CourseScene::far_clip`). A two-player half uses half of it. The sun's glare reads it too (the shared engine puts the sun at far / 2), and the tire smoke whole in a half too (below) | read |
 | +0x24, +0x2C, +0x40, +0x44 | ❓ no reader found (+0x24: 1.0 on 55 courses, 0.34 to 1.4; +0x44: 0 or 1). Gran Turismo 3's files have them too | |
 | +0x28 / +0x48 | yaw / pitch (degrees) of the reflection picture's sky (slot 23) | read |
 | +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. Times Square (1.0, 0.85: nothing head-on) bears it out: its glass fronts show no reflection facing the camera in the original's photo. No course's program sets its own factors (0x32, 0x33, 0x36, 0x37, 0x56, 0x57 are on none) | read |
@@ -281,6 +281,14 @@ screens) that differs where noted.
 11. The frame is multiplied by +0x38, then the glow filter (+0x1750) runs.
 12. Heat haze (flag bit 5), the tire smoke, the collected glare and glows, the color grade
     (bit 7), the vignette (bit 6), then the race display.
+
+**Distance limits of the parts** (what decides how far each is drawn): the scenery, its billboards and the lamp glows by the
+lists (above; the billboards have no distance test of their own, 0x4506F0; the lamp glows the lamp type's own maximum distance,
+"Lamp glows"); the cars' levels of detail by the size rule with the view's own factor (0x456918, set with factor 1 by the
+one-view draw 0x33EBC0, the photo's pictures included, and recomputed for the mirror's projection, 0x341E50); the shadows go
+with their car. The tire smoke (0x3E7F08): a puff is drawn while its centre's depth is over 0.01 m and under `Env0` +0x20 (the
+whole far plane, a split half too), it is under two screen widths across and its square touches the screen (the shared
+engine's test with these two planes).
 
 ### The passes of a replay
 
