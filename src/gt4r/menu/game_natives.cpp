@@ -183,6 +183,7 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
         language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
+        db->set_makers(names.makers); // (a mod car's maker by its name)
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
         courses = db->courses();
