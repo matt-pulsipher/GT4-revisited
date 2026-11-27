@@ -482,7 +482,8 @@ private:
                 // (menu::autodemo_step: the opening movie, demo_movie after the Polyphony logo,
                 // when the movie's count has run out; else the disc's recorded races of its
                 // demonstration list, played as the Replay Theater plays them, a key ending the
-                // time-out), then the project the title named (`next_menu_project`, arcade).
+                // time-out), then the project the title is in (Gran Turismo 4's arcade, Prologue's prologue). Prologue's
+                // sequence (0x10A1F0) plays its own list: its replays and its opening movie (menu::autodemo_step).
                 menu::GameState& g = runtime_->game();
                 auto run_demo = [&](const menu::DemoStep& step) {
                     g.menu_result.clear();
@@ -499,7 +500,9 @@ private:
                 };
                 if (race_ && race_->sequence == "autodemo") {
                     race_.reset();
-                    const std::string back = g.next_menu_project.empty() ? std::string("arcade") : g.next_menu_project;
+                    // Then the project the game was on (the sequence keeps next_menu_project as it found it: the project that
+                    // ran, which ours clears once it starts; 0x10BE20 / Prologue's 0x10A1F0 with 0x3FC640): the title's.
+                    const std::string back = !g.next_menu_project.empty() ? g.next_menu_project : runtime_->project() ? runtime_->project()->name() : std::string("arcade");
                     g.last_menu_project = runtime_->project() ? runtime_->project()->name() : std::string();
                     g.last_sequence = g.next_sequence, g.next_sequence.clear();
                     g.major_menu_project = back;

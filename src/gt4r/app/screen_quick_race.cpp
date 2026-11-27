@@ -3,8 +3,8 @@
 // course), the missions and Arcade's single race on any course, each with the player's choice of car and color (car_picker.h).
 //
 // Pages: the event lists, an event list's events, then the setup (car, color, gearbox; Arcade: difficulty and laps; a license test:
-// the test or a free run) and Start. The race runs on menus of its own (a new game's, booted for it, with the player's options read
-// from the data folder and never written back): the event's own race sequence as Gran Turismo mode starts it (the event page's
+// the test or a free run) and Start. The race runs on menus of its own (a new game's, booted for it, holding every license, so
+// that an event asking for one offers A-spec; the player's options read from the data folder and never written back): the event's own race sequence as Gran Turismo mode starts it (the event page's
 // 0x... entry: race_code, no course, no opponents chosen; `solo_event`, `license`, `mission`), Arcade's single race as Arcade's
 // GameRoot.doGame sets it up (its set_enemy_cars run in Arcade's own script, then every entry through MCarData.ShiftCarCode),
 // with the pages the race sequence shows before and after the race. The race's results go into that new game only. Leaving the
@@ -745,6 +745,7 @@ private:
         gt3r::Vfs* vfs = app.vfs();
         auto rt = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, menus_config(app));
         rt->boot();
+        menu::hold_every_license(*rt); // (nothing to unlock: an event that asks for a license offers A-spec)
         // The player's options (the view, the units, the sound's volumes) as the data folder keeps them, read only.
         if (std::FILE* f = std::fopen((app.save_dir() + "/gt4r-options.txt").c_str(), "rb")) {
             std::string t;

@@ -575,6 +575,21 @@ others under DynamicsConductorTraining's virtuals) beside ours and names the fir
 compared, `GT4R_DEMO_EVERY`, `GT4R_DEMO_LEAST`, `GT4R_DEMO_SHOW`): every physics field equal on every car through the runs looked
 at (9 .. 12, 27, 29, 30, 32 and 35, 1,200 to 5,000 steps).
 
+**The title's time-out** ✔ (the program's sequence `autodemo`, 0x10A1F0): the title's watcher (`SchoolRoot`, every 60 frames) counts
+30 checks with the cursor on its first item and the ring still, then `go_demo` sets `next_sequence` "autodemo". The sequence keeps
+`next_menu_project` as it found it (the title's project, `prologue`), sets the time-out's tries anew (MDemonstration +0x34 from
++0x30) and plays one demonstration after another (0x3FDD18: the configuration's `setNextDemo(index)`, then the list's index on,
+the tries down one; below none the tries anew and that one is the last): kind menu (0x108D30) runs the project it names, a
+skip of it ("terminate") ending the time-out; kind replay (0x109FB0) plays the race recording `replay/JP/<name>/<name>` (0x19B030),
+a key (its end code 2) ending it; kind autodemo (an Arcade demo race, 0x109EB8) is in no list. Then the project it kept again
+(0x3FC640). MDemonstration's `initialize(count, time)` (0x3FDC40) sets four tries (+0x30, +0x34) and the list from its start; its
+kinds by name (0x504FC0): none, autodemo, menu, replay. The disc's list (config/prologue/demo.adc, 20 entries) alternates the ten
+race recordings (the first Evo IV at Grand Canyon) with the opening movie `prologue_opening`, so a time-out
+plays a recording, the movie, a recording, the movie and a recording, and the next goes on from there. A recording plays as a
+replay: its cars as sold with the file's parts, gears and settings, car 0 driven by its records, the others by the computer
+(screen_race.cpp `prologue_recorded_race`). ✔ Here: `menu::autodemo_step` (test `disc_prologue_title_timeout`); a scripted run left
+on the title plays Evo IV at Grand Canyon to its end on the road (145 s in), a key there brings the title back.
+
 ## School Mode
 
 The lessons open in the order 1 .. 10, 37, 11 .. 16, 38, 17 .. 23, 39, 24 .. 29, 40, 30 .. 36, 46, 41 .. 45. Each lesson passed for

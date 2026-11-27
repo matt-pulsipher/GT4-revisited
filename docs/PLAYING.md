@@ -55,7 +55,8 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    of Gran Turismo mode's event lists (a championship's races one at a time), the license tests (the test, or a free run on
    its course), the missions, and Arcade's single race on any course with Arcade's difficulty and laps. Choose the event,
    then the car (by maker or every car by name) and its color, the gearbox, and Start: the race runs with the game's own
-   pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for. The last
+   pages before and after it, and Exit there comes back to Quick race. The event's entry rules are not asked for, and every
+   license is held (an event that asks for one offers A-spec). The last
    choices are kept (`config.ini` `[quickrace]`). On Prologue, Quick race is its arcade's single race on any of its courses
    with any of its arcade's cars, at its three difficulties (no custom race).
    Its first item, *Custom race*, is your own race: any course, the laps, your car and color and your place on the grid, and

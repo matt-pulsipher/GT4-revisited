@@ -122,6 +122,22 @@ bool event_aspec_allowed(Database& d, const GameState& s, u8 license) {
     return license <= 5 && license_all_bronze(d, s, kCategories[license - 1]);
 }
 
+void hold_every_license(Runtime& rt) {
+    const std::shared_ptr<GameNatives> n = natives_of(rt);
+    if (!n) return;
+    Database& d = n->db();
+    GameState& s = rt.game();
+    for (const char* cat : {"l0b", "l0a", "lib", "lia", "l0s"})
+        for (int i = 1; i <= 16; ++i) {
+            char label[16];
+            std::snprintf(label, sizeof label, "%s%04d", cat, i);
+            const int unit = d.race_unit(label);
+            if (unit < 0) continue;
+            u32& w = s.race_units[size_t(unit)];
+            w = (w & ~0xFFFu) | 1u | 9u << 4 | 9u << 8; // run, gold (as the save editor's gold)
+        }
+}
+
 // The unit of a course (0x433C10; GameState::course_unit): the units kept in order of the course's code, one made there
 // when `make`.
 int course_record_unit(Database& d, GameState& s, const std::string& label, bool make) {
