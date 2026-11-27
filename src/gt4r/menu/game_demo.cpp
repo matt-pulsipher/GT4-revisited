@@ -84,9 +84,9 @@ bool next_demonstration(Runtime& rt) {
 
 // 0x10BE20: a time-out's demonstrations, one at a time. `first`: the sequence starts (0x434638: the tries anew; with
 // restart_from_beginning, the list and the movie's count from their start). The menu project to run and its argument
-// (the movie), or none when the sequence is over (the menus go back to the last project, 0x42FC50). Kinds 1, 3 and 4
-// (the card's replays, a recorded race, an Arcade demo race: 0x4349A8, 0x10BBB0, 0x10BA28) are not set by the disc's
-// scripts (their list gives the number 2, which names no kind) and play nothing here.
+// (the movie), or none when the sequence is over (the menus go back to the last project, 0x42FC50). Every disc's list is
+// kind 3, replay (setNextDemo: Demo(2, "RdemoN").getType() names 2 "replay"): the card's replays, else the disc's recorded
+// race (0x4349A8, 0x10BBB0); not played here (the try goes on). Kinds 1 (an Arcade demo race, 0x10BA28) and 4 are never set.
 std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first) {
     GameState& s = rt.game();
     GameState::Demonstration& d = s.demonstration;

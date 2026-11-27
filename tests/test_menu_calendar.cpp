@@ -245,7 +245,7 @@ TEST(disc_car_gets_dirty) {
 
 // The title's time-out (the autodemo sequence 0x10BE20): up to repeat_time (3) tries, each counting the movie's count
 // down (0x434770); the movie (demo_movie, "opening") when it has run out, the option demo_movie_interval less 1 again
-// after it; the disc's demonstration list (setNextDemo: Demo(2, "Rdemo0") .., a number that names no kind) plays nothing.
+// after it; the disc's demonstration list (setNextDemo: Demo(2, "Rdemo0") .., kind replay) is not played here.
 // A skipped movie ("terminate") ends the time-out.
 TEST(disc_menu_title_demonstrations) {
     Disc* disc = gt4_disc();
@@ -276,6 +276,7 @@ TEST(disc_menu_title_demonstrations) {
             CHECK(got == want);
         }
         std::printf("  interval %d: movies per time-out %s, the list's entry %d\n", interval, seen.c_str(), d.index);
+        if (interval == 5) CHECK(d.type == 3 && d.name.rfind("Rdemo", 0) == 0); // (the list's entries: kind replay, a recording's name)
     }
     g.options["demo_movie_interval"] = 1, d.movie_left = 0;
     CHECK(timeout(true) == 1); // skipped: the time-out ends
