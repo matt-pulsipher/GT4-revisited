@@ -155,7 +155,7 @@ TEST(photo_pause_zoom_scenery_check) {
     p.right_y = -1;
     cam.step(p, w);
     CHECK(near(cam.fov(), 40, 1e-4f) && near(cam.shot().fov_min, 40 / (1 + 0.05f / 18), 1e-3f));
-    CHECK(near(margin_seen, 0.5f, 1e-5f) && cam.shot().fov_min_found);
+    CHECK(near(margin_seen, 0.5f + 0.07f / std::tan(40 / (1 + 0.05f / 18) * 0.5f / 57.2958f), 1e-4f) && cam.shot().fov_min_found);
     for (int i = 0; i < 50; ++i) cam.step(p, w);
     CHECK(cam.fov() >= cam.shot().fov_min - 1e-4f && cam.fov() < 40);
     // Away from the car the zoom goes on to the 0.7 m stretch.

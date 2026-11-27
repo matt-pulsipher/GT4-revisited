@@ -195,7 +195,8 @@ race screen's `open_photo` / `update_photo`.
   (2 atan(0.35 / d): a 0.7 m stretch, at least 2 degrees, set once a camera) and 83.2 degrees; the check of the new view (0x380C50 ->
   0x3FDD60): refused with the eye in the followed car's box (its width +0x0C, its length +0x00 + +0x50 ahead and +0x04 - +0x50
   behind, from its floor to its height +0x08) grown by 0.5 m + 0.7 x the camera manager's +0xA04 / tan(half the view's angle)
-  (❓ +0xA04: its setter 0x5F53C8 is never called, taken as 0; ours the drawn car's box 🔎), or closer than 2 atan(0.35 / d); the
+  (+0xA04 the near plane, 0.1 m: ✔ the original's memory in the photo drive's pause; +0xA08 the far, 5,000; ours the drawn car's
+  box 🔎), or closer than 2 atan(0.35 / d); the
   first refusal keeps the view and makes it the camera's closest (when wider; +0x6C set, 0x3801D4); the turn by the left stick, up to 2 / 60 of the view's angle a step (18 steps),
   turned by the roll, the view's edges kept within the widest view's frame across (x 4/3) and between straight up and 41.6
   degrees under the first way (0x37FEE0); the roll by the right stick across, up to 2 degrees a step, held at 0 for 30 steps
