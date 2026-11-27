@@ -456,7 +456,11 @@ in both. `save::Layout` (game_data.h): the state is read and written in the US l
 into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
 the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The
 card folder BISCPS-17001GAMEDATA is Gran Turismo 4's, not Prologue's (whose products are
-SCPS-15055, SCES-52438, SCKA-20022).
+SCPS-15055, SCES-52438, SCKA-20022). Builds before this layout wrote the Japanese release's saves in Prologue's
+format (its payload as the file, no garage file): such a save holds the profile's name and nothing
+else of the game; ours reads the name into the game there is and writes the release's files in its
+place at the next save (a new garage key, under the title its icon.sys gave), and the save editor
+asks for that first (✔ test `save_japan_earlier_format`).
 
 ### The B-spec driver's book (payload 0xA4, 0x180 bytes; menu/game_bspec.h)
 

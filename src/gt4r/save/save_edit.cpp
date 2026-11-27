@@ -201,6 +201,10 @@ std::optional<EditPlace> edit_place(const std::string& path, const std::string& 
     return std::nullopt;
 }
 
+// The Japanese release's saves that builds before its own layout wrote in Prologue's format (memory_card.h).
+constexpr const char* kEarlierJapan =
+    "This saved game was written by an earlier build in another format: load it in the game and save once to bring it up to date.";
+
 std::optional<EditFiles> read_files(const EditPlace& place, const std::string& product, std::string* why) {
     const std::string name = folder_of(product);
     const bool prologue = is_prologue(product);
@@ -209,6 +213,7 @@ std::optional<EditFiles> read_files(const EditPlace& place, const std::string& p
         const std::optional<Bytes> game = read_file(fs::path(place.path) / name);
         const std::optional<Bytes> garage = prologue ? Bytes{} : read_file(fs::path(place.path) / "garage");
         if (!game) return set_why(why, "The save's file " + name + " cannot be read."), std::nullopt;
+        if (!garage && is_earlier_japan_save(product, *game)) return set_why(why, kEarlierJapan), std::nullopt;
         if (!garage) return set_why(why, "The save's garage file cannot be read."), std::nullopt;
         out.game = *game, out.garage = *garage;
         return out;
@@ -224,6 +229,7 @@ std::optional<EditFiles> read_files(const EditPlace& place, const std::string& p
                 if (f.name == "garage" && !prologue) out.garage = f.data, garage = true;
             }
             if (game && garage) return out;
+            if (game && is_earlier_japan_save(product, out.game)) return set_why(why, kEarlierJapan), std::nullopt;
             return set_why(why, "The saved game on the card lacks a file."), std::nullopt;
         }
     } catch (const std::exception& e) {

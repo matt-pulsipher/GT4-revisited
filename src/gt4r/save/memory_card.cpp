@@ -47,6 +47,26 @@ Bytes full_width(const std::string& s) {
     return out;
 }
 
+// The full-width letters back (full_width's), up to the first zero; other letters end it.
+std::string half_width(ByteSpan b) {
+    std::string out;
+    for (size_t i = 0; i + 1 < b.size(); i += 2) {
+        const u16 code = u16(b[i] << 8 | b[i + 1]);
+        char c = 0;
+        if (code >= 0x824F && code <= 0x824F + 9) c = char('0' + (code - 0x824F));
+        else if (code >= 0x8260 && code <= 0x8260 + 25) c = char('A' + (code - 0x8260));
+        else if (code >= 0x8281 && code <= 0x8281 + 25) c = char('a' + (code - 0x8281));
+        else if (code == 0x8140) c = ' ';
+        else if (code == 0x817C) c = '-';
+        else if (code == 0x8144) c = '.';
+        else if (code == 0x8146) c = ':';
+        else if (code == 0x8166) c = '\'';
+        if (!c) break;
+        out += c;
+    }
+    return out;
+}
+
 } // namespace
 
 const char* result_name(Result r) {
@@ -66,6 +86,10 @@ bool is_prologue_product(const std::string& product) {
     const bool region = product.size() > 2 && product[0] == 'B' && product[1] >= 'A' && product[1] <= 'Z' && product[2] == 'S';
     const std::string p = region ? product.substr(2) : product;
     return p == "SCPS-15055" || p == "SCES-52438" || p == "SCKA-20022";
+}
+
+bool is_earlier_japan_save(const std::string& product, ByteSpan file) {
+    return layout_of_product(product) == Layout::Japan && !is_prologue_product(product) && valid_prologue(file);
 }
 
 GameSave::GameSave(std::string card, Codes codes, Reader disc, std::string product)
@@ -127,6 +151,14 @@ Result GameSave::save_prologue(GameState& s, const std::string* title) {
         }
     }
     return Result::Ok;
+}
+
+bool GameSave::earlier_japan() const {
+    if (layout_ != Layout::Japan || prologue_) return false;
+    std::error_code ec;
+    if (fs::exists(folder_ + "garage", ec)) return false;
+    const std::optional<Bytes> file = read(name_);
+    return file && valid_prologue(*file);
 }
 
 int GameSave::exists() const {
@@ -226,6 +258,13 @@ Result GameSave::save_new(GameState& s, const std::string& title) {
 Result GameSave::save(GameState& s) {
     if (!connected()) return Result::NoCard;
     if (prologue_) return save_prologue(s, nullptr);
+    if (earlier_japan()) {
+        // An earlier build's save of the Japanese release (in Prologue's format): made anew in the release's own, under the
+        // title its icon.sys gave (the second line was the title alone there).
+        const std::optional<Bytes> sys = read("icon.sys");
+        std::string title = sys && sys->size() >= 0x104 ? half_width(ByteSpan(sys->data() + 0xC0, 0x44)) : std::string();
+        return save_new(s, title.empty() ? std::string("Game Data") : title);
+    }
     u32 serial = s.garage_serial + 1;
     if (!serial) serial = 1;
     if (const Result r = update_header(s, serial, true); r != Result::Ok) return r;
@@ -241,6 +280,12 @@ Result GameSave::load_instance(GameState& into) const {
     const std::optional<Bytes> file = read(name_);
     if (!file) return Result::FileNotFound;
     if (prologue_) return read_prologue(*file, into) ? Result::Ok : Result::InvalidFile;
+    if (earlier_japan()) { // (an earlier build's save of the Japanese release: the name alone, as load's)
+        GameState read_in;
+        if (!read_prologue(*file, read_in)) return Result::InvalidFile;
+        into.username = read_in.username;
+        return Result::Ok;
+    }
     const std::optional<Bytes> file_payload = unscramble(*file, 0);
     const std::optional<Bytes> payload = file_payload ? from_layout(*file_payload, layout_) : std::nullopt;
     if (!payload || !read_game(*payload, into, codes_)) return Result::InvalidFile;
@@ -255,6 +300,14 @@ Result GameSave::load(GameState& s) {
         GameState loaded = s;
         if (!read_prologue(*file, loaded)) return Result::InvalidFile;
         s.saved_image = std::move(loaded.saved_image), s.username = loaded.username, s.prologue_license = std::move(loaded.prologue_license);
+        return Result::Ok;
+    }
+    if (earlier_japan()) {
+        // An earlier build's save of the Japanese release, in Prologue's format: it kept the profile's name and nothing else
+        // of the game (no garage file), so the game is the one there is with that name; the next save writes the release's.
+        GameState loaded;
+        if (!read_prologue(*file, loaded)) return Result::InvalidFile;
+        s.username = loaded.username, s.saved_image.clear();
         return Result::Ok;
     }
     const std::optional<Bytes> file_payload = unscramble(*file, 0);
