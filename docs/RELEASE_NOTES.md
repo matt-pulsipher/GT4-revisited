@@ -7,7 +7,9 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 - Gran Turismo mode: licenses, events, championships, Driving Missions, the dealers, used cars, tune shops, the garage and the calendar
 - Arcade: Single Race, Time Trial and 2 Player Battle on a split screen
 - Multi-LAN Race: up to six players on a local network, or with a session code over the internet
-- Replay Theater, Photo Travel and Photo Lab
+- Replay Theater with play lists, Photo Travel, Photo Lab and films
+- The Analyzer (data logger)
+- Transfer game data, as the game does: credits from a Gran Turismo 3 game (GT3 Revisited's saves or a memory card image), licenses from Gran Turismo 3 (US release) or Gran Turismo 4 Prologue
 - Gran Turismo 4 Prologue's School Mode
 - Driving, the computer drivers and the race rules follow the game's own, checked against races recorded on a console
 - Any resolution, widescreen, high refresh rates and anti-aliasing
@@ -24,6 +26,5 @@ Download: macOS (Apple Silicon), Windows, Linux and Android.
 
 ## Known problems
 
-- The Japanese release races on the US release's driving, computer-driver and race rules for now (its own are being added)
-- Photo Lab: films cannot be developed; no printer or USB memory
+- Photo Lab: no printer or USB memory
 - Mods' cars, events and liveries are not read yet
