@@ -1181,7 +1181,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
         const W focus = page ? page->focus.lock() : nullptr;
         LiveWidget* content = scroll_content(w);
         float tx = 0, ty = 0;
-        if (focus && content && scroll_window_target(w, *focus, tx, ty)) {
+        if (focus && content && w.data.number("pointer_pan") == 0 && scroll_window_target(w, *focus, tx, ty)) { // (ours: held by a drag, pointer.cpp)
             const float ratio = w.data.has("interpolate_ratio") ? w.data.number("interpolate_ratio") : 0.3f;
             const float x = content->get("x").as_float(), y = content->get("y").as_float();
             if (x != tx || y != ty) {

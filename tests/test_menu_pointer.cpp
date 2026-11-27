@@ -267,3 +267,46 @@ TEST(menu_pointer_scroll_box_arrows) {
     rt.settle();
     CHECK(focus_index(vm, list) == 1);
 }
+
+namespace {
+
+const char* kMap = R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [1] {
+				ScrollWindow { name string {"Map"} geometry rectangle {0 0 640 480} children [1] {
+					Composite { name string {"clip"} geometry rectangle {0 0 640 480} children [1] {
+						Composite { name string {"space"} geometry rectangle {0 0 1280 480} children [2] {
+							Button { name string {"West"} geometry rectangle {300 220 40 40} }
+							Button { name string {"East"} geometry rectangle {1000 220 40 40} }
+						} }
+					} }
+				} }
+			}
+		}
+	}
+})";
+
+} // namespace
+
+TEST(menu_pointer_drags_the_map) {
+    menu::Runtime rt(no_files());
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(kMap)))->child("Top");
+    rt.open_page(top, true);
+    rt.settle();
+    const std::shared_ptr<menu::LiveWidget> map = top->child("Map"), space = map->child("clip")->child("space");
+    CHECK(rt.focused() == space->child("West").get());
+    // A drag left by 500: the space follows, held (the window does not pull it back to the focus) and kept in the clip.
+    menu::PointerDrag drag;
+    CHECK(menu::pointer_drag(rt, boxes_of(top), drag, 600, 100, 300, 100, false));
+    CHECK(space->get("x").as_float() == -300);
+    rt.update();
+    CHECK(space->get("x").as_float() == -300);
+    CHECK(menu::pointer_drag(rt, boxes_of(top), drag, 600, 100, -300, 100, true));
+    CHECK(space->get("x").as_float() == -640);
+    // Let go: the place nearest the middle has the focus.
+    rt.settle();
+    CHECK(rt.focused() == space->child("East").get() && map->data.number("pointer_pan") == 0);
+}

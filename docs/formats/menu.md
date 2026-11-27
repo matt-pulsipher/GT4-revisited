@@ -249,8 +249,11 @@ moves the pad makes, so the scripts see nothing new:
 - **The wheel** over a list or select box (else the one with the focus): a notch, a key along it. **A drag** that starts
   on one: a key along it for each row's pitch it goes, the rows following the finger. A tap on a scroll box's `dec_arrow` or
   `inc_arrow`: a key along its list. **The right button**: Cancel.
-- Nothing while the context's `event_mask` is 0 or a transition covers the page. ❓ The map's `ScrollWindow` is not
-  dragged (its `floating` is not read): its places are tapped.
+- **A drag in a scroll window** (Gran Turismo mode's map) moves its space with the finger, kept inside the clip's
+  edges, the window holding it there (`pointer_pan`, ours); let go, the candidate inside it nearest the clip's middle
+  takes the focus and the window glides on to it as it follows the focus. ❓ The program's own `floating` (the space
+  following a pointer) is not read.
+- Nothing while the context's `event_mask` is 0 or a transition covers the page.
 
 ### States
 

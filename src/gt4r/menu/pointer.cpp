@@ -237,6 +237,54 @@ float pitch_of(const LiveWidget& box) {
     return std::max(item + box.data.number("spacing"), 8.0f);
 }
 
+// The scroll window (with its clip::space) the point is in on the shown page, if any.
+W scroll_window_at(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y) {
+    LiveWidget* page = rt.current_page();
+    for (auto it = drawn.rbegin(); it != drawn.rend(); ++it) {
+        if (!it->widget || !inside(it->box, x, y)) continue;
+        const std::shared_ptr<const script::Heap> alive = it->alive.lock();
+        if (!alive) continue;
+        for (const LiveWidget* w = it->widget; w && w != page; w = w->parent_widget())
+            if (w->is("ScrollWindow") && const_cast<LiveWidget*>(w)->page() == page && w->child("clip") && w->child("clip")->child("space")) return const_cast<LiveWidget*>(w)->self();
+    }
+    return nullptr;
+}
+
+// The content of a scroll window moved by (dx, dy), kept inside the clip's edges.
+void pan_by(LiveWidget& window, float dx, float dy) {
+    const W clip = window.child("clip");
+    const W space = clip ? clip->child("space") : nullptr;
+    if (!space) return;
+    const std::optional<Rect> view = clip->data.rect("geometry"), whole = space->data.rect("geometry");
+    if (!view || !whole) return;
+    const auto along = [](float at, float d, float view_size, float whole_size) {
+        return view_size < whole_size ? std::clamp(at + d, view_size - whole_size, 0.0f) : at;
+    };
+    space->set_property("x", script::Value::number(along(space->get("x").as_float(), dx, view->w, whole->w)));
+    space->set_property("y", script::Value::number(along(space->get("y").as_float(), dy, view->h, whole->h)));
+}
+
+// Let go of a panned window: the candidate inside it nearest the clip's middle takes the focus.
+void pan_end(Runtime& rt, LiveWidget& window) {
+    window.set_property("pointer_pan", script::Value::integer(0));
+    LiveWidget* page = rt.current_page();
+    const W clip = window.child("clip");
+    if (!page || !clip) return;
+    const Rect c = clip->screen_rect();
+    const float cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+    W best;
+    float best_d = 0;
+    for (const FocusCandidate& f : focus_candidates(*page, false)) {
+        bool in = false;
+        for (const LiveWidget* up = f.widget->parent_widget(); up && !in; up = up->parent_widget()) in = up == &window;
+        if (!in) continue;
+        const Rect r = f.widget->screen_rect();
+        const float dx = r.x + r.w / 2 - cx, dy = r.y + r.h / 2 - cy, d = dx * dx + dy * dy;
+        if (!best || d < best_d) best = f.widget, best_d = d;
+    }
+    if (best) focus_on(rt, best);
+}
+
 } // namespace
 
 PointerHit pointer_hit(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y) {
@@ -321,11 +369,18 @@ bool pointer_drag(Runtime& rt, const std::vector<DrawnBox>& drawn, PointerDrag& 
         drag = {};
         drag.started = true;
         if (taking(rt)) drag.box = list_at(rt, drawn, x0, y0, false);
+        if (taking(rt) && !drag.box.lock()) drag.pan = scroll_window_at(rt, drawn, x0, y0);
         drag.left = 0;
         drag.x = x0, drag.y = y0;
     }
     const W box = drag.box.lock();
     bool used = false;
+    if (const W window = drag.pan.lock()) {
+        window->set_property("pointer_pan", script::Value::integer(1));
+        pan_by(*window, x - drag.x, y - drag.y);
+        if (end) pan_end(rt, *window);
+        used = true;
+    }
     if (box && taking(rt)) {
         const bool vertical = vertical_list(*box);
         // The content follows the finger: moved up (or left) by a row's pitch, the choice goes a row on.

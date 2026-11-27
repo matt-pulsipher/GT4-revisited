@@ -35,6 +35,7 @@ PointerHit pointer_hit(Runtime& rt, const std::vector<DrawnBox>& drawn, float x,
 // A drag's progress along a list (pointer_drag).
 struct PointerDrag {
     std::weak_ptr<LiveWidget> box; // the list it started on (none: it moves nothing)
+    std::weak_ptr<LiveWidget> pan; // else the scroll window (the map) it started in
     bool started = false;
     float left = 0;     // what has not made a step yet (page units along the list)
     float x = 0, y = 0; // where it was last
@@ -47,7 +48,9 @@ bool pointer_tap(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float
 // `notches` up (> 0) step back along the list under the point (or the focused one), down on.
 bool pointer_wheel(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float y, float notches);
 // A press moved from (x0, y0) to (x, y): a step of the list it started on for each row's length it went, the list's
-// content following the finger (a drag up is on); `end`: let go.
+// content following the finger (a drag up is on); `end`: let go. One that starts in a scroll window (the map) moves its
+// content with the finger, held there; let go, the place nearest the window's middle takes the focus and the window
+// goes on to it as it follows the focus.
 bool pointer_drag(Runtime& rt, const std::vector<DrawnBox>& drawn, PointerDrag& drag, float x0, float y0, float x, float y, bool end);
 // The right button: Cancel.
 void pointer_back(Runtime& rt);
