@@ -7,6 +7,7 @@
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/logger.h"
 #include "gt4r/menu/photo_natives.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/menu/text_layout.h"
@@ -1036,6 +1037,7 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
         return true;
     }
     if (w.is("SliderBar") || w.is("ScaleBar")) return bar_key(rt, w, k);
+    if (w.is("LoggerFace")) return logger_face_key(rt, w, k);
     return false;
 }
 
@@ -1134,6 +1136,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
     if (is_select_box(w)) select_box_layout(w, false);
     if (w.is("SliderBar") || w.is("ScaleBar")) arrange_slider(w);
     if (w.is("OptionMenu")) step_option_menu(w);
+    if (w.is("LoggerFace")) step_logger_face(rt, w);
     if (w.is("ListBox")) {
         arrange_list(rt, w, false);
         return; // its rows are placed; nothing below them moves by itself
@@ -1261,6 +1264,12 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     // The photo mode's (photo_natives.cpp).
     if (type == "PhotoMapWindow" || type == "PhotoRenderFace")
         if (auto m = photo_member(rt, w, n)) return m;
+    // The Analyzer's face: its control, the progress object and grab are values it keeps (mLoggerFace +0xA4 .. +0xAC).
+    if (type == "LoggerFace" && (n == "control" || n == "progress" || n == "grab")) {
+        std::shared_ptr<script::Reference>& cell = w->extras[n];
+        if (!cell) cell = std::make_shared<script::Variable>(n == "grab" ? Value::integer(0) : Value{});
+        return cell;
+    }
 
     if (type == "RootWindow") {
         if (n == "setFocus" || n == "setFocusWidget")
