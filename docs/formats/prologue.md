@@ -598,7 +598,7 @@ draws (0x40C630): menu.md "Text" (Prologue's fonts). The parts:
 | 3 panel | 0x38D730, two lists of places in its code | view 0 (the car's own views): the tachometer and speedometer (155 x 122 at x 345 and ending at 295), the gear's box, the lamps; view 1: the small panel 0x3928A0 |
 | 8 targets | RaceLicenseDisplay 0x386340 | a test's three times, each with its cup (`mark_1st` ..) |
 | 9 map | RaceMiniMap 0x398958 | the course's map, the other cars' marks at 0.66, the player's pulsing |
-| 11 times | RaceTimeDisplay 0x38FC40 | `FC_16` at 0.9 ending at the place, "Best" / "Last" in `DC_12`, the lap's with the stopwatch |
+| 11 times | RaceTimeDisplay 0x38FC40 | `FC_16` at 0.9 ending at the place, "Best" / "Last" in `DC_12`, the lap's with the stopwatch. The time goes through the text object right-aligned (0x40C3C8 with +4 = 2: 0x40C4C8 makes the box [0, int(x)] and 0x445328 aligns the width, the pen less the font's size >> 2 times its scale); the label left-aligned (0x40C378) at the place less the time's measured pen (0x444F28, the whole pen, times 1 / the object's +0x18 ❓, at least 70, + 10) less its own (the same factor). 🔎 Ours ends 1 pixel right of the original ("0'24.233" at 0.9: 531..612 against 530..611 in `14-prologue/20_race_nose_view_2nd_80kmh`, every glyph alike), where the quarter would put it 2.7 further right; the speed (`DC_24_5`, the same path) matches the original to the pixel. Not changed |
 | 6, 7 | messages | the penalty's line (red), the pop-ups |
 | 26 | 0x38A558, 0x38CDC8, 0x38CE68 | the count (`FC_48`, 0.8 s a second), START (1 s), FINISH (3 s) |
 
