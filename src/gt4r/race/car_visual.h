@@ -197,6 +197,7 @@ private:
     render::Vec3 min_, max_;
     render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
     float lod_size_ = 0;
+    bool far_wheel_face_ = true; // the body's far level draws its wheels as its own shapes (callback 46)
     // The driver's models, and the figures (a co-driver's too) of a car whose driver sits still.
     std::unique_ptr<DriverModels> driver_models_;
     std::vector<std::unique_ptr<DriverFigure>> still_;

@@ -116,8 +116,13 @@ int show_set(Disc& disc, const std::string& path, size_t which) {
     std::printf("\nregisters:");
     for (const auto& v : s.registers) std::printf(" %s@%u", v.name.c_str(), v.cell);
     std::printf("\n");
-    for (u32 i = 0; i < h.models && i < s.models.size(); ++i) {
+    for (u32 i = 0; i < h.models; ++i) {
         const u32 program = rd32(set, h.model_table + 0x28 * size_t(i) + 0x18);
+        if (i >= s.models.size()) { // (a set without a script: model 0's program, the body's)
+            std::printf("model %u: program %x\n", i, program);
+            if (i == 0 && program && program < h.size) list_program(set.first(h.size), program, s);
+            continue;
+        }
         std::printf("model %u: setup %d tick %d draw %d, program %x\n", i, s.models[i].setup, s.models[i].tick, s.models[i].draw, program);
         if (program && program < h.size && (s.models[i].draw >= 0 || s.models[i].tick >= 0)) list_program(set.first(h.size), program, s);
     }

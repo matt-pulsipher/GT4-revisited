@@ -349,8 +349,20 @@ switch reads; ids not listed do nothing and read 0. Uses counted on the 807 `car
 The second entry point (level of detail, command 0x07; 0x4539A8): a level forced by the race
 when model +0x8C is not negative (-1 when made); else, with T the car's threshold (model +0x90:
 220 when made, 200 set for every car at the race's start): v > T: 0, v > 0.33 T: 1, else 2.
-The race bodies' switch comes after a 0x22 at the program's start; its size is 3.0 on the cars
-looked at (R34, Panoz, Legacy, Celica, Supra, XA), its centre about 0.45 m up the car's middle.
+The race bodies' switch is the first 0x07 at the program's top level (outside every push). On 785
+of the US disc's 807 `car/lod` bodies it comes right after a 0x22 at the program's start and the
+far level calls callback 46 (below); on 16 it follows the four wheels' constructs, each of which
+has a switch of its own (level 0 draws the brake parts, every level the tire and wheel by their
+callbacks); 4 have the body's switch alone (dmlr0001, nike0001, daih0017, ford0013), and
+chry0001 and toyt0030 have none outside the wheels (one body level). Its size is 3.0 on every
+body, its centre about 0.4 to 0.9 m up the car's middle; 799 have 3 levels, 4 have 1 and 2 have 4
+(the callback's 0 .. 2 never reaches the fourth). `gt4tool car-lods <disc> [model...]` lists
+every body's switches and what each level draws (test `disc_car_body_levels`).
+
+**The 1886 Benz Patent Motor Wagen** (`benz0001`): its body is drawn at level 0 only. Its
+switch's second entry draws the four wheels' callbacks and jumps to the program's end, and its
+third draws 256 triangles, the wheels as shapes (1.12 m tall: the rear wheels), so from about
+11 m of depth in the chase view (28 m in a replay shot) the program draws its wheels alone. Every other body's levels 1 and 2 have a quarter or more of level 0's triangles.
 **K** (the view's factor, kept at 0x8465E4) measured in the original's saved states: 721.2 in the
 chase view at Tsukuba's start, 121.4 in a wide start shot, 1851.6 in a replay shot, 3905.6 in a
 telephoto opening pass. A car 3.0 in size in the chase view is at level 0 nearer than 10.8 m
@@ -361,7 +373,9 @@ lens's angle across a 4:3 picture, calibrated on the chase view, which this race
 **The far level** (level 2) draws the wheels as shapes of the body, binding with callback 46
 the wheel set's last texture set (its far level's turning face) to slot 2; no wheel or brake
 callback runs there. (The race view here: that set appended to the body's lists for the build.) A wheel set's callback: the forced level, else the default
-rule (four levels).
+rule (four levels). A body without callback 46 (the 22 above) draws its wheels by their callbacks
+at level 2 too. (The race view here: the wheels as items of their own at that level, at the
+wheel set's level 1 🔎; the wheel's own switch is not run.)
 
 **Brake lamps** are a switch (id 0) between two sets of shapes, not a texture swap: all but
 18 bodies have it (27 bodies switch a lens on by a script's colour scale instead or as well:
@@ -468,7 +482,7 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   has C0 = C1 = 0.85 during the shoot; the photo's car then comes out within 2 to 4 levels of the original's
   (it was 14 to 25 levels lighter with a constant weight of 1).
 - **Body**: the wing (callback 47's state 1), then model 0 with the callback above. The body's
-  level of detail is the 0x07 switch at the program's start (size 3 on the R34). `car/lod` is
+  level of detail is the first 0x07 switch at the program's top level (size 3). `car/lod` is
   the race's file, `car/menu` the showroom's.
 - **Shadows**, in a frame of their own (a position and angles the sponsor gives: the road
   under the car), lifted 0.02 m, with a depth bias:
