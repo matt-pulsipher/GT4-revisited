@@ -9,7 +9,7 @@
 // race's length, `limit` a time limit in seconds (no laps then), `penalty` an arcade race's penalty option (0 none, 1 the speed limit, 2 the pit lane) over its row, `auto_after` the step from which the computer drives the player's car, `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
 // `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
+// N steps unseen and plays them back through the replay cameras (`photo=1`: Select there opens the photo pause); `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
@@ -59,6 +59,9 @@
 #include "gt4r/sim/race_tires.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/app/race_photo.h"
+#include "gt4r/photo/picture.h"
+#include "gt4r/race/photo_pause.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/sim/ai/course_lines.h"
 #include "gt4r/sim/ai/demo_driver.h"
@@ -155,6 +158,7 @@ struct Setup {
     int demo_skip = 0;       // its steps run unseen first (`skip`)
     bool solo = false;       // a run alone (a recorded free run's)
     int save_replay = 0; // `save=1`: the run `replay=N` drove saved as a replay file; `save=N`: the run at its step N
+    bool photo_pause = false; // `photo=1`: Select in its replay opens the photo pause (as the Replay Theater's and the photo drive's)
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
@@ -240,6 +244,7 @@ Setup setup_from_env() {
         else if (k == "wing") s.wing = v;
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
+        else if (k == "photo") s.photo_pause = v != "0";
         else if (k == "smoke") s.smoke = v != "0";
         else if (k == "driver") s.drivers = v != "0";
         else if (k == "reflection") s.reflection = v != "0";
@@ -2334,6 +2339,141 @@ public:
         return pose;
     }
 
+    // ---- The photo pause (app/race_photo.h): what it asks of the race.
+
+    // The followed car's box corner `i` (0 .. 7) in course space, its height and length grown by `up`, `low` and `ahead`.
+    RVec photo_corner(size_t f, const race::CarState& me, int i, float up = 1, float low = 0, float ahead = 1) const {
+        const race::CarVisual& v = world_->visual(f);
+        const render::Mat4 body = v.body_matrix(me);
+        const float x = i & 1 ? v.bounds_max().x : v.bounds_min().x, y = i & 2 ? v.bounds_max().y * up : -v.bounds_max().y * low;
+        const float z = i & 4 ? v.bounds_min().z * ahead : v.bounds_max().z;
+        return body.transform_point({x, y, z});
+    }
+    // The camera list's makings as the pause opens (0x375C08 -> 0x3FFD10): the followed car, the camera shown, the roadside points
+    // that serve the car's stretch of the lap (0x3FDC50: their stretch covers its distance, at most 63).
+    race::photo::ShotScene photo_scene(u32 seed) {
+        race::photo::ShotScene s;
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const race::CarState& me = cars[f];
+        const race::CarVisual& v = world_->visual(f);
+        const render::Mat4 body = v.body_matrix(me);
+        s.car = {me.position.x, me.position.y, me.position.z};
+        const RVec o = body.transform_point({0, 0, 0});
+        RVec right = body.transform_point({1, 0, 0}) - o, back = body.transform_point({0, 0, 1}) - o;
+        right.y = back.y = 0;
+        if (render::length(right) > 1e-4f) s.right = right * (1 / render::length(right));
+        if (render::length(back) > 1e-4f) s.back = back * (1 / render::length(back));
+        s.half_width = (v.bounds_max().x - v.bounds_min().x) * 0.5f, s.front = -v.bounds_min().z, s.rear = v.bounds_max().z;
+        const race::ViewPose pose = current_pose(cars, false);
+        s.eye = pose.eye, s.view = pose.view;
+        // (the program's angle of the shot: shown_angle's inverse)
+        s.lens = 2 * std::atan(std::tan(pose.fov * 0.5f) * (293.1175f / 426.6667f));
+        if (!replay_script_.points.empty()) {
+            const float d = replay_script_.distance(me.lap + 1, me.course_v), period = replay_script_.period();
+            for (const race::ReplayPoint& p : replay_script_.points) {
+                bool covers = p.start <= d && d < p.end;
+                for (int k = -1; !covers && period > 0 && k <= 1; k += 2) covers = p.start <= d + float(k) * period && d + float(k) * period < p.end;
+                if (covers && s.points.size() < 63) s.points.push_back({p.kind, p.at});
+            }
+        }
+        const course::Runway* road = &world_->course().road();
+        s.ground = [road](float x, float z, float from, float& y) { return road->height_at(x, z, from, y); };
+        const gt3r::race::Occluder* occ = &world_->course().occluder();
+        s.clear = [occ](const RVec& from, const RVec& to) {
+            if (occ->empty() || !occ->segment_blocked(from, to)) return to;
+            float lo = 0, hi = 1;
+            for (int i = 0; i < 20; ++i) {
+                const float mid = (lo + hi) * 0.5f;
+                (occ->segment_blocked(from, from + (to - from) * mid) ? hi : lo) = mid;
+            }
+            const float len = render::length(to - from);
+            return from + (to - from) * std::max(0.0f, lo - (len > 0 ? 0.15f / len : 0.0f));
+        };
+        s.seed = seed;
+        return s;
+    }
+    // The race through the photo camera: `ahead` of a step on, the cars between this step's states and the next's (a replay).
+    void draw_photo(Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {
+        std::span<const race::CarState> cars = shown();
+        if (ahead > 0 && replaying_ && replay_at_ + 1 < history_.size() && history_[replay_at_ + 1].size() == cars.size()) {
+            blended_.resize(cars.size());
+            for (size_t i = 0; i < cars.size(); ++i) blended_[i] = race::blend_states(history_[replay_at_][i], history_[replay_at_ + 1][i], std::min(ahead, 1.0f));
+            cars = blended_;
+        }
+        world_->set_grade(grade);
+        world_->set_trail(0);
+        world_->set_dissolve(false, 0, false);
+        world_->set_lens(lens ? std::optional<RaceWorld::Lens>(*lens) : std::nullopt);
+        world_->render(ui, rect, cars, pose, focus(), -1);
+        world_->set_lens(std::nullopt);
+    }
+    // What the finder's middle shows (the manual focus): the scenery along the view, or the followed car's box before it.
+    float photo_middle_depth(const RVec& eye, const render::Mat4& view) const {
+        const RVec ahead{-view.at(2, 0), -view.at(2, 1), -view.at(2, 2)};
+        float near = 0, far = 500;
+        const gt3r::race::Occluder& o = world_->course().occluder();
+        if (!o.empty() && o.segment_blocked(eye, eye + ahead * far))
+            for (int i = 0; i < 24; ++i) {
+                const float mid = (near + far) * 0.5f;
+                (o.segment_blocked(eye, eye + ahead * mid) ? far : near) = mid;
+            }
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const race::CarVisual& v = world_->visual(f);
+        const render::Mat4 body = v.body_matrix(cars[f]);
+        const RVec at = body.transform_point({0, 0, 0});
+        const RVec ax[3] = {body.transform_point({1, 0, 0}) - at, body.transform_point({0, 1, 0}) - at, body.transform_point({0, 0, 1}) - at};
+        const float lo[3] = {v.bounds_min().x, 0, v.bounds_min().z}, hi[3] = {v.bounds_max().x, v.bounds_max().y, v.bounds_max().z};
+        float t0 = 0, t1 = far;
+        const RVec d = eye - at;
+        for (int k = 0; k < 3; ++k) {
+            const float p = render::dot(d, ax[k]), q = render::dot(ahead, ax[k]);
+            if (std::fabs(q) < 1e-5f) {
+                if (p < lo[k] || p > hi[k]) t1 = -1;
+                continue;
+            }
+            float a = (lo[k] - p) / q, e = (hi[k] - p) / q;
+            if (a > e) std::swap(a, e);
+            t0 = std::max(t0, a), t1 = std::min(t1, e);
+        }
+        return t0 <= t1 && t1 > 0 ? std::max(t0, 0.1f) : far;
+    }
+    // The focus on the followed car by itself (0x3FD3D8): where its nearest point blurs by 1/960 of the picture (photo::auto_focus).
+    std::optional<float> photo_car_focus(const render::Mat4& view, float f_number, float fov_degrees) const {
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const float nearest = world_->nearest_depth(f, cars[f], view);
+        if (!(nearest > 0)) return std::nullopt;
+        return std::max(photo::auto_focus(std::max(nearest, 0.1f), f_number, 1.0f / std::tan(fov_degrees * 0.5f * 3.14159274f / 180.0f)), 0.1f);
+    }
+    // Where the followed car is in the photo (0x3785D0): its box a little longer and taller, in -1 .. 1; none out of the picture.
+    std::optional<menu::JpegPicture::Focus> photo_car_frame(const render::Mat4& view, float px, float py) const {
+        const std::span<const race::CarState> cars = shown();
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        float x0 = 10, x1 = -10, y0 = 10, y1 = -10;
+        for (int i = 0; i < 8; ++i) {
+            const RVec e = view.transform_point(photo_corner(f, cars[f], i, 1.4f, 0.15f, 1.6f));
+            const float w = -e.z;
+            float x = e.x * px, y = e.y * py;
+            if (w < 0.001f) x = x < 0 ? -1.0f : x > 0 ? 1.0f : x, y = y < 0 ? -1.0f : y > 0 ? 1.0f : y;
+            else x /= w, y /= w;
+            x = std::clamp(x, -10.0f, 10.0f), y = std::clamp(y, -10.0f, 10.0f);
+            x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+        }
+        auto outside = [](float lo, float hi) { return hi <= -1 || 1 <= lo; };
+        if (outside(x0, x1) || outside(y0, y1)) return std::nullopt;
+        menu::JpegPicture::Focus r;
+        r.x0 = std::max(x0, -1.0f), r.x1 = std::min(x1, 1.0f), r.y0 = std::max(y0, -1.0f), r.y1 = std::min(y1, 1.0f);
+        r.x = (r.x0 + r.x1) * 0.5f, r.y = (r.y0 + r.y1) * 0.5f;
+        return r;
+    }
+    // The followed car's label and the course's file (the photo's record on the card).
+    std::string photo_car_label() const {
+        const size_t f = focus() < world_->car_count() ? focus() : 0;
+        return world_->setup().entries.size() > f ? world_->setup().entries[f].label : std::string();
+    }
+
     // A car's gap behind the leader now (ms): the time since the leader was where it is (❓ the program's
     // gap is not read); 0 for the leader, -1 before the start.
     s64 gap_ms(size_t car) const {
@@ -2906,8 +3046,11 @@ public:
             }
             return;
         }
-        // A replay's and a demonstration's keys; Select holds it still (SimplePause: Select again goes on).
+        if (photo_) return update_photo(app, m, dt);
+        // A replay's and a demonstration's keys; Select holds it still (SimplePause: Select again goes on), or opens the photo pause
+        // in the Replay Theater and the photo drive (PhotoPause, RaceBasic::vf149 0x38B0E0 with the race's +0xE404).
         if (race_->viewing() && !paused_ && !results_shown()) {
+            if (m.pressed(PadButton::Select) && !race_->replay_done() && photo_pause_here() && !replay_paused_) return open_photo(app);
             if (m.pressed(PadButton::Select) && !race_->replay_done()) {
                 replay_paused_ = !replay_paused_;
                 race_->pause_sound(replay_paused_);
@@ -2992,6 +3135,8 @@ public:
         const bool pit_menu = update_pit_menu(app, m, dt);
         if (race_->watched() && pit_menu) {
             if (monitor_) monitor_->advance(float(dt)), fill_monitor();
+        } else if (race_->watched() && photo_pause_here() && m.pressed(PadButton::Select)) {
+            return open_photo(app); // (the photo drive's B-spec run: its play mode 1 opens the pause too)
         } else if (race_->watched()) {
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
             // R2 the display, Up / Down the car the views follow, Circle the pit (the player's car in at the
@@ -3114,6 +3259,18 @@ public:
             return;
         }
         const Uint64 t0 = SDL_GetTicksNS();
+        if (photo_) {
+            // The photo pause: its finder and movie; the photo's page over them.
+            photo_->render(ui);
+            if (photo_saving_ && menus_) {
+                const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
+                if (!painter_) painter_ = make_menu_painter(app);
+                painter_->draw(*menus_, x, scale);
+                if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            }
+            last_frame_ns_ = 0;
+            return;
+        }
         if (license_page() && !prologue_hud_) {
             // The test's results page: the race in its live inset (the movie's picture, 300 x 225 at
             // its scale; it starts over the whole picture and shrinks into place) on black.
@@ -3639,6 +3796,61 @@ private:
         pit_->navigate(true, false); // (0x3DCC50: the movie's +0x18 set, +0x14 clear)
     }
 
+    // ---- The photo pause (app/race_photo.h): the Replay Theater's replays and the photo drive's (0x10CA50, 0x11ABE0 set it as the
+    // race's second pause, +0xE404), Select in a replay or in the photo drive's B-spec run.
+    bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
+    void open_photo(App& app) {
+        RacePhotoPause::Race r;
+        Race* race = race_.get();
+        r.draw = [race](Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {
+            race->draw_photo(ui, rect, pose, lens, grade, ahead);
+        };
+        r.world.middle_depth = [race](const RVec& eye, const render::Mat4& view) { return race->photo_middle_depth(eye, view); };
+        r.world.car_focus = [race](const render::Mat4& view, float f_number, float fov) { return race->photo_car_focus(view, f_number, fov); };
+        r.car_frame = [race](const render::Mat4& view, float px, float py) { return race->photo_car_frame(view, px, py); };
+        race_->pause_sound(true);
+        photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), race_->photo_scene(u32(SDL_GetTicksNS() >> 10) | 1), menus_ ? &menus_->game() : nullptr);
+        photo_saving_ = false;
+    }
+    void update_photo(App& app, const MenuInput& m, double dt) {
+        if (photo_saving_) {
+            // The photo's page (photo_save with "filmphoto": START saves it, Square goes back to the camera).
+            try {
+                send_menu_keys(*menus_, m);
+                menus_->update();
+            } catch (const std::exception& e) {
+                menus_->note(std::string("stopped: ") + e.what());
+                menus_->finish();
+            }
+            if (!menus_->finished()) return;
+            photo_saving_ = false;
+            menus_->photo_picture.reset();
+            photo_->back_from_saving();
+            return;
+        }
+        photo_->update(m, app.menu_pad(), dt);
+        if (photo_->wants_saving()) {
+            if (!menus_) return photo_->back_from_saving();
+            // The race's display state kept, the menus' project over the still race (0x3C51A0).
+            std::shared_ptr<menu::PhotoPicture> p = photo_->picture();
+            p->course = setup_.course, p->car_label = race_->photo_car_label();
+            menus_->photo_picture = p;
+            menus_->game().next_menu_arg = "filmphoto";
+            try {
+                menus_->start_project("photo_save");
+                photo_saving_ = true;
+            } catch (const std::exception& e) {
+                menus_->note(std::string("stopped: ") + e.what());
+                photo_->back_from_saving();
+            }
+            return;
+        }
+        if (photo_->closed()) {
+            photo_.reset();
+            race_->pause_sound(replay_paused_);
+        }
+    }
+
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
 
     void open_pause(App& app) {
@@ -3952,6 +4164,15 @@ private:
     // result to Gran Turismo mode, then the sequence's menus.
     void run_over() {
         if (setup_.qualify) return end_qualify(app_);
+        // The photo drive's driven run (0x11ABE0, its command 1): its replay at once, with the photo pause; then its menus.
+        if (sequence_ == "photo_drive" && !spectator_ && !demo_ && !photo_drive_replayed_ && race_->has_run()) {
+            report_result();
+            photo_drive_replayed_ = true;
+            quick_ = false;
+            race_->start_replay();
+            return;
+        }
+        photo_drive_replayed_ = false;
         int can = spectator_ ? 2 : 1;
         // A license test's page after a demonstration has no Replay (0x11CED8: canReplay 0; ✔ 34-b3-demo, the Replay icon a
         // run added is gone after the demo), nor after a run that ended before 2 s on the race clock (0x11CE3C: 0x358440,
@@ -4893,6 +5114,9 @@ private:
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
     bool replay_paused_ = false; // a replay held still (Select)
+    std::unique_ptr<RacePhotoPause> photo_; // the photo pause (Select in the Replay Theater and the photo drive)
+    bool photo_saving_ = false;             // its photo's page (photo_save) up
+    bool photo_drive_replayed_ = false;     // the photo drive's run has gone on into its replay
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
     std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race
     std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu
