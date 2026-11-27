@@ -66,7 +66,7 @@ RacePhotoPause::RacePhotoPause(App& app, RaceHud* hud, Race race, const photo::f
         const float k = kPi / 180.0f;
         const render::Mat4 v = render::rotate_x(s.pitch * k) * render::rotate_y(s.yaw * k);
         const RVec up = v.transform_point({c.up.x, c.up.y, c.up.z});
-        s.turn_roll = std::atan2(up.x, up.y) / k;
+        s.turn_roll = std::atan2(up.x, up.y) / k - (ph.upright ? 90.0f : 0.0f); // (an upright film's camera is turned a quarter)
         s.fov = 2 * std::atan(std::tan(c.fov * 0.5f * k) * c.aspect) / k;
         s.fov_min = 0.1f, s.fov_max = 179, s.fov_min_set = true;
         s.distance = s.focus = std::max(render::length(d), 0.1f);
@@ -252,7 +252,10 @@ photo::film::Film RacePhotoPause::film() const {
     // 4:3 picture's width, the projection's scales' ratio, its planes, the settings.
     auto camera = [&](const race::photo::Vec3& eye, const render::Mat4& view) {
         photo::film::Camera c;
-        const RVec ahead{-view.at(2, 0), -view.at(2, 1), -view.at(2, 2)}, up{view.at(1, 0), view.at(1, 1), view.at(1, 2)};
+        // (upright, the camera is turned a quarter: its up the view's right, the angle still across the 32 mm side: ✔ the original's
+        // upright film at 115 mm, up (0.402, 0, 0.916) the view's right, 15.88 degrees, near 0.669)
+        const int r = camera_.portrait() ? 0 : 1;
+        const RVec ahead{-view.at(2, 0), -view.at(2, 1), -view.at(2, 2)}, up{view.at(r, 0), view.at(r, 1), view.at(r, 2)};
         const float d = std::max(camera_.focus(), 1.0f);
         c.eye = {eye.x, eye.y, eye.z}, c.target = {eye.x + ahead.x * d, eye.y + ahead.y * d, eye.z + ahead.z * d}, c.up = {up.x, up.y, up.z};
         c.fov = 2 * std::atan(std::tan(camera_.fov() * 0.5f * kPi / 180.0f) / 0.75f) * 180.0f / kPi;

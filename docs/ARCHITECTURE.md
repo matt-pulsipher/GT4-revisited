@@ -82,8 +82,9 @@ Gran Turismo 4's.
 - **The program's tables.** Gran Turismo 4's are values in our code (`sim/program_tables*`,
   SCUS-97328 v1.01's). `sim::Program` serves them by their v1.01 address on any Gran Turismo 4
   disc and checks the disc's own program against them once, logging what differs or is missing
-  (physics.md "Program tables"). Prologue's are read from its recognized build
-  (`sim/program_prologue.*`).
+  (physics.md "Program tables"). Prologue's are values too (`sim/program_tables_prologue*`,
+  SCPS-15055 v1.01's), served on any Prologue disc and checked against its program once
+  (formats/prologue.md "The program").
 - **The engine's GT3 tables** (`ProgramData`, `sim::core_program`) reach the race step only
   through the engine's own rules (`GT4R_SIM_RULES=engine`, for comparisons) and through parts of
   Prologue's path (physics.md "What runs where").

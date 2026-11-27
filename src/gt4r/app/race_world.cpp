@@ -8,6 +8,7 @@
 
 #include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/program_tables_prologue.h"
 
 #include "base/log.h"
 #include "gt4r/audio/race_sound.h"
@@ -26,6 +27,7 @@
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
 #include "gt4r/race/license_scene.h"
+#include "gt4r/race/picture_scale.h"
 #include "gt4r/race/pit_scene.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
@@ -375,8 +377,10 @@ void RaceWorld::build_simulation() {
                 hand_speeds_.emplace();
                 for (u32 k = 0; k < 11; ++k) (*hand_speeds_)[k] = race::posture::F::raw(program.w(0x622A20 + 4 * k));
             }
-            // The materials off the course (0x622430, read by 0x3F4EA0).
-            for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
+            // The materials off the course (0x622430, read by 0x3F4EA0; Prologue's 0x503E28, by 0x3B4738).
+            for (u32 m = 0; m < soft_.size(); ++m)
+                soft_[m] = program.prologue_values() ? (m < sim::kPrologueSoftCount ? program.w(sim::kPrologueSoft + 4 * m) : 0)
+                                                     : program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
                 const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
@@ -1343,10 +1347,10 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     if (m.sun_disc.active()) {
         // The sun's disc right after the sky (the first item), before the backdrop. GT4 draws it as the shared engine's routine does
         // (fn_00398650 -> 0x4986D8: the sun's RGB x gain / 2, added at As / 128) into the frame that is then multiplied by the
-        // picture's scale (Env0 +0x38, docs/formats/course.md "The picture's scale"), which ours puts on the stored colors instead:
-        // the disc's passes once per unit of that scale (twice the shared engine's strength at 2.0).
+        // picture's scale (Env0 +0x38, docs/formats/course.md "The picture's scale"): once where the engine multiplies the picture;
+        // where it does not, the stored colors carry the scale and the disc's passes go in once per unit of it (race::stored_color_scale).
         std::vector<render::DrawItem> disc;
-        const int times = std::clamp(int(std::lround(course_->color_scale())), 1, 4);
+        const int times = std::clamp(int(std::lround(race::stored_color_scale(course_->color_scale()))), 1, 4);
         for (int k = 0; k < times; ++k) m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
         for (render::DrawItem& it : disc) it.background = false, it.in_order = true, it.no_fog = true;
         m.items.insert(m.items.begin() + 1, disc.begin(), disc.end());
@@ -1407,6 +1411,9 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
 
     render::DrawOptions& o = s.options;
     o = draw_options(*course_, far);
+    const float scale = course_->color_scale();
+    race::draw_at_picture_scale(o, scale);
+    race::light_at_picture_scale(m.items, 0, scale);
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
     // at a time. GT4's map camera (DynamicEnvmapCamera, 0x44EEA8 / 0x44E660) is the shared engine's: 0.8 m above the car, tilted
     // 15 degrees, three panels to 200 m warped at 0.9 into a sphere map, so the engine's lookup is GT4's; the map is 128 pixels
@@ -1416,7 +1423,9 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
         const render::Mat4 sky_rot = render::rotate_x(env.sky_pitch * kPi / 180) * render::rotate_y(env.sky_yaw * kPi / 180);
         if (course_->add_env_items(m.env_items, at, sky_rot)) {
-            render::DrawOptions eo = o;
+            race::light_at_picture_scale(m.env_items, 0, scale);
+            render::DrawOptions eo = draw_options(*course_, far);
+            race::draw_below_picture_scale(eo, scale);
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
             eo.fog = false;
@@ -1452,7 +1461,9 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye, m.motion(i));
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
         for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
-        const render::DrawOptions wo = draw_options(*course_, far);
+        race::light_at_picture_scale(m.wet_items, 0, course_->color_scale());
+        render::DrawOptions wo = draw_options(*course_, far);
+        race::draw_below_picture_scale(wo, course_->color_scale());
         if (SDL_GPUTexture* t = m.wet.render(view3d, pose.view, proj, pose.eye, m.wet_items, wo)) {
             std::vector<render::DrawItem> frame;
             m.wet.add_frame_items(frame, pose.view, frustum, t);
@@ -1700,6 +1711,8 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         o.fog_max = std::clamp(1.0f - env.mirror_fog_b, 0.0f, 1.0f);
         for (int i = 0; i < 3; ++i) o.fog_color[i] = std::clamp(env.mirror_fog_rgb[size_t(i)], 0.0f, 1.0f);
     }
+    race::draw_at_picture_scale(o, course_->color_scale());
+    race::light_at_picture_scale(m.mirror_items, 0, course_->color_scale());
     if (v.view && v.env_ready) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true;
     const float t = std::tan(pose.fovy() * 0.5f) / zoom;
     const render::Mat4 proj = render::perspective(2.0f * std::atan(t), rect.w / rect.h, 0.1f, kDepth);

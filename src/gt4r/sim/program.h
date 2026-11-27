@@ -3,8 +3,9 @@
 // The game program's own tables that the simulation reads (docs/specs/physics.md "Program tables"). On a Gran Turismo 4
 // disc, whatever its build, they are Gran Turismo 4's own as program_tables.h carries them (SCUS-97328 v1.01's), read by
 // their address in that build; the disc's program is checked against them once (check(): what differs or is not found is
-// logged). On a Prologue disc the image's own bytes serve (program_prologue.h places Prologue's tables). A program image
-// given as it is (from_image: the interpreter's memory) serves its own bytes.
+// logged). On a Prologue disc Prologue's own tables serve, as program_tables_prologue.h carries them (SCPS-15055 v1.01's), the
+// disc's program compared with them once (logged); a read outside them is the image's (logged). A program image given as it is
+// (from_image: the interpreter's memory) serves its own bytes.
 
 #include "disc/core_image.h"
 #include "gt4r/base/types.h"
@@ -36,6 +37,8 @@ public:
     const std::string& issue() const { return issue_; }
     // Our tables served (a disc's Gran Turismo 4 program), not the image's bytes.
     bool ours() const { return ours_; }
+    // Prologue's tables served (a Prologue disc's program, program_tables_prologue.h), not the image's bytes.
+    bool prologue_values() const { return prologue_; }
     // The disc's program against our tables (empty rows for an image or Prologue's).
     const TableCheck& check() const;
     // The release whose tables are served (program_tables.h): the program's own, SCUS-97328 v1.01's for another build.
@@ -73,7 +76,7 @@ private:
     std::shared_ptr<const gt3r::CoreImage> core_; // (shared: every Program of a disc holds the one image)
     std::shared_ptr<const TableCheck> check_;     // (shared likewise: made once per image)
     u32 base_ = 0;
-    bool known_ = false, ours_ = false, release_known_ = false;
+    bool known_ = false, ours_ = false, release_known_ = false, prologue_ = false;
     Release release_ = Release::Us;
     std::string issue_ = "no program";
 };

@@ -5,6 +5,7 @@
 #include "formats/model/brake_model.h"
 #include "gt4r/race/car_pose.h"
 #include "gt4r/race/driver_figure.h"
+#include "gt4r/race/picture_scale.h"
 #include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
@@ -72,6 +73,7 @@ gt3r::gtm1::Options car_options() {
     o.program_alpha_test = true;
     o.weighted_reflection = true;
     o.gs_mip_levels = true;
+    use_node_fog(o);
     return o;
 }
 

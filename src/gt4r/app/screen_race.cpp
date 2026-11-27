@@ -142,6 +142,9 @@ struct Setup {
     int start_seconds = 0;
     float start_speed = 0; // a rolling start's (metres per second)
     std::vector<std::array<float, 2>> test_starts; // Prologue's test's rolling start, by car: km/h, metres from the line (sim::RaceRules)
+    // A single player's race whose event row gives the player's car a place and a speed (the conductor's virtual 30, 0x347618:
+    // a distance not 0 with a speed; the photo drive's row: 30 m before the line at 30 km/h): km/h, metres from the line; 0: none.
+    int row_start_kmh = 0, row_start_m = 0;
     float start_back = 400, start_spacing = 20; // a rolling start's last place behind the line and the gap between places (metres)
     int start_kind = 0;        // a rolling start's kind (3 a free run's; 0 by its distance)
     bool course_start = false; // the start the course's start code gives (race/start_rule.h)
@@ -734,6 +737,7 @@ public:
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
+            if (i == 0 && setup.row_start_kmh > 0) e.start_speed = float(setup.row_start_kmh) / 3.6f, e.start_distance = float(setup.row_start_m);
             // (A free practice, 0x3F4F10: the player's car a pit start (kind 6) on its grid place; the others rolling at 120 km/h
             // from 300 + 24 x their number metres behind the line)
             if (free_practice(setup) && i == 0) e.start_kind = 6, e.start_speed = 0;
@@ -875,6 +879,7 @@ public:
                 fs.back.push_back(u8(world_->start_back(i)));
             }
             if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
+            fs.timed_from_start = setup_.row_start_kmh > 0;
             fs.no_lap = world_->start_race().way == 1;
         } else fs.sectors = splits_;
         if (free_practice(setup_) && !(db_ && db_->prologue()))
@@ -1904,7 +1909,7 @@ public:
     float bspec_distance() const { return bspec_distance_; } // those of them the B-spec driver drove
     float lap_length() const { return world_->lap_length(); }
     // The race's words for one lap and several (the results' "+1Lap").
-    void set_card(int tire, std::string race_word) { tire_index_ = tire, race_word_ = std::move(race_word); }
+    void set_card(int tire, std::string race_word, int number = -1) { tire_index_ = tire, race_word_ = std::move(race_word), race_number_ = number; }
     void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
     int beeps() const { return beeps_; }
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
@@ -2020,7 +2025,8 @@ public:
             const std::string t1 = tire_word(0), t2 = tire_word(1);
             std::string line = hud.word("RaceInfoFormat");
             // (The race's name: a race word, or "=<text>" written as it is: a license test's title.)
-            const std::string name = race_word_.rfind('=', 0) == 0 ? race_word_.substr(1) : hud.word(race_word_);
+            std::string name = race_word_.rfind('=', 0) == 0 ? race_word_.substr(1) : hud.word(race_word_);
+            if (race_number_ > 0) name += std::to_string(race_number_);
             const std::string parts[3] = {power, t1 + "/" + t2, name};
             for (const std::string& part : parts)
                 if (const size_t at = line.find("%s"); at != std::string::npos) line.replace(at, 2, part);
@@ -2744,6 +2750,21 @@ public:
                 fr.cars.push_back(std::move(c));
             }
         }
+        // The last frame's cones and boards (GDGT) and particle emitters (PTCL), as the original writes them after the cars.
+        if (!f.frames.empty()) {
+            std::vector<photo::film::GadgetSlot> slots(photo::film::kGadgetSlots);
+            const std::vector<race::GadgetBodies::Body>& bodies = world_->gadget_bodies().bodies();
+            for (size_t i = 0; i < bodies.size() && i < slots.size(); ++i) {
+                const race::GadgetBodies::Body& b = bodies[i];
+                photo::film::GadgetSlot& g = slots[i];
+                g.used = !b.removed;
+                g.moving = std::count(b.contact.begin(), b.contact.end(), u8(2)) < 3;
+                g.kind = u8(b.kind), g.angles = b.angles, g.pos = {b.pos.x, b.pos.y, b.pos.z};
+            }
+            f.frames.back().gadgets = photo::film::gadgets_payload(slots);
+            // (no emitter written: the race's smoke is drawn by the shared engine, not by the program's emitters)
+            f.frames.back().particles = photo::film::no_particles();
+        }
     }
     // The followed car's label and the course's file (the photo's record on the card).
     std::string photo_car_label() const {
@@ -2910,6 +2931,7 @@ private:
     bool built_ = false, last_race_ = false, license_sounded_ = false; // (the race's music: a series' last race, a test's result heard)
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
+    int race_number_ = -1;                          // and its number after it ("%s%d" when above 0: a mission's)
     bool throttle_held_ = false;
     bool stale_ = false; // the cars were set up before the player's last choice
     int gear_shown_ = 1;
@@ -3175,6 +3197,24 @@ public:
         // The photo drive's race has no number of laps: its display shows the lap alone (✔ the original's GT mode photo drive at
         // Tsukuba: "Lap 1", the position, the lap clock, the best and last lap), and no count ends it.
         if (setup_.sequence == "photo_drive") setup_.laps = 0;
+        // The photo drive's start (RaceGTmode on the single player's conductor, the race's label "photo_drive" its RACE row): the
+        // row gives car 0 a distance (+0x14, -30 m) and a speed (+0x42, 30 km/h), so the car starts there on the move, kind 2,
+        // driven by its computer driver to the line (vf30 0x347618); no hold (vf10 0x3475B8 answers 0 with a speed for car 0); the
+        // course's rolling speed cleared (vf28 0x34D490, a car with a place of its own), so the clock is not held for the line
+        // (vf27 0x3477C8) and runs from the first step, the first lap timed from it. ✔ The original's: "0'13.1" at about 14 s.
+        if (setup_.sequence == "photo_drive" && !setup_.start_given)
+            if (db::SpecDb* sdb = app.db(); sdb && !sdb->prologue()) {
+                gt3r::Vfs* vfs = app.vfs();
+                const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+                if (const std::optional<db::RaceEvent> e = find_event(events, "photo_drive", region_of(app))) {
+                    const race::RowStart rs = race::RowStart::from_row(e->bytes);
+                    if (rs.distance[0] != 0 && rs.speed[0] > 0) {
+                        setup_.start = race::StartType::Moving;
+                        setup_.row_start_kmh = rs.speed[0], setup_.row_start_m = rs.distance[0];
+                        setup_.start_speed = float(rs.speed[0]) / 3.6f;
+                    }
+                }
+            }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())
@@ -3204,6 +3244,7 @@ public:
             q.race = setup_.race, q.sequence = setup_.sequence;
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
             test_car(app, setup_, q);
+            menu::start_quick_work(*menus_, q); // (the sequence's work as its start fills it: the B-spec button and the rest)
             // An event's grid from its pool (`race=<label>`, no `opponents`).
             if (!setup_.race.empty() && setup_.opponents.empty() && setup_.cars > 1) draw_grid(app, setup_, q);
             if (sequence_ == "single_race" && !setup_.event_row.empty()) apply_arcade_options(setup_);
@@ -4169,8 +4210,14 @@ private:
     }
     bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
     void open_photo(App& app) {
-        // The pause's first step (PhotoPause::vf4 0x3C4A48): with the followed car in a pit visit (0x35BBD8; the program's
-        // override 0x6201A8 is 0 and never set) the race's text CantCaptureWhenPitSequence for 3 s, and no pause.
+        // The pause's first step (PhotoPause::vf4 0x3C4A48) refuses, and the pause ends at once: while the race's B-spec panel
+        // (race +0xE424) shows the Race Monitor (its state +0x28 at 1, 0x3D8AB0: the state its fade switched to, 0x3DA380; the
+        // monitor's opening 0x3D91C0) with the sound `disable`; with the followed car in a pit visit (0x35BBD8; the program's
+        // override 0x6201A8 is 0 and never set) with the race's text CantCaptureWhenPitSequence for 3 s.
+        if (race_->watched() && monitor_) {
+            if (audio::AppSound* sound = app.sound()) sound->menu().play("disable");
+            return;
+        }
         if (race_->shown_pit_stage() != 0) {
             if (hud_ && hud_->ready()) race_->post_notice(hud_->word("CantCaptureWhenPitSequence"));
             return;
@@ -4298,9 +4345,10 @@ private:
         }
         if (!pause_movie_) return;
         // The entries by the race's class (docs/formats/strobe.md "Entries per mode"): a retry in the
-        // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races.
+        // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races (RaceGTmode: the events' 0x113B48
+        // and the photo drive's 0x11ABE0; the championship's).
         const bool retry = is_license(sequence_) || sequence_ == "mission" || sequence_ == "machinetest";
-        const bool confirm = sequence_ == "solo_event" || sequence_ == "championship";
+        const bool confirm = sequence_ == "solo_event" || sequence_ == "championship" || sequence_ == "photo_drive";
         auto host = [this, &app, retry, confirm](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
             using V = race::StrobePlayer::Value;
             std::string n = name;
@@ -5537,13 +5585,14 @@ private:
             if (const auto l = setup_.options.find("language"); l != setup_.options.end())
                 if (const std::string* code = std::get_if<std::string>(&l->second)) hud_->set_language(app, *code);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
-            // The replay card's tires and race name.
+            // The replay card's tires and race name: the race's mode by its name in the race's words and its number (RaceDisplay::vf45
+            // 0x39C838 with the race's vf97: RaceBase's 0x38A328 the name of vf95's mode, the race's +0xD68 its class sets: Arcade's
+            // 1, the free run's 11, the free practice's 12, RaceGTmode's 13 (an event's race, the photo drive), the championship's
+            // 14; a mission's with its number, 0x3BFA78: "Mission 5"). ✔ The original's photo drive replay: "Event Race".
             const std::string& seq = setup_.sequence;
-            race_->set_card(menus_ ? menus_->game().race.tire : 4,
-                            is_license(seq)      ? "=" + license_title()
-                            : seq == "time_trial" ? "ARCADE_TIME_TRIAL"
-                            : seq == "solo_event" || seq == "championship" ? "GTMODE_EVENT_RACE"
-                                                                           : "ARCADE_SINGLE_RACE");
+            const std::pair<std::string, int> mode = menus_ && !is_license(seq) ? race_mode() : std::pair<std::string, int>{"NOTHING", -1};
+            race_->set_card(menus_ ? menus_->game().race.tire : 4, is_license(seq) ? "=" + license_title() : mode.first != "NOTHING" ? mode.first : "ARCADE_SINGLE_RACE",
+                            seq == "mission" ? mode.second : -1);
             work_ms_.clear(), interval_ms_.clear();
             last_frame_ns_ = 0, clock_ = 0;
         } catch (const std::exception& e) {

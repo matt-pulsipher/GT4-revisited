@@ -208,7 +208,27 @@ bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& t
 // 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
 // `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
 int gear_for_speed(const ex::Car& c, F v);
-void moving_start(ex::Car& c, F v);
+// 0x375340 (= Gran Turismo 4's 0x369640): a surface's bump wave at (x, z): sin(f x) + cos(f z), mode 1 its signed square.
+F bump_wave(int mode, F x, F z, F freq);
+// 0x3BAFE0 (= Gran Turismo 4's 0x3522B0 in its layout): the wheel's sideways hold near standstill.
+F low_speed_hold(const ex::Wheel& w);
+// 0x3DD910 (= Gran Turismo 4's 0x3484D0 in its layout): the HUD's steering percentage and the full throttle's flag from a pad.
+void pad_hud(ex::Car& c, const ex::PadFrame& f);
+// 0x3DDC40 and its caller's blend (0x3DEDE0): a computer's HUD steering percentage two thirds of the way to its command's
+// (100 % at 15 degrees).
+void ai_steer_pct(ex::Car& c);
+// Phase 12, 0x3B9280 (= Gran Turismo 4's 0x350308 in its layout): the pad's hit feedback cleared but after a hit of kind 2.
+void clear_hit(ex::Car& c);
+// 0x3C9108: the car moving at v (m/s) along its heading (Gran Turismo 4's 0x363868 without its top speed's cap, Prologue's gear,
+// over the wheel layout; start_prologue.cpp).
+void moving_start(ex::Car& c, const CarPart& x, F v);
+// 0x3C8E10: the car at rest at its start (Gran Turismo 4's 0x363560 in Prologue's record: the layout's wheels, the mean slip
+// angle 0).
+void standing_start(ex::Car& c, CarPart& x);
+// The pose's wheels (0x3C89D8's loop over the layout): each at rest under half its axle's load, its travel, its angle at no
+// command (0x3B5898, wheel_angle_by), its offset (with the steering mode 2 its angle), camber and half track.
+void pose_wheels(ex::Car& c, CarPart& x, const Tables& t);
+F wheel_angle_by(const ex::Car& c, const CarPart& x, int w, F delta);
 // 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
 u16 mileage(F fuel, F distance);
 // 0x3DC1C8 (phase 14): which cars are near which: for each pair that sees the other (0x3DBD10: neither a ghost, both on or

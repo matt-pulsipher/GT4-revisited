@@ -328,8 +328,9 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
     builder(db, program, eq, s);
     // 0x3F3B68's fix-ups.
     s.set_b(0x00, 2);
-    if (s.b(0x11C) == 0) s.set_b(0x11C, program.b(Program::kSpec11CDefault));
-    if (s.b(0x112) == 0) s.set_b(0x112, program.b(Program::kSpec112Default));
+    // (Gran Turismo 4's defaults: none on a Prologue program, whose own builder's are its core_spec's)
+    if (s.b(0x11C) == 0 && program.known()) s.set_b(0x11C, program.b(Program::kSpec11CDefault));
+    if (s.b(0x112) == 0 && program.known()) s.set_b(0x112, program.b(Program::kSpec112Default));
     if (s.b(0x01) >= 2 && s.b(0x01) <= 4) s.set_b(0x11C, 0), s.set_b(0x112, 0);
     if (s.b(0x01) == 2 && (course_kind == 2 || course_kind == 3)) { // a rally car on a loose course
         const u32 t = Program::kLooseSetup;
@@ -342,8 +343,8 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
     }
     for (u32 o : {0x12u, 0x14u})
         if (s.sh(o) == 0) s.set_h(o, u32(int(s.sh(0x10)) / 2));
-    if (const u8 p = program.b(Program::kPitchInertiaPct)) s.set_b(0x25, u32(s.b(0x24)) * p / 100);
-    if (const u8 p = program.b(Program::kRollInertiaPct)) s.set_b(0x26, u32(s.b(0x24)) * p / 100);
+    if (const u8 p = program.known() ? program.b(Program::kPitchInertiaPct) : 0) s.set_b(0x25, u32(s.b(0x24)) * p / 100);
+    if (const u8 p = program.known() ? program.b(Program::kRollInertiaPct) : 0) s.set_b(0x26, u32(s.b(0x24)) * p / 100);
     // Europe's builder (0x3F3E70 there) then raises the yaw, pitch and roll inertia bytes to the static block's +0x153 ..
     // +0x155 where those are set (0, 0, 4: the roll's at least 4). v1.01 and Japan's have no such step.
     if (program.release() == Release::Europe)
