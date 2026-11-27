@@ -257,7 +257,12 @@ too (no car is driven meanwhile); with the mod back the car is there again. A mo
 page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at once; a mod removed while the game runs
 leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
-their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: mods' makers (`makers/`), another rim for a body of its own (`[model] wheel`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
+their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. The Car database's *Export* (Start) writes the car shown whole as a mod, `mods/cars_<disc>/`, for your other discs (it is
+off on the disc it came from): its rows of the database in a records file, its models and pictures. A disc that has the
+car makes it from its own; one that lacks it (the European disc's Vauxhalls on the American disc) takes the rows from
+the file, the rows it has under the same names its own. The exported files are your disc's: keep them for your own use;
+online, an exported car is never sent. Not yet: mods' makers (`makers/`), another rim for a body of its own
+(`[model] wheel`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
 the Priuses', the Insight's and the DN-X's, each work beside one; a car made from one of them keeps it), and a drive of
 ours would behave as no car of the game does; one gear and a curve of your own come closest.
 

@@ -23,6 +23,10 @@ namespace gt4r::db {
 // One car file. Unset values keep the donor's.
 struct ModCarDef {
     std::string label, name, maker, donor, body; // body: another disc car whose body and paints the car takes ([car] model)
+    // An exported disc car's (car_export.h): its rows' file (from the car file's folder) and its models' name; `imported` once
+    // they are what the car is made of (this disc lacks the donor).
+    std::string records, model_name;
+    bool imported = false;
     std::string mod, file;                       // the mod's id, the file's path (the loader's)
     std::optional<u16> year;
     std::optional<u32> price;

@@ -258,6 +258,14 @@ Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `sr
 - `[opponent] races`: an `ENEMY_CARS` row of the car as sold (its `GENERIC_CAR` set, no settings: the pools' own cars have
   none) at the end of each named race's pool (`RACES/<35, row>`, `SpecDb::race_file`), which the race draws from as it draws
   the disc's.
+- An exported disc car (`car_export.*`, the Car database's Export): a records file of every row the car names (from its
+  `GENERIC_CAR` row: its sets, the parts they and its `CARS/` file name, tire sizes, compounds and force rows, the engine's
+  texts, `ENEMY_CARS` and `DEFAULT_PARAM` rows of its Arcade versions, the `RACE` rows by label, its names and paints in
+  every language, its `ARCADEINFO_NORMAL` and `TUNER_LIST` rows), the texts they name and its `CARS/` file. A disc without
+  the car adds them under the car's label: a row whose label the disc has in that table is the disc's (a `RACE` row by its
+  label, none when it lacks it), every other row new, the references (sets, tire rows, `CARS/` codes, texts, the paint
+  group) made to the rows as added; the names and paints per language from the same language, else American; the paint
+  group's label the renamed model's.
 - A mod installed while the game runs: its cars are worked out on the tables as they are then (their ids kept clear of the
   cars in) and added to every table, list and pool already read (`SpecDb::add_mod_cars`); the menus add them to the makers'
   lists they have read (`menu::refresh_mod_cars`).

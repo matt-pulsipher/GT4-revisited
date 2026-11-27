@@ -115,6 +115,7 @@ public:
     // table, label list or pool is read and added to each as it is. `makers` (menu::ProgramTables::makers) match a car's
     // maker; set them before anything is read.
     void set_makers(std::map<int, std::string> makers) { makers_ = std::move(makers); }
+    const std::map<int, std::string>& makers() const { return makers_; }
     const ModCars& mod_cars();
     // The mods' cars the reader lists now that are not in yet (a mod installed since they were worked out), added to every table
     // read and to come; the labels added. The ones in stay as they are (a removed mod's car stays until the database is made
