@@ -442,7 +442,7 @@ its payload is 0x20 longer: the same up to the options' block (UserProfile 0x389
 block (the game zone on) 0x20 later. The block's +0x11A4 to its end is never a field: the option's reset
 (0x42EEC0) clears the whole block (0x11D8 bytes from +8) and sets nothing there, the copy (0x42FEE8) and the
 card's read and write move the block whole, and no load or store of the program at those offsets is the
-Option's (each of the 50 is another object's: the JPEG decoders, globals at 0x8x9E58 ..); so the program
+Option's (all 50 are other objects' or globals', none in the Option's code or through its pointer: the JPEG decoders, race objects, tables); so the program
 always writes zeros there, as ours does. Japan's Option +0x10 is a u32, `language_for_unit` (the language
 whose units the game shows: the reset sets it to the console's language, MOption's accessor 0x17E6F0 by
 name through 0x4870B8 / 0x487128, the option's apply 0x42F0E8 sets the units from it with 0x46A868 and
