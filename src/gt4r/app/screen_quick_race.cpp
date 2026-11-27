@@ -43,6 +43,7 @@
 #include "app/text_keyboard.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -180,6 +181,10 @@ public:
             start(app);
             return;
         }
+        if (std::exchange(script_cars_, false)) {
+            app.push(make_car_picker(app, cars_, {"QUICK RACE: YOUR CAR", car_}, [this](const PickedCar& c) { car_ = c, keep(); }));
+            return;
+        }
         if (script_custom_start_) {
             script_custom_start_ = false;
             start_custom(app);
@@ -261,9 +266,11 @@ private:
         const db::RaceEvents rows(*app.db(), read);
         const std::string region = app.disc() ? app.disc()->info().region : std::string("us");
         std::map<std::string, std::string> course_names;
-        for (const menu::SaveEditor::Course& c : editor.courses()) course_names[c.label] = c.name;
+        // (names the app's pages cannot show, the Japanese disc's, are made of the database's American names or the labels)
+        for (const menu::SaveEditor::Course& c : editor.courses())
+            if (latin_text(c.name)) course_names[c.label] = c.name;
         for (const db::CourseEntry& c : app.db()->courses())
-            if (!course_names.count(c.label) && !c.name.empty()) course_names[c.label] = c.name;
+            if (!course_names.count(c.label) && !c.name.empty() && latin_text(c.name)) course_names[c.label] = c.name;
         const auto course_name = [&](const std::string& label) {
             const auto it = course_names.find(label);
             return it != course_names.end() ? it->second : label;
@@ -276,15 +283,16 @@ private:
         const auto add = [&](Category& cat, QuickEvent q) {
             if (const std::optional<db::RaceEvent> e = row(q.race)) {
                 q.course = e->course, q.laps = e->laps, q.grid = e->grid;
-                if (q.course_name.empty()) q.course_name = course_name(e->course);
+                if (q.course_name.empty() || !latin_text(q.course_name)) q.course_name = course_name(e->course);
             }
+            if (!latin_text(q.name)) q.name = cat.title + " " + std::to_string(cat.events.size() + 1) + ": " + q.course_name;
             if (q.course.empty() || !app.vfs()->exists("crs/" + q.course)) return; // (an event without a course of the disc's)
             cat.events.push_back(events_.size());
             events_.push_back(std::move(q));
         };
         // Gran Turismo mode's event lists, each race of an event.
         for (const menu::SaveEditor::EventList& l : editor.events()) {
-            Category cat{l.title, "Gran Turismo mode", {}};
+            Category cat{latin_text(l.title) ? l.title : "Events " + std::to_string(categories_.size() + 1), "Gran Turismo mode", {}};
             for (const menu::SaveEditor::Event& e : l.events)
                 for (size_t r = 0; r < e.races.size(); ++r) {
                     QuickEvent q;
@@ -296,7 +304,13 @@ private:
         }
         // The license tests.
         for (const menu::SaveEditor::License& l : editor.licenses()) {
-            Category cat{l.name, "License tests", {}};
+            std::string license = l.name;
+            if (!latin_text(license)) { // ("l0b" .. : the license's letters)
+                license = l.category.size() > 2 ? l.category.substr(2) : l.category;
+                for (char& ch : license) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                license += " License";
+            }
+            Category cat{license, "License tests", {}};
             for (const menu::SaveEditor::LicenseTest& t : l.tests) {
                 QuickEvent q;
                 q.kind = Kind::License, q.race = t.label, q.id = "license:" + t.label, q.name = t.name;
@@ -321,7 +335,7 @@ private:
             for (const menu::SaveEditor::Course& c : editor.courses()) {
                 if (!seen.insert(c.label).second || !app.vfs()->exists("crs/" + c.label)) continue;
                 QuickEvent q;
-                q.kind = Kind::Arcade, q.id = "arcade:" + c.label, q.name = c.name, q.course = c.label, q.course_name = c.name;
+                q.kind = Kind::Arcade, q.id = "arcade:" + c.label, q.course = c.label, q.name = q.course_name = course_name(c.label);
                 cat.events.push_back(events_.size());
                 events_.push_back(std::move(q));
             }
@@ -856,7 +870,7 @@ private:
             return;
         }
         if (event_ >= 0 && (page == "setup" || page == "cars")) pages_.push_back({Page::Setup});
-        if (page == "cars") app_.push(make_car_picker(app_, cars_, {"QUICK RACE: YOUR CAR", car_}, [this](const PickedCar& c) { car_ = c; }));
+        script_cars_ = page == "cars";
         if (page == "list" && event_ >= 0)
             for (size_t c = 0; c < categories_.size(); ++c)
                 for (size_t k = 0; k < categories_[c].events.size(); ++k)
@@ -886,7 +900,7 @@ private:
     std::vector<std::string> course_list_;
     std::map<std::string, int> fields_;
     int fill_level_ = 0;
-    bool probe_arcade_ = false, script_custom_start_ = false;
+    bool probe_arcade_ = false, script_custom_start_ = false, script_cars_ = false;
     // A name typed.
     gt3r::TextKeyboard keys_;
     gt3r::TextKeyboard::Result typed_ = gt3r::TextKeyboard::Result::None;

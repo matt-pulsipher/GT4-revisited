@@ -9,9 +9,20 @@
 #include "gt4r/menu/save_editor.h"
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 
 namespace gt4r {
+
+bool latin_text(std::string_view s) {
+    for (size_t i = 0; i < s.size(); ++i) {
+        const u8 c = u8(s[i]);
+        if (c < 0x80) continue;
+        // (two-byte UTF-8 runs up to U+07FF: Latin, Greek, Cyrillic; three and four bytes: the rest, Japanese among them)
+        if (c >= 0xE0) return false;
+    }
+    return true;
+}
 
 struct CarCatalog::Impl {
     std::unique_ptr<menu::SaveEditor> editor; // (a new game's: its natives name the makers and the colors)
@@ -52,7 +63,22 @@ std::shared_ptr<CarCatalog> CarCatalog::of(App& app) {
         gt3r::Vfs* vfs = app.vfs();
         c->impl_->editor = std::make_unique<menu::SaveEditor>([vfs](const std::string& path) { return vfs->read(path); }, menus_config(app, "boot"));
         c->impl_->editor->start(menu::GameState{});
-        for (const menu::SaveEditor::CarKind& k : c->impl_->editor->cars()) c->cars_.push_back({k.label, k.name, k.maker, k.maker_key, k.year, k.price});
+        // (the database's American names where the menus' are not Latin: the Japanese disc's)
+        std::map<std::string, std::string> american;
+        for (const db::CarEntry& e : sdb->cars()) american[e.label] = e.name;
+        for (const menu::SaveEditor::CarKind& k : c->impl_->editor->cars()) {
+            Car car{k.label, k.name, k.maker, k.maker_key, k.year, k.price};
+            if (!latin_text(car.name)) {
+                car.name = american[k.label].empty() ? k.label : american[k.label];
+                for (char& ch : car.name)
+                    if (ch == '`') ch = '\'';
+            }
+            if (!latin_text(car.maker)) {
+                car.maker = k.maker_key;
+                if (!car.maker.empty()) car.maker[0] = char(std::toupper(static_cast<unsigned char>(car.maker[0])));
+            }
+            c->cars_.push_back(std::move(car));
+        }
     } else {
         // Prologue's: the database's names, no makers' (its menus list the cars themselves).
         for (const db::CarEntry& e : sdb->cars()) {
@@ -94,7 +120,7 @@ const std::vector<CarCatalog::Paint>& CarCatalog::paints(const std::string& labe
         }
         if (paints_[i].empty()) paints_[i] = one;
         for (size_t k = 0; k < paints_[i].size(); ++k)
-            if (paints_[i][k].name.empty()) paints_[i][k].name = "Color " + std::to_string(k + 1);
+            if (paints_[i][k].name.empty() || !latin_text(paints_[i][k].name)) paints_[i][k].name = "Color " + std::to_string(k + 1);
     }
     return paints_[i];
 }

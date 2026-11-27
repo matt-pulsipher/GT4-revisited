@@ -16,12 +16,17 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gt4r {
 
 class App;
 class Screen;
+
+// Whether the app's pages can show the text: Latin letters alone (their font has no Japanese or Chinese). The Japanese disc's
+// menu texts are Japanese: its pages then take the database's American names (which every disc has) or names made of labels.
+bool latin_text(std::string_view text);
 
 struct PickedCar {
     std::string label; // the car's label in the database ("ka_01")
