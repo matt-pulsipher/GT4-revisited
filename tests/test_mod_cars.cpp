@@ -450,3 +450,13 @@ TEST(mod_car_opponent) {
         CHECK(drawn.size() == 1 && drawn[0].car == "gt4r_test_alfa_26" && n > 1);
     }
 }
+
+// An electric drive is refused, with the reason (the game has none of its own).
+TEST(mod_car_electric_refused) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    db::SpecDb sdb = open_db(*disc, write_car("gt4r_test_ev_26.ini", "[car]\nlabel = gt4r_test_ev_26\nname = EV `26\ndonor = prius_g_02\n[powertrain]\ntype = electric\n"));
+    const std::vector<db::ModCarStatus>& st = sdb.mod_cars().statuses();
+    CHECK(st.size() == 1 && !st[0].loaded() && st[0].error.find("no electric drive") != std::string::npos);
+    CHECK(!db::car_parts(sdb, "gt4r_test_ev_26"));
+}

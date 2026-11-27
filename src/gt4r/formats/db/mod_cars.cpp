@@ -409,7 +409,11 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
     if (donor_row.size() < 0x18) return fail("the donor's car row is not read");
     std::optional<u32> body_id = donor_id;
     if (!d.body.empty() && !(body_id = car_labels->id(d.body))) return fail("[car] model '" + d.body + "' is not a car of this disc");
-    if (d.electric) return fail("an electric drive is not in this game yet");
+    // Gran Turismo 4's program has no drive without an engine: its motors (the Priuses' hybrid box, the Insight's assist motor,
+    // the DN-X's motors) each work beside one, and a drive of our own would bring behavior the game does not have.
+    if (d.electric)
+        return fail("[powertrain] type = electric: this game has no electric drive (a hybrid donor keeps its own motor; one gear "
+                    "and a curve of your own come closest)");
 
     // The rows the car names: its sets and the parts that fit it.
     struct Set {

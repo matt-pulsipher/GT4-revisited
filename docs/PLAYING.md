@@ -248,7 +248,9 @@ page, a download in a Multi-LAN Race) adds its cars to the dealers and pages at 
 leaves its cars there until the game starts again. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
 their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
-an electric drive (a file with `type = electric` is not loaded), mods' makers (`makers/`).
+mods' makers (`makers/`). A file with `type = electric` is not loaded: the game has no drive without an engine (its motors,
+the Priuses', the Insight's and the DN-X's, each work beside one; a car made from one of them keeps it), and a drive of
+ours would behave as no car of the game does; one gear and a curve of your own come closest.
 
 **Your music.** MP3, FLAC, WAV and Ogg Vorbis files in the music folder (by default `music/` in the data folder, any
 depth; on Android the Files app shows it as *GT4 Revisited > music*) play as race songs. Settings > Audio > *Race songs*:
