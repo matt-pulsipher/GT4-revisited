@@ -1472,6 +1472,10 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     rt.keep_alive(n);
     Runtime* r = &rt;
     GameState* s = &rt.game();
+    // The dealers' lists with the mods' cars as the file is read (mod_car_lists.cpp).
+    rt.vm().after_load = [g = n.get()](Vm&, const std::string& name, const std::shared_ptr<script::Module>& into) {
+        if (name.size() >= 8 && name.compare(name.size() - 8, 8, "_carlist") == 0) add_mod_cars_to_lists(*g, into);
+    };
     // Japan's program keeps the units by a language (GameState::unit_language): a new game's the console's language.
     if (const Database& d = n->db(); d.program.known() && d.program.release() == sim::Release::Japan) {
         // (the console's language: the menus')

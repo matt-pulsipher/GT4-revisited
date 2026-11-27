@@ -189,3 +189,81 @@ TEST(mod_car_rows) {
     CHECK(spec.h(0x1C) != 0); // the tread
     CHECK(spec.b(0x42) == 31); // the drag coefficient
 }
+
+#include "gt4r/menu/runtime.h"
+
+#include <algorithm>
+
+namespace {
+
+// The game's menus on the disc with the mods' cars of `list` (the file layer's mods/.cars).
+std::unique_ptr<menu::Runtime> menus_with(Disc& d, std::string list) {
+    menu::Runtime::Config config;
+    config.language = "US";
+    config.list = [&d](const std::string& folder) {
+        std::vector<std::string> out;
+        for (const gt3r::Volume::Entry& e : d.volume().entries()) {
+            if (e.path.compare(0, folder.size(), folder) != 0) continue;
+            const size_t slash = e.path.find('/', folder.size());
+            std::string name = e.path.substr(folder.size(), slash == std::string::npos ? slash : slash + 1 - folder.size());
+            if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(std::move(name));
+        }
+        return out;
+    };
+    config.program = [&d] { return d.read_program(); };
+    return std::make_unique<menu::Runtime>(
+        [&d, list](const std::string& path) -> std::optional<Bytes> {
+            if (path == "mods/.cars") return Bytes(list.begin(), list.end());
+            const gt3r::Volume::Entry* e = d.volume().find(path);
+            return e ? std::optional<Bytes>(d.volume().read(*e)) : std::nullopt;
+        },
+        config);
+}
+
+} // namespace
+
+// A mod car of Alfa Romeo's at the end of its dealer's list, bought there into the garage.
+TEST(mod_car_at_its_dealer) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    const std::string list = write_car("gt4r_test_alfa_26.ini", "[car]\nlabel = gt4r_test_alfa_26\nname = Alfa Test `26\nmaker = Alfa Romeo\nprice = 23456\ndonor = _147_20_twinspark_02\n");
+    std::unique_ptr<menu::Runtime> rt = menus_with(*disc, list);
+    auto press = [&](std::initializer_list<menu::Key> keys) {
+        for (menu::Key k : keys) rt->key(k), rt->settle();
+    };
+    auto page = [&] { return rt->current_page() ? rt->current_page()->name : std::string(); };
+    auto focus = [&] { return rt->focused() ? rt->focused()->name : std::string(); };
+    menu::GameState& game = rt->game();
+    game.card.has_game_data = true, game.username = "Player", game.money = 500000;
+    rt->boot();
+    rt->start_project(rt->first_project());
+    rt->settle();
+    if (page() == "MovieRoot") press({menu::Key::Start});
+    CHECK(rt->finished() && rt->advance());
+    rt->settle();
+    press({menu::Key::Down, menu::Key::Accept});
+    CHECK(rt->finished() && rt->wanted_project() == "gtmode" && rt->advance());
+    rt->settle();
+    rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child("DealerItaly"));
+    press({menu::Key::Accept});
+    CHECK(page() == "NationRoot" && focus() == "alfaromeo");
+    // The dealer's list: the disc's five, then the mod car.
+    const script::Value carlist = rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carlist");
+    const std::vector<script::Value>* items = carlist.items();
+    CHECK(items && items->size() == 6 && items->back().as_string() == "gt4r_test_alfa_26");
+    CHECK(rt->vm().lookup("GTmodeProject::NewCarData::alfaromeo_carnum").i == 6);
+    press({menu::Key::Accept, menu::Key::Accept});
+    CHECK(page() == "BuyCarRoot" && focus() == "CarItem");
+    for (int i = 0; i < 5; ++i) press({menu::Key::Right});
+    press({menu::Key::Accept, menu::Key::Accept}); // the car, its paint
+    CHECK(focus() == "Buy");
+    press({menu::Key::Accept, menu::Key::Right, menu::Key::Accept});
+    CHECK(page() == "GetCarRoot");
+    CHECK(game.garage.size() == 1 && !game.garage.empty() && game.garage[0].car == "gt4r_test_alfa_26");
+    press({menu::Key::Accept}); // "ride it now?" yes: paid
+    CHECK(game.money == 500000 - 23456 && game.riding_car == 0);
+    bool clean = true;
+    for (const std::string& line : rt->log())
+        if (line.find("script error") != std::string::npos) clean = false, std::printf("  %s\n", line.c_str());
+    CHECK(clean);
+}
