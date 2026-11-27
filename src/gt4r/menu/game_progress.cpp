@@ -48,12 +48,21 @@ struct Driver {
         return rt.vm().call(rt.vm().attribute(object, method), std::span<const Value>(args.data(), args.size()));
     }
 
-    // Power on with a card that holds no game: no to making one, on past what cannot be saved,
+    // Power on with a card that holds no game (the European disc's language chosen first): no to making one, on past what cannot be saved,
     // the opening movie skipped: the title.
     bool boot_to_title() {
         rt.boot();
         rt.start_project(rt.first_project());
         rt.settle();
+        // (the European disc asks for the language first: the one the page focuses, the menus')
+        if (page() == "LanguageRoot") {
+            press({Key::Accept});
+            for (int k = 0; k < 600 && page() != "ConfirmDialog"; ++k) {
+                if (rt.finished()) out.steps.push_back("language chosen: the menus ask for " + rt.wanted_project()), rt.advance();
+                rt.update(); // (its page fades out first)
+            }
+            rt.settle();
+        }
         if (page() != "ConfirmDialog") return fail("power on: no question about the game's data (does the card hold a game already?)");
         press({Key::Left, Key::Accept});
         press({Key::Right, Key::Accept});

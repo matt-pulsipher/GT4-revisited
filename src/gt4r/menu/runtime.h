@@ -13,6 +13,7 @@
 #include "gt4r/script/vm.h"
 
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -287,6 +288,8 @@ public:
     // The player asked for the saved games' page (the title's Save Game, Prologue's save and load items): taken once.
     bool take_saves_asked() { return std::exchange(saves_asked_, false); }
     std::string translate(const script::Value& module, const std::string& page, const std::string& key);
+    // A text of ours for a key of a page of the text (a mod maker's name under "TunerName"), over every project's.
+    void add_text(const std::string& page, const std::string& key, const std::string& text) { added_text_[page][key] = text; }
     std::shared_ptr<LiveWidget> common_page(const std::string& name);
     // Calls a widget's script function now, to its end (a wait in it is passed over).
     script::Value call_now(LiveWidget& w, const std::string& name, std::vector<script::Value> args);
@@ -347,6 +350,7 @@ private:
     std::unique_ptr<script::Vm> vm_;
     bool booted_ = false;
     std::shared_ptr<Project> project_, common_;
+    std::map<std::string, std::map<std::string, std::string>> added_text_; // add_text's
     std::shared_ptr<LiveWidget> root_widget_, common_widget_; // the projects'
     std::string project_name_;
     std::vector<std::shared_ptr<LiveWidget>> pages_;

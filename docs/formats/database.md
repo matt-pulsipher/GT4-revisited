@@ -226,6 +226,24 @@ Ford Ka '01's: rows 3627 and 4164, its six event entries -1).
 Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `src/gt4r/menu/mod_car_lists.cpp`; online:
 `src/gt4r/net/mod_car_package.*`). Not the program's: what the database adds for the mods' cars, from the disc's rows.
 
+- **Mod makers** (`mod_makers.*`): the list's `makers/<key>.ini` files, read before the cars. Each new maker takes the next
+  number past the program's makers' list and past its tuners' list (`menu::ProgramTables`, each < 256), and its country's
+  number from the program's countries' list by its code; a car naming it gets them in `GENERIC_CAR` +0x0F (maker), +0x10 (the
+  brand, the tuner the pages name) and +0x0E (country). The menus (`menu/mod_car_lists.cpp`) put the key on the database's
+  makers' and tuners' lists, its name and description in the text `TunerName` and `TunerDoc` (Runtime::add_text), a
+  `<key>_carlist` / `_carnum` in the dealers' lists where it has cars, and the key at the end of GTmodeProject's NationData
+  `<nation>_dealers` of the nation whose `<nation>2` is its code (`<key>` = that nation's `_hall`, DealerData
+  `<key>_subtuner` none). Its pictures by path: `image/piece/tuner_logo2/<key>.png` (the country page's button),
+  `piece/tuner_logo/<key>.img` and `piece/tuneshop_logo/<key>.img` (the dealer page's logo, its tune shop's: DealerData
+  getSubTuner gives the dealer itself); `piece/tuner_screen/<key>.strb` (the page's top film) has none. Arcade's makers' page
+  (ArcadeProject::MakerRoot) lists MakerData `<nation>_makers` whose makers have cars: the key goes at the end of its
+  nation's (the nation of its code by the page's own `<region>_nation_list` / `_nation_list2` pairs), its button
+  `image/piece/tuner_logo2/<key>.png` sized from the mod's PNG (`mod_picture_size`: the page halves every button).
+- A mod switched off or removed while the game runs (`SpecDb::remove_mod_cars`, `ModCars::remove`): the cars of the files no
+  longer listed leave every table and label list (the rows each car added, its paint rows, its CARS/ file, its entries in
+  the pools it joined), the menus' lists (`<maker>_carlist`, `_carnum`; a mod maker's emptied list goes) and the garage's
+  places as a load without them makes them (`GarageEntry::missing`: the same save is written); the cars are made again
+  under the same ids when the mod is back (`refresh_mod_cars`), and the garage's places are cars again.
 - The database reads the file layer's list of the mods' car files (`mods/.cars`) when its first table, label list or pool
   is read, works the cars out from the disc's tables, and adds their rows to every table, list and pool from then on.
 - A car's rows have ids its label gives (FNV-1a over the label, the table and a number, in 0x40000000 .. 0x7FFFFFFF, above

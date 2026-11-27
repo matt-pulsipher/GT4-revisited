@@ -42,7 +42,7 @@ std::optional<gt3r::Tex1::Image> mod_car_picture(App& app, const std::string& pa
                                                  const std::function<std::optional<gt3r::Tex1::Image>(const std::string&)>& disc) {
     db::SpecDb* sdb = path.find("piece/") == std::string::npos ? nullptr : app.db();
     if (!sdb) return std::nullopt;
-    const std::optional<db::ModCars::Picture> p = sdb->mod_cars().picture(path);
+    const std::optional<db::ModPicture> p = sdb->mod_picture(path);
     if (!p) return std::nullopt;
     std::optional<gt3r::Tex1::Image> stand_in = p->disc.empty() ? std::nullopt : disc(p->disc);
     if (!p->png.empty()) try {

@@ -37,6 +37,12 @@ struct Flow {
             return out;
         };
         config.program = [&d] { return d.read_program(); };
+        // The disc's region and product (the program's zone: its lists of cars, EU_carlist on the European disc), and its own
+        // language where the one asked for is not on it (the European disc's GB, the Japanese disc's JP for "US"), as the app's
+        // (Prologue's tests keep the region they were written with).
+        if (d.info().game == Game::GT4) config.region = d.info().region, config.product = d.info().product;
+        if (const std::vector<std::string> langs = menu::project_languages(config.list, "boot"); !langs.empty() && std::find(langs.begin(), langs.end(), config.language) == langs.end())
+            config.language = std::find(langs.begin(), langs.end(), d.info().language) != langs.end() ? d.info().language : langs[0];
         rt = std::make_unique<menu::Runtime>(
             [&d](const std::string& path) -> std::optional<Bytes> {
                 const gt3r::Volume::Entry* e = d.volume().find(path);
@@ -113,9 +119,14 @@ struct Flow {
         press({menu::Key::Down, menu::Key::Accept});
         if (!rt->finished() || !rt->advance()) return false;
         rt->settle();
+        // Italy's dealers, Alfa Romeo's new cars (named: the European and Japanese pages keep the focus elsewhere), the first car
+        // and color bought and driven.
         map_focus("DealerItaly");
-        press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Right,
-               menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        press({menu::Key::Accept});
+        if (page() != "NationRoot" || !focus_on("alfaromeo")) return false;
+        press({menu::Key::Accept});
+        if (page() != "DealerRoot" || !focus_on("New")) return false;
+        press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Right, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
         for (int i = 0; i < 6 && page() != "TopRoot"; ++i) press({menu::Key::Cancel});
         return page() == "TopRoot" && rt->game().garage_count() == 1 && rt->game().riding_car == 0;
     }

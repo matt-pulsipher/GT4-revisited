@@ -24,6 +24,10 @@ TEST(disc_gt_mode_trade_cars) {
         menu::ProgressPlan plan = menu::default_progress_plan(*f.rt);
         plan.licenses.clear();
         const menu::ProgressReport r = menu::play_progress(*f.rt, plan);
+        if (!r.ok) {
+            std::printf("  the other game: %s\n", r.error.c_str());
+            for (const std::string& step : r.steps) std::printf("    %s\n", step.c_str());
+        }
         CHECK(r.ok);
         other_cars = f.rt->game().garage_count();
     }

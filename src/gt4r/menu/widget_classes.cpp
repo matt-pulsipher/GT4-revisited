@@ -1267,6 +1267,7 @@ std::optional<std::pair<float, float>> picture_size(Runtime* r, LiveWidget& w) {
     }
     if (const gt3r::Tex1::Image* image = project && !path.empty() ? project->image(page->name, path) : nullptr)
         return std::pair{float(image->width), float(image->height)};
+    if (!path.empty()) return mod_picture_size(*r, path); // (a mod maker's button: its own picture)
     return std::nullopt;
 }
 
