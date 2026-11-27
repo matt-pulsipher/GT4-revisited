@@ -496,6 +496,9 @@ bool Runtime::cursor_visible() const { return vm_->attribute(render_context_, "c
 float Runtime::fade_cover() const { return transition_cover(vm_->attribute(render_context_, "transition")); }
 
 std::string Runtime::translate(const Value& module, const std::string& page, const std::string& key) {
+    if (!page.empty())
+        if (const auto p = added_text_.find(page); p != added_text_.end())
+            if (const auto t = p->second.find(key); t != p->second.end()) return t->second;
     const auto m = module.as<script::Module>();
     const auto live = module.as<LiveWidget>();
     Project* project = live && live->page() ? project_of(*live->page()) : live && live.get() == common_widget_.get() ? common_.get() : project_.get();

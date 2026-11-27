@@ -4,6 +4,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/formats/db/mod_cars.h"
+#include "gt4r/formats/db/mod_makers.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
@@ -638,6 +639,7 @@ private:
         std::string out;
         const auto add = [&out](const std::string& s) { out += (out.empty() ? "" : ", ") + s; };
         if (!m.files.empty()) add(count_text(m.files.size(), "file", "files"));
+        if (!m.makers.empty()) add(count_text(m.makers.size(), "maker", "makers"));
         if (!m.cars.empty()) add(count_text(m.cars.size(), "car", "cars"));
         if (!m.textures.empty()) add(count_text(m.textures.size(), "texture", "textures"));
         return out.empty() ? "nothing this game reads" : out;
@@ -714,8 +716,31 @@ private:
         rows_.info("Holds", contents(*m));
         if (!m->author.empty()) rows_.info("By", m->author);
         for (const std::string& line : Ui::wrap(m->description, 560)) rows_.info(line, "");
+        mod_makers(app, *m);
         mod_cars(app, *m);
-        if (!m->makers.empty() || !m->events.empty() || !m->liveries.empty()) rows_.info("Makers, events and liveries of mods are not read by this game yet", "");
+        if (!m->events.empty() || !m->liveries.empty()) rows_.info("Events and liveries of mods are not read by this game yet", "");
+    }
+    // A mod's makers (formats/db/mod_makers.h): each one's name, or why it is not in the game.
+    void mod_makers(App& app, const gt3r::ModInfo& m) {
+        if (m.makers.empty()) return;
+        rows_.heading("Its makers");
+        db::SpecDb* sdb = m.active() ? app.db() : nullptr;
+        if (!sdb) {
+            rows_.info(count_text(m.makers.size(), "maker", "makers"), m.active() ? "the disc's car database is not read" : "not used");
+            return;
+        }
+        if (sdb->prologue()) {
+            rows_.info(count_text(m.makers.size(), "maker", "makers"), "Gran Turismo 4 Prologue takes no mod makers");
+            return;
+        }
+        for (const db::ModMakers::Status& s : sdb->mod_makers().statuses()) {
+            if (s.mod != m.id) continue;
+            const db::ModMakerDef* def = s.error.empty() ? sdb->mod_makers().by_key(s.key) : nullptr;
+            const bool replaced = s.error.empty() && def && def->file != s.file; // (a later mod's file of the same key)
+            rows_.info(s.name.empty() ? s.key : s.name, !s.error.empty() ? s.error : replaced ? "replaced by " + def->mod + "'s" : s.warnings.empty() ? "in the game" : "in the game; " + s.warnings.front());
+            if (s.error.empty())
+                for (size_t i = 1; i < s.warnings.size() && i < 4; ++i) rows_.info("", s.warnings[i]);
+        }
     }
     // A mod's cars (formats/db/mod_cars.h): each one's name, or why it is not in the game.
     void mod_cars(App& app, const gt3r::ModInfo& m) {

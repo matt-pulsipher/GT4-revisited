@@ -296,5 +296,10 @@ void add_mod_cars_to_lists(GameNatives& n, const std::shared_ptr<script::Module>
 // The mods' cars installed since the menus' database was read (an online download, the Mods page) added to it and to the
 // makers' lists already read; the labels added (mod_car_lists.cpp).
 std::vector<std::string> refresh_mod_cars(Runtime& rt);
+// The mods' makers (formats/db/mod_makers.h) onto the database's names (the makers' and tuners' lists) and their names into
+// the runtime's text "TunerName" (mod_car_lists.cpp); after the program's names are given to the database.
+void use_mod_makers(Database& d);
+// The mods' makers on their countries' pages (GTmodeProject's NationData, DealerData) once the scripts made them.
+void add_mod_makers_to_menus(GameNatives& n);
 
 } // namespace gt4r::menu

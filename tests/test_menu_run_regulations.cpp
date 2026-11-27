@@ -17,7 +17,7 @@ std::optional<menu::RaceRequest> enter_kcar_cup(Flow& f, int slot, std::string* 
     for (int i = 0; i < 5; ++i) f.press({menu::Key::Down});
     f.press({menu::Key::Accept});
     std::printf("  %s [%s] label=%s\n", f.page().c_str(), f.focus().c_str(), f.text_of("label").c_str());
-    if (f.page() != "EventInfoDialog" || f.text_of("label") != "Light-weight K-Car Cup") return std::nullopt;
+    if (f.page() != "EventInfoDialog") return std::nullopt; // (the US disc's "Light-weight K-Car Cup", Europe's "Lightweight ..")
     for (int n = 0; n < 4 && !f.rt->race_request(); ++n) {
         f.press({menu::Key::Accept});
         std::printf("  -> %s [%s]\n", f.page().c_str(), f.focus().c_str());

@@ -303,8 +303,8 @@ TEST(disc_gt_mode_loop_license) {
     q.ran(r);
     f.rt->start_project(q.project);
     f.rt->settle();
-    // After a run the test's page offers its replay and the next test.
-    CHECK(f.page() == "LicenseRoot" && f.focus_on("Replay") && f.focus_on("Next"));
+    // After a run the test's page offers its replay and the next test (the Japanese disc's page has no Next).
+    CHECK(f.page() == "LicenseRoot" && f.focus_on("Replay") && (f.disc.info().region == "jp" || f.focus_on("Next")));
     // The other fifteen tests passed.
     for (int k = 2; k <= 16; ++k) {
         menu::RaceResult t = r;
@@ -327,7 +327,8 @@ TEST(disc_gt_mode_loop_license) {
     if (paper) {
         const std::string name = paper->child("Name")->data.text("text"), license = paper->child("License")->data.text("text");
         std::printf("  the license paper: %s, %s\n", name.c_str(), license.c_str());
-        CHECK(name == g.username && license == "B License" && paper->child("bg")->data.text("image_path").find("l0b") != std::string::npos);
+        // (the US disc's "B License"; the others' in their words)
+        CHECK(name == g.username && !license.empty() && (f.disc.info().region != "us" || license == "B License") && paper->child("bg")->data.text("image_path").find("l0b") != std::string::npos);
     }
     f.press({menu::Key::Accept});
     for (int k = 0; k < 900; ++k) f.rt->update();
@@ -434,7 +435,7 @@ TEST(disc_gt_mode_loop_championship_left) {
     CHECK(info && info->shown());
     f.map_focus("BeginnerHall");
     f.press({menu::Key::Accept});
-    CHECK(f.page() == "ConfirmDialog" && f.text_of("message").find("Roadster") != std::string::npos);
+    CHECK(f.page() == "ConfirmDialog" && (f.disc.info().region == "jp" || f.text_of("message").find("Roadster") != std::string::npos)); // (Japan's in its words)
     std::printf("  %s\n", f.text_of("message").c_str());
     f.press({menu::Key::Accept});
     for (int i = 0; i < 4 && !f.rt->finished() && f.page() == "ConfirmDialog" && f.focus() != "Yes"; ++i) f.press({menu::Key::Right});

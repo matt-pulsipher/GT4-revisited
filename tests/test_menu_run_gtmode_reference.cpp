@@ -31,6 +31,7 @@ std::string focused_texts(Flow& f) {
 TEST(disc_gt_mode_used_cars_by_day) {
     Disc* disc = gt4_disc();
     if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    if (disc->info().region != "us") SKIP("compared with the US original's captures");
     Flow f(*disc);
     CHECK(f.gt_mode_with_a_car());
     if (f.page() != "TopRoot") return;
@@ -80,6 +81,7 @@ TEST(disc_gt_mode_used_cars_by_day) {
 TEST(disc_gt_mode_used_cars_figures) {
     Disc* disc = gt4_disc();
     if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    if (disc->info().region != "us") SKIP("compared with the US original's captures");
     Flow f(*disc);
     CHECK(f.gt_mode_with_a_car());
     if (f.page() != "TopRoot") return;
@@ -108,6 +110,7 @@ TEST(disc_gt_mode_used_cars_figures) {
 TEST(disc_gt_mode_professional_hall) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    if (disc->info().region != "us") SKIP("compared with the US original's captures");
     Flow f(*disc);
     CHECK(f.gt_mode_with_a_car(5000000));
     if (f.page() != "TopRoot") return;
@@ -141,6 +144,7 @@ TEST(disc_gt_mode_professional_hall) {
 TEST(disc_gt_mode_missions_page) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    if (disc->info().region != "us") SKIP("compared with the US original's captures");
     Flow f(*disc);
     CHECK(f.gt_mode_with_a_car(5000000));
     if (f.page() != "TopRoot") return;

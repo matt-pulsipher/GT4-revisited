@@ -2,6 +2,7 @@
 
 #include "gt4r/formats/db/car_export.h"
 #include "gt4r/formats/db/car_parts.h"
+#include "gt4r/formats/db/mod_makers.h"
 
 #include "base/config.h"
 #include "base/file.h"
@@ -849,6 +850,10 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
             for (const auto& [b, n] : brands)
                 if (n > most) brand = b, most = n;
             put8(car, 0x10, brand);
+        } else if (const ModMakerDef* mm = db.mod_makers().named(d.maker)) {
+            // A mod's maker (mod_makers.h): its own numbers and country.
+            put8(car, 0x0F, u32(mm->maker)), put8(car, 0x10, u32(mm->tuner));
+            if (mm->country_number >= 0) put8(car, 0x0E, u32(mm->country_number));
         } else if (!makers.empty()) {
             st.warnings.push_back("[car] maker '" + d.maker + "' is not a maker of this game: the donor's is kept");
         }
@@ -1069,6 +1074,11 @@ bool ModCarBuilder::import(const ModCarDef& d, ModCarStatus& st) {
                             return a == w;
                         }())
                         put8(b, 0x0F, u32(n));
+            if (!d.maker.empty())
+                if (const ModMakerDef* mm = db.mod_makers().named(d.maker)) {
+                    put8(b, 0x0F, u32(mm->maker)), put8(b, 0x10, u32(mm->tuner));
+                    if (mm->country_number >= 0) put8(b, 0x0E, u32(mm->country_number));
+                }
         } else if (table == "DEFAULT_PARTS") {
             for (size_t k = 0; k < 26 && 8 * k + 8 <= b.size(); ++k) put32(b, 8 * k, map_id(named_table(get32(b, 8 * k + 4)), get32(b, 8 * k)));
         } else if (table == "FRONTTIRE" || table == "REARTIRE") {
@@ -1212,6 +1222,53 @@ void ModCars::merge(ModCars&& more) {
     names_.insert(names_.end(), more.names_.begin(), more.names_.end());
     for (auto& [code, f] : more.car_files_) car_files_[code] = std::move(f);
     for (auto& [race, f] : more.race_files_) race_files_[race] = std::move(f); // (made on these)
+    for (auto& [label, o] : more.owned_) owned_[label] = std::move(o);
+}
+
+ModCars::Removed ModCars::remove(const std::set<std::string>& files) {
+    Removed r;
+    std::set<std::string> labels;
+    for (const ModCarStatus& s : statuses_)
+        if (files.count(s.file) && s.loaded()) labels.insert(s.label);
+    std::set<u32> enemies;
+    for (const std::string& label : labels) {
+        const auto it = owned_.find(label);
+        if (it == owned_.end()) continue;
+        const Owned& o = it->second;
+        r.cars.push_back(label);
+        for (const auto& [table, ids] : o.rows) r.ids[table].insert(ids.begin(), ids.end());
+        for (const auto& [table, ls] : o.labels) r.labels[table].insert(ls.begin(), ls.end());
+        for (u32 id : o.paint_ids) r.ids["VARIATION"].insert(id); // (each VARIATION<language> table)
+        for (u64 code : o.car_files) car_files_.erase(code);
+        enemies.insert(o.enemies.begin(), o.enemies.end());
+        defs_.erase(label);
+        owned_.erase(it);
+    }
+    for (auto& [table, rows] : rows_)
+        if (const auto ids = r.ids.find(table); ids != r.ids.end())
+            std::erase_if(rows, [&](const std::pair<u32, Bytes>& row) { return ids->second.count(row.first) > 0; });
+    for (auto& [table, ls] : labels_)
+        if (const auto gone = r.labels.find(table); gone != r.labels.end())
+            std::erase_if(ls, [&](const std::pair<std::string, u32>& l) { return gone->second.count(l.first) > 0; });
+    if (const auto ids = r.ids.find("VARIATION"); ids != r.ids.end())
+        std::erase_if(paint_groups_, [&](const PaintGroup& g) { return ids->second.count(g.to) > 0; });
+    // The pools the cars joined: their entries out (u32 count, u32 0, then 16 bytes an entry, its first word the ENEMY_CARS row).
+    for (auto& [race, f] : race_files_) {
+        if (f.size() < 8) continue;
+        const u32 n = get32(f, 0);
+        Bytes kept(f.begin(), f.begin() + 8);
+        u32 left = 0;
+        for (u32 k = 0; k < n && 8 + 16 * size_t(k + 1) <= f.size(); ++k) {
+            const size_t at = 8 + 16 * size_t(k);
+            if (get32(f, at + 4) == kEnemyCars && enemies.count(get32(f, at))) continue;
+            kept.insert(kept.end(), f.begin() + std::ptrdiff_t(at), f.begin() + std::ptrdiff_t(at + 16));
+            ++left;
+        }
+        put32(kept, 0, left);
+        f = std::move(kept);
+    }
+    std::erase_if(statuses_, [&](const ModCarStatus& s) { return files.count(s.file) > 0; });
+    return r;
 }
 
 
@@ -1237,6 +1294,21 @@ ModCars ModCars::build_defs(SpecDb& db, std::vector<ModCarDef> defs, const std::
         ModCars before = out;
         std::map<std::string, std::set<u32>> used = b.used;
         if (b.add(d, st)) {
+            // What it added (for its removal while the game runs).
+            Owned& o = out.owned_[d.label];
+            o = {};
+            for (const auto& [table, rows] : out.rows_) {
+                const auto was = before.rows_.find(table);
+                for (size_t k = was == before.rows_.end() ? 0 : was->second.size(); k < rows.size(); ++k) o.rows[table].push_back(rows[k].first);
+            }
+            for (const auto& [table, labels] : out.labels_) {
+                const auto was = before.labels_.find(table);
+                for (size_t k = was == before.labels_.end() ? 0 : was->second.size(); k < labels.size(); ++k) o.labels[table].push_back(labels[k].first);
+            }
+            for (size_t k = before.paint_groups_.size(); k < out.paint_groups_.size(); ++k) o.paint_ids.push_back(out.paint_groups_[k].to);
+            for (const auto& [code, f] : out.car_files_)
+                if (!before.car_files_.count(code)) o.car_files.push_back(code);
+            if (const auto it = o.rows.find("ENEMY_CARS"); it != o.rows.end()) o.enemies = it->second;
             out.defs_[d.label] = d;
             if (!d.records.empty() && !db.labels("GENERIC_CAR")->id(d.donor)) out.defs_[d.label].imported = true;
         }

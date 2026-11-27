@@ -289,6 +289,7 @@ TEST(disc_earlier_gt3_transfer_on_the_status_page) {
 TEST(disc_earlier_gt3_transfer_from_a_console_card) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    if (disc->info().region != "us") SKIP("the US program's transfer (licenses and credits both from Gran Turismo 3's US save)");
     const fs::path dir = fresh("gt4r-test-transfer-card");
     put(dir / "memorycard" / "BASCUS-97102GAMEDATA" / "BASCUS-97102GAMEDATA", gt3_file(42'000, all(2, 8)));
     StatusFlow f(*disc, dir, "");

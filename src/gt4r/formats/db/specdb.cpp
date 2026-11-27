@@ -1,6 +1,7 @@
 #include "gt4r/formats/db/specdb.h"
 
 #include "gt4r/formats/db/mod_cars.h"
+#include "gt4r/formats/db/mod_makers.h"
 #include "gt4r/formats/db/specdb_prologue.h"
 
 #include "base/log.h"
@@ -143,6 +144,17 @@ void Table::add_rows(std::vector<std::pair<u32, Bytes>> rows) {
     }
 }
 
+void Table::remove_rows(const std::set<u32>& ids) {
+    std::vector<u32> keep_ids;
+    Bytes keep;
+    for (size_t i = 0; i < ids_.size(); ++i) {
+        if (ids.count(ids_[i])) continue;
+        keep_ids.push_back(ids_[i]);
+        keep.insert(keep.end(), data_.begin() + std::ptrdiff_t(i * row_size_), data_.begin() + std::ptrdiff_t((i + 1) * row_size_));
+    }
+    ids_ = std::move(keep_ids), data_ = std::move(keep);
+}
+
 size_t Table::rows(u32 id, size_t& first) const {
     const auto range = std::equal_range(ids_.begin(), ids_.end(), id);
     first = size_t(range.first - ids_.begin());
@@ -212,11 +224,36 @@ SpecDb::~SpecDb() = default;
 SpecDb::SpecDb(SpecDb&&) noexcept = default;
 SpecDb& SpecDb::operator=(SpecDb&&) noexcept = default;
 
+void SpecDb::read_mod_makers(bool more) {
+    if (makers_of_mods_ && !more) return;
+    ModMakers m;
+    if (!prologue_)
+        if (const std::optional<Bytes> list = read_("mods/.cars"); list && !list->empty()) {
+            m = ModMakers::read(std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_, tuners_, countries_, makers_of_mods_.get());
+            const size_t known = makers_of_mods_ ? makers_of_mods_->statuses().size() : 0;
+            for (size_t i = known; i < m.statuses().size(); ++i)
+                if (const ModMakers::Status& s = m.statuses()[i]; !s.error.empty()) LOG_WARN("Mod maker %s (%s): %s", s.key.c_str(), s.mod.c_str(), s.error.c_str());
+        }
+    if (!m.statuses().empty() || !makers_of_mods_) makers_of_mods_ = std::make_unique<ModMakers>(std::move(m));
+}
+
+const ModMakers& SpecDb::mod_makers() {
+    read_mod_makers(false);
+    return *makers_of_mods_;
+}
+
+std::optional<ModPicture> SpecDb::mod_picture(std::string_view path) {
+    if (const std::optional<ModCars::Picture> p = mod_cars().picture(path)) return ModPicture{p->disc, p->png};
+    if (const std::optional<ModCars::Picture> p = mod_makers().picture(path)) return ModPicture{p->disc, p->png};
+    return std::nullopt;
+}
+
 // The mods' cars are worked out from the tables as the disc has them; then what they add goes into every table, label list
 // and pool read so far, and into the others as they are read.
 void SpecDb::prepare_mods() {
     if (mods_state_ != 0) return;
     mods_state_ = 1;
+    read_mod_makers(false); // (the cars name them)
     ModCars m;
     if (!prologue_)
         if (const std::optional<Bytes> list = read_("mods/.cars"); list && !list->empty()) try {
@@ -248,6 +285,7 @@ std::vector<std::string> SpecDb::add_mod_cars() {
     const std::optional<Bytes> list = read_("mods/.cars");
     if (!list || list->empty()) return {};
     ModCars more;
+    read_mod_makers(true); // (a mod's makers installed since)
     mods_state_ = 1; // (the builder reads the tables as they are now, the cars in so far included)
     try {
         more = ModCars::build_more(*this, std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_, *mods_);
@@ -267,6 +305,38 @@ std::vector<std::string> SpecDb::add_mod_cars() {
     mods_->merge(std::move(more));
     mods_state_ = 2;
     return added;
+}
+
+std::vector<std::string> SpecDb::remove_mod_cars() {
+    prepare_mods();
+    if (prologue_ || !mods_) return {};
+    const std::optional<Bytes> list = read_("mods/.cars");
+    std::set<std::string> listed, gone;
+    if (list) {
+        const std::string_view t(reinterpret_cast<const char*>(list->data()), list->size());
+        for (size_t at = 0; at < t.size();) {
+            size_t end = t.find('\n', at);
+            if (end == std::string_view::npos) end = t.size();
+            const std::string_view line = t.substr(at, end - at);
+            if (const size_t tab = line.find('\t'); tab != std::string_view::npos) listed.insert(std::string(line.substr(tab + 1)));
+            at = end + 1;
+        }
+    }
+    for (const ModCarStatus& s : mods_->statuses())
+        if (!listed.count(s.file)) gone.insert(s.file);
+    if (gone.empty()) return {};
+    const ModCars::Removed r = mods_->remove(gone);
+    for (auto& [name, t] : tables_) {
+        if (!t) continue;
+        std::set<u32> ids;
+        for (const std::string& k : {name, std::string(name.rfind("VARIATION", 0) == 0 ? "VARIATION" : "")})
+            if (const auto it = r.ids.find(k); it != r.ids.end()) ids.insert(it->second.begin(), it->second.end());
+        if (!ids.empty()) t->remove_rows(ids);
+    }
+    for (auto& [name, l] : labels_)
+        if (const auto gone_labels = r.labels.find(name); l && gone_labels != r.labels.end())
+            std::erase_if(l->entries, [&](const std::pair<std::string, u32>& e) { return gone_labels->second.count(e.first) > 0; });
+    return r.cars;
 }
 
 std::optional<Bytes> SpecDb::mod_car_file(u64 code) const { return mods_ ? mods_->car_file(code) : std::nullopt; }

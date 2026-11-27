@@ -141,4 +141,8 @@ script::Value make_car_object(Runtime& rt, const std::string& label, int paint);
 // The objects the race's menus call (MQuickWork).
 void install_race_natives(Runtime& rt, script::Module& menu);
 
+// A mod maker's picture's size by the path a face names (its button or logo: the PNG's own size; mod_car_lists.cpp); none
+// for any other path.
+std::optional<std::pair<float, float>> mod_picture_size(Runtime& rt, const std::string& path);
+
 } // namespace gt4r::menu

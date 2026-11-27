@@ -14,6 +14,7 @@
 #include <array>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -121,6 +122,15 @@ public:
     static ModCars build_more(SpecDb& db, std::string_view list, const std::map<int, std::string>& makers, const ModCars& before);
     // `more` (build_more's, on this one) added: its cars, rows, labels and strings after these.
     void merge(ModCars&& more);
+    // The cars of these files taken out (a mod removed while the game runs), and the files' statuses: their definitions, rows, labels, paints, parts' and
+    // pools' places. What the tables and label lists handed out lose (SpecDb::remove_mod_cars takes it out of them): the rows'
+    // ids by table (VARIATION<language>: the paint rows' id), the labels by table. Their strings stay in the pools (unused).
+    struct Removed {
+        std::map<std::string, std::set<u32>> ids;
+        std::map<std::string, std::set<std::string>> labels;
+        std::vector<std::string> cars;
+    };
+    Removed remove(const std::set<std::string>& files);
 
     bool empty() const { return statuses_.empty(); }
     const std::vector<ModCarStatus>& statuses() const { return statuses_; }
@@ -171,6 +181,15 @@ private:
     std::vector<Names> names_;                                                     // CAR_NAME_<language>, CAR_VARIATION_<language>
     std::map<u64, Bytes> car_files_;
     std::map<u32, Bytes> race_files_; // by RACE row
+    // What each car added (by label): its rows and labels by table, its paint group's id, its CARS/ file, its ENEMY_CARS rows.
+    struct Owned {
+        std::map<std::string, std::vector<u32>> rows;
+        std::map<std::string, std::vector<std::string>> labels;
+        std::vector<u32> paint_ids;
+        std::vector<u64> car_files;
+        std::vector<u32> enemies;
+    };
+    std::map<std::string, Owned> owned_;
     friend struct ModCarBuilder;
 };
 

@@ -184,7 +184,8 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
         language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
-        db->set_makers(names.makers); // (a mod car's maker by its name)
+        db->set_names(names.makers, names.tuners, names.countries); // (a mod car's maker by its name; the mods' makers numbered after them)
+        use_mod_makers(*this);
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
         courses = db->courses();
@@ -1482,12 +1483,13 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     rt.reader() = [read = rt.reader(), g = n.get()](const std::string& path) -> std::optional<Bytes> {
         std::optional<Bytes> file = read(path);
         if (file || path.find("piece/") == std::string::npos || !g->database->db) return file;
-        if (const std::optional<db::ModCars::Picture> p = g->database->db->mod_cars().picture(path); p && !p->disc.empty()) return read(p->disc);
+        if (const std::optional<db::ModPicture> p = g->database->db->mod_picture(path); p && !p->disc.empty()) return read(p->disc);
         return file;
     };
     // The dealers' lists with the mods' cars as the file is read (mod_car_lists.cpp).
     rt.vm().after_load = [g = n.get()](Vm&, const std::string& name, const std::shared_ptr<script::Module>& into) {
         if (name.size() >= 8 && name.compare(name.size() - 8, 8, "_carlist") == 0) add_mod_cars_to_lists(*g, into);
+        add_mod_makers_to_menus(*g); // (once Gran Turismo mode's script made its NationData)
     };
     // Japan's program keeps the units by a language (GameState::unit_language): a new game's the console's language.
     if (const Database& d = n->db(); d.program.known() && d.program.release() == sim::Release::Japan) {

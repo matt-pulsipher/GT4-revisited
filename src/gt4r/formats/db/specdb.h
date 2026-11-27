@@ -10,7 +10,9 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gt4r::db {
@@ -36,6 +38,8 @@ public:
     ByteSpan row_at(size_t index) const { return ByteSpan(data_).subspan(index * row_size_, row_size_); }
     // Rows added (a mod car's, mod_cars.h): each its id and row_size() bytes; the ids stay in order.
     void add_rows(std::vector<std::pair<u32, Bytes>> rows);
+    // Every row of these ids taken out (a removed mod car's).
+    void remove_rows(const std::set<u32>& ids);
 
 private:
     u32 flags_ = 0;
@@ -81,6 +85,11 @@ struct CourseEntry {
 
 // The database of a disc: its tables, labels and string pools, read as they are asked for.
 class ModCars;
+class ModMakers;
+// A mod car's or maker's picture: the disc's picture standing in (its size; else none), the mod's own file (a host path).
+struct ModPicture {
+    std::string disc, png;
+};
 
 class SpecDb {
 public:
@@ -116,11 +125,23 @@ public:
     // maker; set them before anything is read.
     void set_makers(std::map<int, std::string> makers) { makers_ = std::move(makers); }
     const std::map<int, std::string>& makers() const { return makers_; }
+    // The program's tuners and countries (menu::ProgramTables) beside its makers: what the mods' makers are numbered after.
+    void set_names(std::map<int, std::string> makers, std::map<int, std::string> tuners, std::map<int, std::string> countries) {
+        makers_ = std::move(makers), tuners_ = std::move(tuners), countries_ = std::move(countries);
+    }
+    // The mods' makers (mod_makers.h) of the files the reader lists, numbered after the program's lists (read once; a mod
+    // installed since adds its makers when add_mod_cars() runs).
+    const ModMakers& mod_makers();
+    // A mod car's or a mod maker's picture the menus ask for by its path (ModCars::picture, ModMakers::picture).
+    std::optional<ModPicture> mod_picture(std::string_view path);
     const ModCars& mod_cars();
     // The mods' cars the reader lists now that are not in yet (a mod installed since they were worked out), added to every table
     // read and to come; the labels added. The ones in stay as they are (a removed mod's car stays until the database is made
     // again), and so do the tables, label lists and pools already handed out (rows are added to them).
     std::vector<std::string> add_mod_cars();
+    // The mods' cars whose files the reader no longer lists (a mod switched off or removed while the game runs) taken out of
+    // every table and label list read and to come; the labels taken out.
+    std::vector<std::string> remove_mod_cars();
     // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
     std::optional<Bytes> car_file(u64 code);
     // A race's pool of opponents (specdb/<set>/RACES/<35, the RACE row>), with the mod cars that join it; none without one.
@@ -142,8 +163,10 @@ private:
     std::map<std::string, std::optional<Table>> tables_;
     std::map<std::string, std::optional<Labels>> labels_;
     std::map<std::string, std::optional<Strings>> strings_;
-    std::map<int, std::string> makers_;
+    std::map<int, std::string> makers_, tuners_, countries_;
     std::unique_ptr<ModCars> mods_;
+    std::unique_ptr<ModMakers> makers_of_mods_;
+    void read_mod_makers(bool more);
     int mods_state_ = 0; // 0 not worked out, 1 being worked out (the tables read as the disc has them), 2 done
 };
 

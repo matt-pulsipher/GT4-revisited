@@ -649,7 +649,15 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
     // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
     // (0x1165B8, 0x433348, below). ❓ The race's kind
-    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code: ranking_pass_code.
+    // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 from the 400 m test's (machine_kind). The pass code: ranking_pass_code.
+    // The machine test's kind (0x10 the 400 m, 0x11 the 1000 m, 0x12 the top speed): the RACE row's +0x10, which counts in each
+    // release's own numbers (the US disc's 0x16 .. 0x18, Europe's 0x18 .., Japan's 0x22 ..), from the 400 m test's row's.
+    const auto machine_kind = [&]() -> int {
+        const ByteSpan first = d.row("RACE", "mt400_testcourse");
+        if (row.size() <= 0x10 || first.size() <= 0x10) return -1;
+        const int k = int(row[0x10]) - int(first[0x10]);
+        return k >= 0 && k <= 2 ? 0x10 + k : -1;
+    };
     if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
         std::string car;
         for (const RaceResult::Finisher& f : r.order)
@@ -660,7 +668,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
                 ranking_insert(d, s.course_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, r.course_kind == 7 ? 0 : 1, r.best_lap_ms));
             work.set("BestTime", s32(r.best_lap_ms));
         } else if (r.course_kind == 6 && r.finished) {
-            const u8 kind = row.size() > 0x10 ? u8(row[0x10] - 6) : 0;
+            const int kind = machine_kind();
             const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
             if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, ranking_pass_code(d, r, kind == 0x10 ? 3 : 4, r.best_lap_ms));
         }
@@ -668,7 +676,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // The top speed test (kind 0x12): its top speed (car +0x6CC, the float itself) into the machine record's unit 2 by speed
     // (0x1165B8: 0x433C78 with 2, 0x433348).
     if (r.kind == RaceResult::Kind::Course && r.course_kind == 6 && r.finished && !r.watched && r.max_speed > 0 && d.db && !d.db->prologue() &&
-        row.size() > 0x10 && u8(row[0x10] - 6) == 0x12) {
+        machine_kind() == 0x12) {
         std::string car;
         for (const RaceResult::Finisher& f : r.order)
             if (f.entry == 0) car = f.car;
