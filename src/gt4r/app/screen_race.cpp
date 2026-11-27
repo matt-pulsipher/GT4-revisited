@@ -4,7 +4,7 @@
 // GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,wing=p001,hud=1,sim=rail"
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
-// auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
+// auto (the computer drivers take the first car too; `ai=1` the same) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `limit` a time limit in seconds (no laps then), `penalty` an arcade race's penalty option (0 none, 1 the speed limit, 2 the pit lane) over its row, `auto_after` the step from which the computer drives the player's car, `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
@@ -239,6 +239,7 @@ Setup setup_from_env() {
             if (v == "tv") s.view = kTvView;
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
+        else if (k == "ai") s.auto_drive = v != "0";
         else if (k == "eye") {
             std::array<float, 9> e{0, 0, 0, 0, 0, 0, 0, 1, 0};
             size_t i = 0;
@@ -3606,6 +3607,9 @@ public:
         clock_ += paced;
         int due = online_ ? online_->steps(paced) : std::min(4, int(clock_ / kStep));
         if (due > 0 && !online_) clock_ = due == 4 ? 0 : clock_ - due * double(kStep);
+        // (A video of an online race: one step a frame, the frames held to the clock by the recording; video_recorder.h.)
+        const bool filmed = online_ && app.recording() && online_->phase() == net::NetRace::Phase::Racing;
+        if (filmed) due = 1;
         for (int n = 0; n < due; ++n) {
             // (the Race Monitor up: its speed's steps a frame, RaceBase::vf74 0x389A48 with vf30's scale from 0x3D8B00)
             const int steps = race_->viewing() ? race_->view().speed() : monitor_ && race_->watched() && !race_->replaying() ? monitor_speed_ : 1;
@@ -3614,7 +3618,7 @@ public:
         }
         if (playing()) feedback_.frame(app.input(), 0, input::FeedbackOptions::from(controllers_.port[0], wheel_.wheel), dt);
         else feedback_.stop(app.input(), 0);
-        race_->set_blend(online_ ? online_->alpha() : float(clock_ / kStep));
+        race_->set_blend(filmed ? 1.0f : online_ ? online_->alpha() : float(clock_ / kStep));
         step_ns_ += SDL_GetTicksNS() - t0;
     }
 

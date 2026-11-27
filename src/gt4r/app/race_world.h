@@ -91,6 +91,7 @@ struct WorldSetup {
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     int players = 1;    // the first cars are players' (two in the two-player battle), the others the computer's
     bool computer_player = false; // the computer drivers drive the player's car too
+    u8 computer_cars = 0;         // a bit a player's car (two-player battle): the computer drivers drive it (videos: `ai=1`)
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
     // record of the player's driver (0x468710) when B-spec drives his car.
     std::array<u16, 3 * 64> bspec_book{};
@@ -547,7 +548,7 @@ private:
     std::vector<float> alpha_; // set_car_alpha
     std::vector<PlayerChoice> choices_{1}; // by player
     // The car is a player's, driven by his pad (not by the B-spec driver or a scripted run's computer).
-    bool pad_car(size_t i) const { return i < size_t(setup_.players) && !(i == 0 && computer_player_); }
+    bool pad_car(size_t i) const { return i < size_t(setup_.players) && !(i == 0 && computer_player_) && !(i < 8 && (setup_.computer_cars >> i & 1)); }
     // Or another player's, on his own machine (an online race).
     bool players_car(size_t i) const { return pad_car(i) || (i < setup_.entries.size() && setup_.entries[i].remote); }
     std::array<u32, 32> soft_{};

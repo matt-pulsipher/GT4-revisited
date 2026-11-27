@@ -184,7 +184,8 @@ bool App::init(int argc, char** argv) {
     // (a scripted run's controllers are its own: none is opened)
     // (phones and tablets: the accelerometer, for tilt steering)
     const SDL_InitFlags input_flags = run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK | (mobile ? SDL_INIT_SENSOR : SDL_InitFlags(0));
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | input_flags)) {
+    // (a recorded run opens no sound device: its sound is mixed a frame at a time into the recording, video_recorder.h)
+    if (!SDL_Init(SDL_INIT_VIDEO | (run_.recording ? SDL_InitFlags(0) : SDL_INIT_AUDIO) | input_flags)) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
@@ -282,6 +283,8 @@ bool App::init(int argc, char** argv) {
         else if (a == "--shot" && has_value) shot_path_ = argv[++i];
         else if (a == "--screen" && has_value) start_ = argv[++i];
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
+        else if (a == "--record" && has_value) recorder_ = std::make_unique<VideoRecorder>(argv[++i]);
+        else if (a == "--record-frames" && has_value) record_frames_ = std::atoi(argv[++i]);
         else if (a == "--stats" && has_value) stats_path_ = argv[++i];
         else if (a == "--fast") paced_ = false;
         else if (a == "--sweep" && has_value) sweep_ = argv[++i];
@@ -305,6 +308,7 @@ bool App::init(int argc, char** argv) {
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
     if (scripted_) keep_pace_in_background();
+    if (recorder_) apply_sound(); // (no music in a recording)
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
     if (disc_) {
@@ -348,7 +352,7 @@ std::vector<std::string> App::parse_key_script(std::string_view text) {
     for (std::string_view line : gt3r::split(text, '\n')) {
         if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
         for (std::string_view k : gt3r::split(line, ','))
-            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" || t.substr(0, 9) == "typefile:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
     }
     return keys;
 }
@@ -459,6 +463,15 @@ gt3r::PadState App::scripted_keys() {
             screenshot_wanted_ = true, ++key_;
             continue;
         }
+        if (k == "enter") { // the keyboard's Enter key, down and up (a text field's "done")
+            ++key_;
+            for (const SDL_EventType type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP}) {
+                SDL_Event e{};
+                e.type = type, e.key.key = SDLK_RETURN, e.key.scancode = SDL_SCANCODE_RETURN, e.key.down = type == SDL_EVENT_KEY_DOWN;
+                event(e);
+            }
+            continue;
+        }
         if (k == "release") {
             drive_ = {}, drive2_ = {}, ++key_;
             continue;
@@ -507,9 +520,14 @@ gt3r::PadState App::scripted_keys() {
             event(e);
             return pad;
         }
-        if (k.compare(0, 5, "type:") == 0) { // text typed on a keyboard
+        if (k.compare(0, 5, "type:") == 0 || k.compare(0, 9, "typefile:") == 0) { // text typed on a keyboard (typefile: a file's, read then)
             SDL_Event e{};
             std::string text = k.substr(5);
+            if (k[4] == 'f') {
+                const std::optional<Bytes> file = gt3r::read_host_file(k.substr(9));
+                text = file ? std::string(gt3r::trim(std::string_view(reinterpret_cast<const char*>(file->data()), file->size()))) : std::string();
+                if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 9);
+            }
             for (size_t at; (at = text.find("\\n")) != std::string::npos;) text.replace(at, 2, "\n"); // ("\n": Enter)
             ++key_, key_frames_ = 0;
             e.type = SDL_EVENT_TEXT_INPUT, e.text.text = text.c_str();
@@ -561,11 +579,12 @@ SDL_AppResult App::iterate() {
     fps_last_ = now;
     if (fps_time_ >= 0.5) fps_shown_ = fps_frames_ / fps_time_, fps_frames_ = 0, fps_time_ = 0;
     if (!sweep_.empty()) dt = 1.0 / 60.0; // (a sweep's frames: a 60th of a second each, as fast as they come)
-    if (!shot_path_.empty()) {
+    if (!shot_path_.empty() || recorder_) {
         // Pictures do not depend on the machine's speed: a frame is a 60th of a second, and the
         // frames are held to that pace so what runs by the clock (the menus' movies) keeps step.
+        // (A recording held to the clock keeps its own schedule: video_recorder.h.)
         dt = 1.0 / 60.0;
-        if (paced_ && wall_ms < 1000.0 / 60.0) {
+        if (paced_ && !(recorder_ && recorder_->realtime()) && wall_ms < 1000.0 / 60.0) {
             SDL_DelayPrecise(Uint64((1000.0 / 60.0 - wall_ms) * 1e6));
             last_ticks_ = SDL_GetTicksNS();
             if (const double slept = double(last_ticks_ - now) / 1e6; slept > 250) LOG_WARN("Frame %d: a wait of %.1f ms took %.0f ms", frame_, 1000.0 / 60.0 - wall_ms, slept);
@@ -710,6 +729,10 @@ SDL_AppResult App::iterate() {
     }
     for (const std::string& p : pictures_) save_screenshot(p);
     pictures_.clear();
+    if (recorder_) {
+        recorder_->frame(renderer_, audio_ ? &audio_->voices() : nullptr);
+        if (recorder_->failed() || (record_frames_ > 0 && recorder_->frames() >= record_frames_)) quit_ = true;
+    }
     if (!stats_path_.empty()) write_stats(std::max(0.0, wall_ms - gpu_wait_ms_));
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);
@@ -883,6 +906,7 @@ void App::write_stats(double frame_ms) {
 
 void App::shutdown() {
     discord_status().shutdown(); // clears the Discord status
+    recorder_.reset(); // (the video and its sound closed)
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
     music_.library().cancel(); // (a scan's and the measuring's threads)

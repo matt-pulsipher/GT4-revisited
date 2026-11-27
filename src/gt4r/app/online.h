@@ -50,6 +50,7 @@ private:
     bool connecting_ = false, racing_ = false, open_ = false;
     int sel_ = 0, confirm_ = -1;
     std::string notice_; // what ended the lobby, until read
+    bool code_written_ = false; // GT4R_LOBBY_CODEFILE written
     int shown_ = 0;
 };
 

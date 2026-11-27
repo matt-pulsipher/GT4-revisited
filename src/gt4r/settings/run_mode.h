@@ -18,6 +18,7 @@ struct RunMode {
     bool pictures = false;   // --shot, --sweep: the frames do not go by the clock
     bool windowless = false; // nothing on the screen
     bool scripted = false;   // pictures or windowless: opens nothing on the screen, reads no real input
+    bool recording = false;  // --record: a video of the run (pictures: frames a 60th of a second each; no sound device opened)
     // The frames a second a windowless run that goes by the clock is held to, as the display would hold it (--pace: a number,
     // "display" for the display's own rate = -1, "off" = 0).
     double pace = 0;
@@ -41,12 +42,13 @@ struct RunMode {
             else if (a == "--visible") hidden = 0;
             if (i + 1 >= args.size()) break;
             if (a == "--shot" || a == "--sweep") m.pictures = script = true, ++i;
+            else if (a == "--record") m.pictures = m.recording = script = true, ++i;
             else if (a == "--keys" || a == "--stats") script = true, ++i;
             else if (a == "--pace") {
                 const std::string& v = args[++i];
                 pace = v == "display" ? kPaceDisplay : v == "off" ? 0 : std::atof(v.c_str());
                 if (pace < 0 && pace != kPaceDisplay) pace = 0;
-            } else if (a == "--browse" || a == "--screen" || a == "--shot-frame" || a == "--sweep-out") ++i;
+            } else if (a == "--browse" || a == "--screen" || a == "--shot-frame" || a == "--sweep-out" || a == "--record-frames") ++i;
         }
         m.windowless = hidden < 0 ? script : hidden == 1;
         m.scripted = m.pictures || m.windowless;

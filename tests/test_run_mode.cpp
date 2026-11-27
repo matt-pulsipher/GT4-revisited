@@ -75,3 +75,13 @@ TEST(run_mode_real_input) {
                         SDL_EVENT_RENDER_TARGETS_RESET, SDL_EVENT_USER})
         CHECK(!is_real_input(type));
 }
+
+// --record: a scripted run of pictures (a 60th of a second a frame, not held to the clock by the run's pace) that opens no sound device.
+TEST(run_mode_recording) {
+    const RunMode m = mode({"disc.iso", "--record", "out.mkv"});
+    CHECK(m.recording && m.pictures && m.scripted && m.windowless);
+    CHECK(m.pace == 0);
+    CHECK(!mode({"disc.iso", "--shot", "x"}).recording);
+    CHECK(!mode({"disc.iso", "--record"}).recording); // (no file: nothing is asked for)
+    CHECK(!mode({"disc.iso", "--record-frames", "--record"}).recording); // (an option's value is not an option)
+}

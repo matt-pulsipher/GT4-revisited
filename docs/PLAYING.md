@@ -410,7 +410,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 
 - `--keys`: presses (`cross`, `down`, `start`, ...), `waitN` (N frames), `shot:<name>` (a
   picture beside `--shot`'s), `quit`; the mouse on the app's pages (`click:x:y`, `move:x:y`, `back:x:y`,
-  `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`; race controls held until changed: `gas=0..1`,
+  `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`, `type:<text>` (typed on a keyboard;
+  `typefile:<file>`: the file's text as it is when the key comes), `enter` (the Enter key); race controls held until changed: `gas=0..1`,
   `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `lx=` `ly=` `rx=` `ry=` (the sticks, -1..1),
   `l1=0|1` and any other button so (held), `release`; the second player's pad: `gas2=` `brake2=` `steer2=`
   `reverse2=` `handbrake2=` and `p2:<button>`; `@<file>` reads keys
@@ -428,7 +429,7 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - `--screen quickrace` with `GT4R_QUICKRACE="event=am_sunday_0002,car=ford_gt_05,start"` starts a Quick race at once
   (`event=arcade:tsukuba`, `license:l0b0001`, `mission:<label>`; a custom race `page=custom,course=tsukuba,grid=ka_01:2/cobra_67:0,place=1`;
   the top of `src/gt4r/app/screen_quick_race.cpp`).
-- Scripted runs (`--shot`, `--sweep`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
+- Scripted runs (`--shot`, `--sweep`, `--record`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
   nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
   driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
   opened, so none rumbles). The pictures are the same as with the window. They draw with the same GPU into the same
@@ -469,10 +470,39 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
   `GT4R_DATA_DIR=<data folder> gt4r <disc>`.
 
+## Gameplay videos
+
+`gt4r <disc> --record <out.mkv>` films a run (`src/gt4r/video/video_recorder.*`). A recorded run is a scripted one (no
+window, no real input) whose frames are a 60th of a second each, as with `--shot`: each finished frame (the HUD and the
+pages as drawn, at the window's pixel size: 2560 x 1440 for the 1280 x 720 window on a Retina display) goes through a pipe to
+`ffmpeg` (on `PATH`), so the footage is even however long a frame takes to draw.
+
+- The sound: the voice mixer (engines, tires, effects, the menus' sounds) is mixed in step with the frames, 800 samples a
+  frame, into `<out>.sfx.wav` beside the video. No music: the run's Music volume is 0 (the sequenced music too) and the
+  streamed music is never played. A recorded run opens no sound device, so nothing reaches the speakers. Mux the sound
+  afterwards (`ffmpeg -i out.mkv -i out.sfx.wav -map 0:v -map 1:a -c:v copy -c:a aac out.mp4`).
+- `--record-frames <n>` ends the run after n frames; `quit` among the keys ends it too.
+- The frames are held to 60 a second (the menus' movies run by the clock); `--fast` does not hold them.
+  `GT4R_RECORD_REALTIME=1` holds them to a 60 Hz schedule instead, a late frame made up by the next ones (the log says
+  how late they got), for what goes by real time: an online race, which takes one step a frame while it is recorded (its
+  machines' shared clock would otherwise give a late frame two). The machine must then draw faster than 60 a second.
+  A second copy joins over a relay server on this machine: `GT4R_LOBBY_CODEFILE` and the `typefile:` key (specs/net.md
+  "Scripted races").
+- `GT4R_RECORD_CODEC` replaces ffmpeg's output options (default: the VideoToolbox H.264 encoder at 80 Mbit/s on macOS,
+  x264 CRF 12 elsewhere; BT.709). Dynamic resolution is off as in every scripted run.
+- `ai=1` in `GT4R_RACE` (and `GT4R_AUTODRIVE=1` for races the menus start): the computer drivers drive the player's car
+  for the whole run; in the 2 Player Battle both players' cars (`drive=auto` / `drive2=auto` one of them).
+- `GT4R_WINDOW=<w>x<h>` gives another size; `GT4R_DATA_DIR` keeps the run's saves and settings apart.
+
+```bash
+GT4R_DATA_DIR=<a scratch folder> GT4R_RACE="course=nurburgring,car=ford_gt_05,cars=6,ai=1,view=chase" \
+  gt4r <disc> --screen race --record ring.mkv --record-frames 1800
+```
+
 ## What runs where (the app's shell)
 
-- The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
-  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
+- The window, the frame loop, the screens, the scripted keys, the pictures, the sweeps and the recordings are the
+  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`, `src/gt4r/video/video_recorder.*`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
   GT4R menu button beside the title and Gran Turismo mode's map and the Controller Settings button in place of the Options'
   controller pages (which pages: `menu/app_button.h`; `screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what
