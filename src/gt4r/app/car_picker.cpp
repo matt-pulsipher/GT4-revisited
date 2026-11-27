@@ -53,9 +53,10 @@ menu::RuntimeConfig menus_config(App& app, const std::string& project) {
 
 std::shared_ptr<CarCatalog> CarCatalog::of(App& app) {
     static const Disc* disc = nullptr;
+    static u32 mods = 0; // (App::mods_generation: a mod installed or switched since, its cars in or out)
     static std::shared_ptr<CarCatalog> kept;
-    if (kept && disc == app.disc()) return kept;
-    kept.reset(), disc = app.disc();
+    if (kept && disc == app.disc() && mods == app.mods_generation()) return kept;
+    kept.reset(), disc = app.disc(), mods = app.mods_generation();
     db::SpecDb* sdb = app.db();
     if (!sdb || !app.vfs()) throw FormatError("This disc's cars are not read yet.");
     std::shared_ptr<CarCatalog> c(new CarCatalog);

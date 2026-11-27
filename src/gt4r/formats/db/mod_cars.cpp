@@ -774,7 +774,8 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         return donor_set;
     };
 
-    // GENERIC_CAR (+0x00 its set, +0x08 price, +0x0C year, +0x0E country, +0x0F maker, +0x11 category, +0x12 flags: bit 0 not for sale).
+    // GENERIC_CAR (+0x00 its set, +0x08 price, +0x0C year, +0x0E country, +0x0F maker, +0x10 brand (the tuner table's), +0x11 category,
+// +0x12 flags: bit 0 not for sale).
     const u32 car_id = new_id(d.label, "GENERIC_CAR", 0);
     Bytes car(donor_row.begin(), donor_row.end());
     put32(car, 0, set_ids[0]);
@@ -793,11 +794,20 @@ bool ModCarBuilder::add(const ModCarDef& d, ModCarStatus& st) {
         }
         if (number) {
             put8(car, 0x0F, u32(*number));
-            for (size_t i = 0; i < cars->size(); ++i) // the country of the maker's cars
+            // The country of the maker's cars, and the brand (+0x10, the tuner: the dealers' and the pages' maker name) most of
+            // them have (Nissan's own, not Nismo's).
+            std::map<u32, int> brands;
+            bool country = false;
+            for (size_t i = 0; i < cars->size(); ++i)
                 if (const ByteSpan r = cars->row_at(i); r.size() >= 0x18 && r[0x0F] == u32(*number)) {
-                    put8(car, 0x0E, r[0x0E]);
-                    break;
+                    if (!country) put8(car, 0x0E, r[0x0E]), country = true;
+                    ++brands[r[0x10]];
                 }
+            u32 brand = get8(car, 0x10);
+            int most = 0;
+            for (const auto& [b, n] : brands)
+                if (n > most) brand = b, most = n;
+            put8(car, 0x10, brand);
         } else if (!makers.empty()) {
             st.warnings.push_back("[car] maker '" + d.maker + "' is not a maker of this game: the donor's is kept");
         }

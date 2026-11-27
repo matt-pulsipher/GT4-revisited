@@ -114,7 +114,7 @@ TEST(mod_car_rows) {
     std::string list = write_car("gt4r_test_coupe_26.ini", kCar);
     list += write_car("broken.ini", "[car]\nlabel = gt4r_broken\nname = Broken\ndonor = no_such_car\n");
     db::SpecDb sdb = open_db(*disc, list);
-    sdb.set_makers({{1, "mazda"}, {2, "toyota"}});
+    sdb.set_makers({{0x16, "mazda"}, {2, "toyota"}}); // (the US program's numbers: rx8_types_03's maker)
     const db::ModCars& mods = sdb.mod_cars();
     CHECK(mods.statuses().size() == 2);
     CHECK(mods.labels() == std::vector<std::string>{"gt4r_test_coupe_26"});
@@ -128,7 +128,10 @@ TEST(mod_car_rows) {
     if (!car || !donor) return;
     CHECK(car->car_id == db::mod_row_id("gt4r_test_coupe_26", "GENERIC_CAR", 0));
     CHECK(rd32(ByteSpan(car->car_row), 8) == 31500 && rd16(ByteSpan(car->car_row), 0x0C) == 2026);
-    CHECK(car->car_row[0x0F] == 1 && car->car_row[0x11] % 100 == 2);
+    CHECK(car->car_row[0x0F] == 0x16 && car->car_row[0x11] % 100 == 2);
+    // Mazda's brand (the pages' maker name: rx8_types_03's +0x10) and country, not the donor's Subaru.
+    const std::optional<db::CarParts> rx8 = db::car_parts(sdb, "rx8_types_03");
+    CHECK(rx8 && rx8->car_row.size() > 0x10 && car->car_row[0x10] == rx8->car_row[0x10] && car->car_row[0x0E] == rx8->car_row[0x0E]);
     const std::vector<db::CarEntry> all = sdb.cars(), disc_cars = plain.cars();
     CHECK(all.size() == disc_cars.size() + 1);
     const db::CarEntry* entry = nullptr;
