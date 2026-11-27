@@ -541,7 +541,8 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
     for (size_t i = 0; i < entries.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         std::optional<race::CarStart> rolling;
-        if ((we.start_speed > 0 || we.start_kind == 1) && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618), a two-player battle's handicap (0x347108)
+        if (we.start_kind == 6) rolling.emplace(), rolling->kind = 6; // (a pit start on its grid place: the free practice's player)
+        else if ((we.start_speed > 0 || we.start_kind == 1) && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618), a two-player battle's handicap (0x347108)
             rolling.emplace();
             rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : road.gtrw && we.start_distance == 0 ? 0 : 1; // (Prologue: at the line the grid)
             rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
@@ -550,12 +551,16 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         const race::PlannedStart& p = starts_.back();
         entries[i].start_speed = p.line ? 0.0f : we.start_speed;
         race::put_start(entries[i], r, p, players_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program);
-        if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
+        if (rolling && !p.line && rolling->kind != 6) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
     }
 }
 
 int RaceWorld::start_crossings(size_t car) const {
     return car < starts_.size() ? race::planned_crossings(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
+}
+
+int RaceWorld::start_back(size_t car) const {
+    return car < starts_.size() ? race::planned_back(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
 }
 
 // The line each car's driver starts on, and the cars their drivers hold in a rolling start.
@@ -713,6 +718,12 @@ float RaceWorld::gadget_impulse(size_t i) const {
 
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
+gt3r::ee::F RaceWorld::car_max_speed(size_t i) const {
+    if (!session_ || i >= car_visuals_.size()) return gt3r::ee::F();
+    const auto& c = session_->record(i);
+    return c.max_speed < c.speed_abs ? c.speed_abs : c.max_speed; // (vf23 0x3F6C30: with the speed now)
 }
 
 void RaceWorld::arm_bspec(const sim::Program& program) {

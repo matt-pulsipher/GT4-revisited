@@ -332,7 +332,10 @@ The conductor's set-up (virtual 26, 0x34CA20, for a RaceArcadeSingle: 0x3BFD00) 
   pit pass (0x35B060) reads as a pad car's own visit: at the lane's entry the car is taken in (2 on the lane, no service asked), and
   out of the lane's end the byte is 0 again (0x35B824), so a new penalty can be given; leaving the lane short of its end puts it
   back to 1. A drive-through. Here the session's mark (`Session::pit_mark`) is the pit flow's `pad_state`, read before the pass and
-  written after it (`PitHooks::mark`, `set_mark`). ❓ What the display shows while the mark is set is not read.
+  written after it (`PitHooks::mark`, `set_mark`). ✔ In a race at Tsukuba (`GT4R_RACE="...,penalty=2,drive=pad,auto_after=1500"`: the
+  player's car into turn 1's wall at full throttle, then the computer driving it): the mark 1 at the hit (236.9 m, 10.5 s), 2 from
+  1362.9 m, the car down the lane (the pit stage 1 at 1738 m) and out (stage 5) without a stop, the mark 0 at 147.5 m, past the
+  lane's end; the line's crossing in the lane counted. ❓ What the display shows while the mark is set is not read.
 - `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 1, 5, 4, 0, 5, 5 and 6, 40, 12,
   1, 5, 3, 0, 4, 5.
 Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose: 0x34CCD4).
@@ -539,12 +542,55 @@ unless the player made no time (0x157529FF), the grid by every entry's best lap 
 entries with a strictly better time, ties to the earlier entry, each taking the first place free from there; written to the
 series' slots +0x2FC + 0x188 k and the entries' +0x3444 by 0x3EE7C0); the race behind the menus (mode 4, 0x387EF0) and the
 page filled again (0x119918). The practice's conductor (DynamicsConductorFreePractice): no hold (vf10: start type 3), no laps
-(vf37), no finish at the line (vf21 0x3F5150: the lap's time events only), the starts (vf30 0x3F4F10) the player's car kind 6
-(❓ the pit's, 0x36437C), every other car kind 5 at 120 km/h (300 + 24 x its number) m behind the line; the pause's Exit ends
-it. Here (`screen_race.cpp` `free_qualify`, `end_qualify`, `race::qualify_places`): the field rolling in as the program puts
-it, the player's car on its grid place, standing (judged for kind 6); the grid by the bests after the pause's Exit, the race
-rebuilt and the menus again; no result is reported. `GT4R_RACE="...,qualify=1"` runs the practice for checks. ❓ Not compared
-with a capture of the original's Free Qualify (none in the reference).
+(vf37), no finish at the line (vf21 0x3F5150: the lap's time events only), the starts (vf30 0x3F4F10) the player's car kind 6,
+every other car kind 5 at 120 km/h (300 + 24 x its number) m behind the line; the pause's Exit ends it. The same conductor runs
+Gran Turismo mode's practice (0x1181C8, also a `RaceFreePractice`).
+- **Kind 6, a pit start** (the set-up 0x363B10): the car stands on its grid place (vf28 0x34D490 places it there by 0x3952C0 before
+  the set-up; kinds 1 .. 5 alone are put on a driving line, 0x3640E0), not moving (vf30's speed 0), held 120 steps (F +0x4BA,
+  0x364620: the pit stop's counter, 0x35C0B8, counts it down; the car lifted and turned as in a stop, 0x36AE20); its crossings
+  F +0x4AC 0 wherever it stands and F +0x4B0 1 when it stands past half the lap (0x36437C): its first crossing of the line is taken
+  back, its laps counted from the second (an out lap).
+- **The places** (vf2 0x3F5270, vf3 0x3F5350): a list of the cars in grid order (F +0x5B3 = place + 1), sorted each step by the
+  best lap (0x35E3F0, unsigned: no time is 0x157529FF, behind every time; a car moves up only past a strictly slower one).
+- **The times**: a car's counted start (vf20 0x3F50F0) puts F +0x614 at the crossing's moment (and event 3 for car 0); its laps
+  count from there; no lap time is shown before it (vf34 → 0x357830).
+- **The display's words**: the word table's `PolePosition` (10), `StartQualify` (11), `ReadyQualify` (12) and `QualifyMode` (19)
+  are never read by the US program (no load of the table's +0x28, +0x2C, +0x30 or +0x4C, and no reckoned index reaches them, as
+  with the endurance words): the practice shows the practice's own display.
+Here (`screen_race.cpp` `free_qualify`, `end_qualify`, `free_practice`; `race::RaceFlow` `practice_grid`, `back`;
+`race::planned_back`; `sim::Entry::grid_kind`; the hold in `sim::ai::PitStops` from the set-up's): all of the above; the grid by
+the bests after the pause's Exit, the race rebuilt and the menus again; no result is reported. `GT4R_RACE="...,qualify=1"` runs
+the practice for checks. ✔ Scripted through the menus (the Tuning Car Grand Prix's race 1, the pre-race page's third icon
+"Practice", the computer driving, the pause's Exit and its "Are you sure?"): the car held 2 s with "In progress..", its out lap,
+lap 2 timed 1'43.539, Position 6 by the bests, the page's grid after it Opera, RUF, Spoon, NISMO, Mine's, the player, as the
+log's bests give. ❓ Not compared with a capture of the original's Free Qualify (none in the reference): whether the original
+shows "In progress.." under the pit start's hold.
+
+## Power & Speed (the machine tests)
+
+The sequence 0x115A90 runs a `RaceMachineTest` with `DynamicsConductorMachineTest` (vtable 0x685BF0). The test's kind is the
+event's laps (RACE +0x43, through the base vf37 0x3577F0 and 0x3F69F8: 1 the 0-400 m, 2 the 0-1000 m, 3 the top speed; 4 and
+more 0): `mt400_testcourse` 1, `mt1000_testcourse` 2, `mtmax_testcourse` 3, `mt400_lasvegas` 1. Its start is the row's standing
+start (+0x40 0, +0x41 7 s). The conductor:
+- **no laps** (vf37 0x3F69C0: 0), nothing at the line (vf20 the base's, empty; vf21 0x3F6C28 empty);
+- **the goal and the split points** from the program's floats at 0x622490 (400, 1000, 6845, -1): sections (vf42 0x3F6A38) 1, 2 or
+  3 by the kind (any other 1), the goal (vf39 0x3F6AA8) the sections' last distance, each section's end (vf43 0x3F6B00) the
+  distances before it: 400 m; 1000 m with a split at 400; 6845 m with splits at 400 and 1000 (the Test Course's lap is 10,342 m);
+- **at the goal** (vf23 0x3F6C30): the car's top speed car +0x6CC = the most of it and its speed now (+0x6C8); not in a replay,
+  the car's driver takes it (0x343D78 with 1: it coasts down and stops); the 400 m and 1000 m tests post the run's time
+  (0x358000, 0x35E550), the top speed test its top speed (0x35E7C0: into the race entry's +0x3464, a `RaceDisplaySpeedEvent` of
+  the speed in the display's unit x 10, 0x472940, truncated, at most 9,999); car 0's event 5;
+- the display's time (vf34 0x3F69C8): the car's best (0x35E3F0) once it has finished, else the running time (0x357800).
+The sequence after a finished run (its +0x5B6, 0x115CC4): the top speed test (race mode 0x12) keeps `BestMaxSpeed` (+0x49C) as
+the most of it and trunc((v x 60 x 60 + 5) / 10) of the top speed v (m/s): km/h x 100 (the page shows it in the player's unit,
+✔ "199.01 mph" for 320.28 km/h); the others `BestTime` (+0x498) the least of it and the best (0x35E3F0); then the rankings
+(0x1161A0: the 400 m and 1000 m by time, the top speed into unit 2 by speed, 0x1165B8 → 0x433348).
+Here: `race::machine_test_course`, `FlowSetup::machine_test` (the run's time kept as the car's best at the goal: ❓ where the
+program writes what 0x35E3F0 reads back), `screen_race.cpp` `end_machine_test`, `report_result`, `game_race.cpp`'s rankings.
+✔ Scripted (`GT4R_RACE="course=testcourse,menus=machinetest,race=mt400_testcourse,drive=auto"`): FINISH at 400 m, "0'11.156" on
+the lap line and as the page's Session Record; the top speed test 87.6 s to 6845 m, Session Record 199.01 mph. ❓ The race
+display of the test (RaceMachineTest's own: the words `MaxSpeed`, `RecordSpeedLabel`, `SessionSpeedLabel`, `RecordTimeLabel` are
+in the word table) is not read: the single race's display stands in; the top speed's line is written "<whole>.<tenth> <unit>".
 
 ## What runs where (the race screen)
 
@@ -592,7 +638,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`). GT4's read: the sun disc's routine is the engine's, drawn at the picture's scale (course.md); the cars' lamps' colors, powers and strengths (model.md "Lamp"; Env0 +0x1794, +0x17A0); the heat haze's set-up, generator (seed 0x7F7F7F7F, x 0x5D588B65 + 1), drift and lens hexagon (0x4961B8: the same strip, clamps and 0.58 / 0.5 / 0.45 / 1.6 factors) and the vignette's ring (0x3BBBC0: 32 steps of 2 pi / 31, colors by 0x4AA0D0) are the engine's. **Ours, no counterpart in GT4**: the scenery's 0.6 s fade (`SceneryFade`; the program draws slot 1's models straight from the place's `Vls0` list, course.md "The race view's frame" step 4) and the frame pacing (`FramePacer`; the original draws one picture each 60 Hz field) | the glare's and the halos' own routines (not read); the backdrop's depth x 100 needs an engine item depth scale apart from its 0.01 modelview scale (fog and viewer at the true distance) |
 | The car icons (results rows, Race Monitor, map) | `race_world.cpp` `draw_icons` | angles and size judged (CarIconMaker 0x393B70); the light the program's (0x394A10: one light, ambient 0.8, diffuse 1.5, specular 1.0, no course fog, car lights or reflection), the same at every course (✔ Fuji '90s against the reference's TCGP race 2, Tsukuba against 29-bspec-record, Clubman Route 5 at night the same as Tsukuba); drawn each frame where the program makes the pictures once at set-up through a ShowRoomCar (0x393D20, 0x364760; 128 x 64 and 64 x 32) | the light's direction in our view, the maker's reflection and darkened edge |
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner: GT4's rule under "2 Player Battle", the split screen's; judged in the single race | event 15 (0x359C10) and its display |
-| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the pit panel's tire diagram and fuel gauge on the movie's `TIRE_PANEL` GT4 (0x3D7EAC); the view's speed GT4 (L1 held with Left / Right, x1 .. x3, x1 at each opening; the race's steps a frame times it while the monitor is up: strobe.md "The race monitor"); the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit), its cars' pictures at the movie's `CARPOS_` externals, the rows' paint chips at `chip` (the paint's words; the place judged by 1 unit), the followed car's picture (CarIconMaker's kind 0: 30 units a metre, turned by the car's size, at most 158 degrees) without the lens's 18 degrees; the help line `RaceMonitorToolTip1`; the gap column judged; the map's letters drawn by us | the pace-up marks (0x3FA508), Show Map (Cross), the `sector` externals |
+| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the pit panel's tire diagram and fuel gauge on the movie's `TIRE_PANEL` GT4 (0x3D7EAC); the view's speed GT4 (L1 held with Left / Right, x1 .. x3, x1 at each opening; the race's steps a frame times it while the monitor is up: strobe.md "The race monitor"); the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit), its cars' pictures at the movie's `CARPOS_` externals, the rows' paint chips at `chip` (the paint's words; the place judged by 1 unit), the followed car's picture (CarIconMaker's kind 0: 30 units a metre, turned by the car's size, at most 158 degrees) without the lens's 18 degrees; the help line `RaceMonitorToolTip1`; the gap column judged; the map's letters drawn by us ; the pace-up marks GT4 (`race::SplitLists`: vf18 0x3578B0's lists of the cars through each section's end by round, 0x3FA508; ❓ the mark drawn magenta, the original's red to yellow, `21-gtmode-deep/bspec_race_monitor_show_map.png`); Show Map GT4 (Cross turns the monitor's +0x70 over, 0x3D95F0; each opening with the map, 0x3D8614; MAP_PANEL's visibility; the rows' L the crossings (0x343B50), P the stops (0x3FA498), Best, the new-best mark taken when the lap changes, 0x3DA7C8) | the `sector` externals (0x3D7930: the Best column's bars) |
 | The pit stops | `RaceWorld::pit_command` / `pit_offer` / `pit_stage`, `sim/ai/pit_stops.*`; `screen_race.cpp` `update_pit_menu`, `race_hud.cpp` (the messages, the refuel bar) | GT4: the pass (0x35B060), the command (0x3F19E0: not before the first crossing nor on the last lap, taken back by a second press), the PIT STOP menu (0x3DCC50, 0x3DCFB0, 0x3DD540, 0x3DD5D8; strobe.md), the messages (RaceDisplay::vf28), the refuel bar (0x3A59D8) and its stop (0x35BFC0), the driving mode's choice (0x3F19E0 command 10). ✔ The stages, messages, panel and menu beside the original's stop (`26-endurance/fc_pitwindow_*`) | |
 | The cars' levels of detail | `car_visual.cpp` `CarVisual::level` | GT4 (0x07's size and centre, the car's rule 0x4539A8, T = 200); K, the view's factor (0x456918), from the chase view's measured 721.2 by the lens's angle (judged: the lens) | the race's lens (camera.md) |
 | The far level's wheels | `car_visual.cpp` | GT4 (the body's own shapes with the wheel set's last texture set, callback 46) | |

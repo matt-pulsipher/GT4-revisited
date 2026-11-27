@@ -442,7 +442,7 @@ void pack(Pack& p, const DriverArea& s) { p(s.pace_start)(s.other_2)(s.pace_shif
 struct MaterialArea {
     std::array<u8, 16> tire_curve_b; // +0x000 (0x622420) the default tire curve B (x 6 bytes, y 6 bytes at +8)
     std::array<u32, 24> soft; // +0x010 (0x622430) a material's soft flag
-    std::array<u8, 16> other_70; // +0x070 (0x622490) (read with the soft flags as materials 24 .. 27) ❓ read by GT4R
+    std::array<u8, 16> other_70; // +0x070 (0x622490) the machine tests' distances (floats 400, 1000, 6845, -1: DynamicsConductorMachineTest vf39 / vf43, race::machine_test_course)
     std::array<u8, 6> loose_setup; // +0x080 (0x6224A0) a rally car's changes on a loose course
     std::array<u8, 2> ascc_switches; // +0x086 (0x6224A6) the ASCC's switches
     u8 ascc_switch; // +0x088 (0x6224A8) the ASCC switch
