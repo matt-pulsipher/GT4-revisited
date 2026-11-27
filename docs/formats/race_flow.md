@@ -332,7 +332,10 @@ The conductor's set-up (virtual 26, 0x34CA20, for a RaceArcadeSingle: 0x3BFD00) 
   pit pass (0x35B060) reads as a pad car's own visit: at the lane's entry the car is taken in (2 on the lane, no service asked), and
   out of the lane's end the byte is 0 again (0x35B824), so a new penalty can be given; leaving the lane short of its end puts it
   back to 1. A drive-through. Here the session's mark (`Session::pit_mark`) is the pit flow's `pad_state`, read before the pass and
-  written after it (`PitHooks::mark`, `set_mark`). ❓ What the display shows while the mark is set is not read.
+  written after it (`PitHooks::mark`, `set_mark`). ✔ In a race at Tsukuba (`GT4R_RACE="...,penalty=2,drive=pad,auto_after=1500"`: the
+  player's car into turn 1's wall at full throttle, then the computer driving it): the mark 1 at the hit (236.9 m, 10.5 s), 2 from
+  1362.9 m, the car down the lane (the pit stage 1 at 1738 m) and out (stage 5) without a stop, the mark 0 at 147.5 m, past the
+  lane's end; the line's crossing in the lane counted. ❓ What the display shows while the mark is set is not read.
 - `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 1, 5, 4, 0, 5, 5 and 6, 40, 12,
   1, 5, 3, 0, 4, 5.
 Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose: 0x34CCD4).

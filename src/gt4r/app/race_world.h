@@ -255,6 +255,8 @@ public:
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
+    // F +0x62E (the arcade's "Passing pit lane" mark, the pit pass's pad visit): 0 none.
+    int pit_mark(size_t car) const { return session_ && car < car_visuals_.size() ? session_->pit_mark(car) : 0; }
     // A car's race is over (0x343D78: the computer cruises it on, or as `mode` asks: ai::Field::finish); a test's player's: the
     // computer's cars too (0x3F88E8).
     void finish_car(size_t car, bool test, int mode = 3) {

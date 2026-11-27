@@ -6,7 +6,7 @@
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
-// race's length, `limit` a time limit in seconds (no laps then), `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
+// race's length, `limit` a time limit in seconds (no laps then), `penalty` an arcade race's penalty option (0 none, 1 the speed limit, 2 the pit lane) over its row, `auto_after` the step from which the computer drives the player's car, `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
 // `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
@@ -177,6 +177,8 @@ struct Setup {
     std::vector<size_t> online_order;                // (entry 0 is ours, the others follow in grid order)
     Bytes playlist_bytes;                            // as the options' block keeps it (a recording's header has it)
     int penalty_option = 0, tire_damage = 0;         // an arcade race's options (race::arcade_rules)
+    bool penalty_given = false;
+    int auto_after = 0;                              // `auto_after=<steps>`: the computer takes the player's car from that step (checks)                      // `penalty=<0..2>`: the option over the event's row without the menus
 };
 
 // An online race's set-up: our car entry 0, the others in grid order, every car as its owner sent it on its place of the grid.
@@ -246,6 +248,8 @@ Setup setup_from_env() {
         else if (k == "limit") s.limit_seconds = std::max(0, std::atoi(v.c_str()));
         else if (k == "qualify") s.qualify = v != "0", s.laps = 0, s.start = race::StartType::None, s.start_given = true;
         else if (k == "menus") s.sequence = v;
+        else if (k == "auto_after") s.auto_after = std::max(0, std::atoi(v.c_str()));
+        else if (k == "penalty") s.penalty_option = std::clamp(std::atoi(v.c_str()), 0, 2), s.penalty_given = true;
         else if (k == "race") s.race = v;
         else if (k == "opponents")
             for (std::string_view o : gt3r::split(v, '/')) s.opponents.emplace_back(gt3r::trim(o));
@@ -1243,6 +1247,10 @@ public:
         if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
         step_pace_lists();
+        if (const int mark = world_->pit_mark(0), stage = world_->pit_stage(0); mark != logged_mark_ || stage != logged_stage_) {
+            LOG_INFO("Drive: the player's pit mark %d, pit stage %d at %.1f m, %.2f s", mark, stage, double(world_->cars()[0].course_v), double(flow_.time_ms()) / 1000);
+            logged_mark_ = mark, logged_stage_ = stage;
+        }
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -2558,6 +2566,7 @@ private:
     // The lists of the cars through each section's end by round (vf18 0x3578B0: the split points, then the line), for the Race
     // Monitor's pace-up marks (0x3FA508); each car's last place along the lap and crossings.
     race::SplitLists pace_lists_;
+    int logged_mark_ = 0, logged_stage_ = 0; // (the log's: the player's pit mark and stage)
     std::vector<std::pair<float, int>> pace_prev_;
     void step_pace_lists() {
         if (setup_.conductor != race::Conductor::Other || flow_.steps_since_start() < 0) return; // (vf18 is the race's and the battles')
@@ -3048,7 +3057,7 @@ public:
         for (int n = 0; n < due; ++n) {
             // (the Race Monitor up: its speed's steps a frame, RaceBase::vf74 0x389A48 with vf30's scale from 0x3D8B00)
             const int steps = race_->viewing() ? race_->view().speed() : monitor_ && race_->watched() && !race_->replaying() ? monitor_speed_ : 1;
-            for (int k = steps; k-- > 0;) race_->step(player_input_, setup_.auto_drive || spectator_);
+            for (int k = steps; k-- > 0;) race_->step(player_input_, setup_.auto_drive || spectator_ || (setup_.auto_after > 0 && race_->run_steps() >= size_t(setup_.auto_after)));
             if (const sim::Session* session = race_->world().session(); session && playing()) feedback_.step(input::car_feel(*session, 0), float(kStep));
         }
         if (playing()) feedback_.frame(app.input(), 0, input::FeedbackOptions::from(controllers_.port[0], wheel_.wheel), dt);
@@ -4706,6 +4715,7 @@ private:
             race::row_start(setup_.event_row, setup_.start, setup_.start_seconds);
         try {
             load_test(app, setup_, menus_ && !setup_.demo_run ? menus_->game().race.race : setup_.race);
+            if (setup_.penalty_given && !setup_.event_row.empty()) race::arcade_rules(setup_.event_row, setup_.penalty_option, setup_.tire_damage);
             // An endurance race of a time limit (RACE +0x18 minutes, its laps +0x43 0): no number of laps, the time ends it.
             if (!setup_.online && race::row_time_limit_ms(setup_.event_row) > 0 && setup_.event_row.size() > 0x43 && setup_.event_row[0x43] == 0) setup_.laps = 0;
             if (setup_.limit_seconds > 0) setup_.laps = 0;
