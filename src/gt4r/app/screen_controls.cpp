@@ -349,6 +349,10 @@ private:
                                      button("Change view", PadButton::Select, true), button("Look back (wheel's Down)", PadButton::Down), button("Ghost (wheel's Up)", PadButton::Up),
                                      button("Pause", PadButton::Start)})
                 out.push_back(b);
+            // The wheel's nitrous (player_controls.h kNitrousControl): the engine's extra control, read into the game's key.
+            Binding nitrous;
+            nitrous.label = "Nitrous", nitrous.target = gt3r::extra_control(input::kNitrousControl);
+            out.push_back(nitrous);
         } else {
             for (const Binding& b : {button("Shift up", PadButton::R2), button("Shift down", PadButton::L2), button("Change view", PadButton::R1), button("Look back", PadButton::L1),
                                      button("Nitrous", PadButton::Down), button("Ghost", PadButton::Up), button("Pause", PadButton::Start)})

@@ -46,17 +46,11 @@ inline void with_output_level(gt3r::VoiceMixer& mixer) { mixer.set_master_volume
 // sound behind the camera in every output mode, so a mixer playing the game has it on.
 inline void with_surround_cue(gt3r::VoiceMixer& mixer) { mixer.set_surround_cue(true); }
 // A voice's level lands at once (docs/formats/sound.md "Voices"): the SPU2 takes its level registers at once and the driver
-// eases only what its rules say. With a shared engine whose mixer has the switch (VoiceMixer::set_volume_ramp); an older one
-// keeps its 5 ms ease. `on` false gives the engine its own ease back.
-template <class Mixer> void with_levels_at_once(Mixer& mixer, bool on = true) {
-    if constexpr (requires { mixer.set_volume_ramp(false); }) mixer.set_volume_ramp(!on);
-}
-// The stream's two voices (stream_voices.h): the SPU2's last two, which the driver never hands out, when the shared engine's
-// mixer keeps them apart (VoiceMixer::key_on_spare); an older one gives the stream two of the driver's 46.
-template <class Mixer, class Params> gt3r::VoiceId key_stream_voice(Mixer& mixer, int side, const Params& p) {
-    if constexpr (requires { mixer.key_on_spare(side, p); }) return mixer.key_on_spare(side, p);
-    else return mixer.key_on(p);
-}
+// eases only what its rules say (the shared engine's mixer without its 5 ms ease: VoiceMixer::set_volume_ramp). `on` false gives
+// the engine its own ease back.
+inline void with_levels_at_once(gt3r::VoiceMixer& mixer, bool on = true) { mixer.set_volume_ramp(!on); }
+// The stream's two voices (stream_voices.h): the SPU2's last two, which the driver never hands out (VoiceMixer::key_on_spare).
+inline gt3r::VoiceId key_stream_voice(gt3r::VoiceMixer& mixer, int side, const gt3r::VoiceParams& p) { return mixer.key_on_spare(side, p); }
 inline float stream_request(float level) { return level * kOutputLevel / gt3r::VoiceMixer::kOutputTrim; }
 
 // A voice's priority (docs/formats/sound.md "Voices"): a signed 32-bit number, the higher keeping its voice

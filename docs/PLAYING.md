@@ -55,7 +55,7 @@ Triangle and Square go back). In races, unless you change it:
 | Reverse | L1 | R | Triangle |
 | Change view | Triangle (Y), Select | C, Tab | Select |
 | Look back | right stick pressed | X | the direction buttons' Down |
-| Nitrous | R1, direction buttons' Down | F | (bind it) |
+| Nitrous | R1, direction buttons' Down | F | R2 button (Controls: *Nitrous*) |
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter (or W) is Cross, Escape and Backspace Triangle, Space Circle, S Square,
@@ -361,6 +361,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   own options)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
+- The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
+  `game::app_bundle_folder`, else SDL's preference folder) is ours (`app.cpp` `user_data_dir`). The update check and the
+  online session's relay requests are the shared engine's (`net::VersionCheck`, `net::Session`) carrying our game tag
+  (`gt4r` and this game's version: `net/version_check.*`), so a relay holds us to this game's versions.
 - The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,
   hot plug, bindings, the steering's dead zone and response); from its virtual pads on the race's frame is
   the game's own (the controller 0x43CF90, `src/gt4r/input`, equal to the program's), and so is what the

@@ -1,5 +1,4 @@
 #include "gt4r/app/app.h"
-#include "gt4r/app/app_folder.h"
 #include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/presence.h"
@@ -13,6 +12,7 @@
 #include "base/log_file.h"
 #include "formats/png_writer.h"
 #include "formats/texture_pack.h"
+#include "game/gt_save.h"
 #include "platform/crash_handlers.h"
 #include "platform/mac_layer.h"
 #include "platform/render_scale.h"
@@ -105,7 +105,7 @@ std::string user_data_dir() {
         return dir;
     }
     const std::string base = SDL_GetBasePath() ? SDL_GetBasePath() : "";
-    if (const std::string beside = app_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
+    if (const std::string beside = gt3r::game::app_bundle_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
         dir = beside;
     } else if (!base.empty() && gt3r::host_path_exists(base + "portable.ini")) {
         dir = base;
@@ -252,6 +252,7 @@ bool App::init(int argc, char** argv) {
     reset_dynamic_scale();
     apply_frame_limit();
 
+    input::register_extra_controls(); // (Nitrous: its default goes into the layouts the bindings are made from)
     input_ = std::make_unique<gt3r::InputManager>();
     {
         gt3r::IniDocument controls = config_; // (our words for the original's layouts as the engine has them)

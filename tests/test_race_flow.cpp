@@ -534,7 +534,10 @@ TEST(race_picture_settings) {
     CHECK(std::fabs(c.gamma[1] - std::pow(2.0f, 0.3f)) < 1e-5f && c.gamma[0] == c.gamma[1] && c.gamma[2] == c.gamma[1]);
     CHECK(c.contrast == 1 && c.saturation == 1);
     auto g = p.grade();
-    CHECK(g.on && g.white == 1 && g.black == 0 && std::fabs(g.curve[1] - (2 * std::pow(0.5f, std::pow(2.0f, -0.3f)) - 0.5f)) < 1e-5f && g.curve[1] > 0.5f);
+    // GT4's own tables (PostGrade::own_table): level i of 255 to trunc(255 t^(1 / gamma)).
+    CHECK(g.on && g.own_table && g.white == 1 && g.black == 0);
+    CHECK(g.table == race::correction_levels(c.gamma, 0, 1, 255));
+    CHECK(g.table[128][1] == u8(int(255 * std::pow(128.0f / 255, 1 / std::pow(2.0f, 0.3f)))) && g.table[128][1] > 128 && g.table[255][1] == 255);
     // All zero: no correction.
     race::PictureSettings z{race::PictureSettings::kReplayDefault};
     CHECK(!z.grade().on);
@@ -545,7 +548,8 @@ TEST(race_picture_settings) {
     CHECK(std::fabs(c.gamma[0] - 0.9f) < 1e-5f && std::fabs(c.gamma[2] - 1.1f) < 1e-5f);
     CHECK(std::fabs(c.contrast - 0.7f) < 1e-5f && std::fabs(c.saturation - 0.5f) < 1e-5f);
     g = q.grade();
-    CHECK(g.black == 0 && std::fabs(g.white - 0.7f) < 1e-5f && g.curve[0] < 0.5f && g.curve[2] > 0.5f);
+    CHECK(g.own_table && g.black == 0 && std::fabs(g.white - 0.7f) < 1e-5f && g.table == race::correction_levels(c.gamma, 0, c.contrast, 255));
+    CHECK(g.table[100][0] < g.table[100][1] && g.table[100][1] < g.table[100][2] && g.table[179][1] == 255); // (white at 0.7 of 255)
 }
 
 TEST(replay_camera_springs) {

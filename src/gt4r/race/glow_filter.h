@@ -4,6 +4,7 @@
 // 0x3BADF8), on the photo locations that set it (ss_gion, ss_sagano, ss_sanmarco, ss_shibuya).
 
 #include "gt4r/base/types.h"
+#include "render/view3d.h"
 
 #include <optional>
 
@@ -23,15 +24,14 @@ struct GlowFilter {
     static std::optional<GlowFilter> from_env(ByteSpan env0);
 };
 
-// The filter into the engine's draw options where the shared engine has the pass (DrawOptions::glow); an older one draws none.
-template <class Options> void apply_glow(Options& o, const std::optional<GlowFilter>& g) {
-    if constexpr (requires { o.glow.on; o.glow.samples; }) {
-        o.glow.on = g.has_value();
-        if (g) o.glow.threshold = g->threshold, o.glow.radius = g->radius, o.glow.samples = g->samples, o.glow.sum = g->sum, o.glow.gain = g->gain;
-        // (An engine with the copies' placement and their linear weights; an older one centres an even box.)
-        if constexpr (requires { o.glow.tent; o.glow.offset[1]; })
-            if (g) o.glow.tent = true, o.glow.offset[0] = g->offset_x, o.glow.offset[1] = g->offset_y;
-    }
+// The filter into the engine's draw options (DrawOptions::glow, the engine's glow pass).
+template <class Options = gt3r::render::DrawOptions> void apply_glow(Options& o, const std::optional<GlowFilter>& g) {
+    o.glow.on = g.has_value();
+    if (g) o.glow.threshold = g->threshold, o.glow.radius = g->radius, o.glow.samples = g->samples, o.glow.sum = g->sum, o.glow.gain = g->gain;
+    // (An engine with the copies' placement and their linear weights, Glow::tent / offset: not in the shared engine yet; without
+    // them it centres an even box of n points.)
+    if constexpr (requires { o.glow.tent; o.glow.offset[1]; })
+        if (g) o.glow.tent = true, o.glow.offset[0] = g->offset_x, o.glow.offset[1] = g->offset_y;
 }
 
 } // namespace gt4r::race

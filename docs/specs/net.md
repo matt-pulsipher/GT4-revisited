@@ -446,11 +446,12 @@ This game's version is its own (`project(GT4Revisited VERSION x.y.z)`, `gt4r_ver
 shared engine's. The update check (`net/version_check.*`, `app/updates.*`) asks the relay server which versions of **this
 game** it announces:
 
-- **The question**: the engine's VersionQuery (our version, the platform), then a game tag: the id `gt4r` and our version
-  again, padded to 199 bytes (the engine's `docs/dev/ONLINE.md` "Other games on one relay"). A relay that keeps versions
-  per game answers this game's latest release, oldest version for online play and release page, with our id after the
-  page. A relay that does not (the public relay until the change is deployed) answers its main game's versions without
-  the id: that answer is not taken, and nothing is shown, as when nobody answers.
+- **The question**: the engine's version check (`net/update_check.h`) with our game tag: its VersionQuery (our version, the
+  platform), then the id `gt4r` and our version again, padded to 199 bytes (the engine's `docs/dev/ONLINE.md` "Other games
+  on one relay"). A relay that keeps versions per game answers this game's latest release, oldest version for online play
+  and release page, with our id after the page (0.0.0 / 0.0.0 / no page while it lists none for us). A relay that does not
+  (the public relay until the engine's relay with games is deployed there) answers its main game's versions without the
+  id: that answer is not taken, and nothing is shown, as when nobody answers.
 - **When**: at startup when Settings > Disc & saves > *Check for updates* is *At startup* (the default) **and a server has
   been chosen** (`[online] server`; the online page promises that none is contacted before), and on *Check now*, which
   asks the chosen server or else `gt3r.gameversions.com`. Scripted runs use only the kept answer unless
@@ -464,11 +465,11 @@ game** it announces:
   have none and open the release page), *Later*, *Release notes*. At
   startup it shows once per release over the home screen or the game's title (Arcade's `TopRoot`); Later remembers the
   release.
-- **Enforcement**: the relay holds our session requests to its main game's oldest version by the engine's version in
-  them. ❓ Holding them to this game's own versions needs the engine to add the game tag to the session's requests
-  (`Session::set_game_tag`, an engine change not in the shared engine yet); until then, each raise of the main game's
-  oldest version stops our races through the relay until the shared engine is brought up to it. The local network and
-  addresses are never affected.
+- **Enforcement**: every request of our online session to the relay carries the same game tag (`net::name_the_game`: the
+  engine's `Session::set_game_tag`), so a relay that keeps versions per game holds our sessions to this game's oldest
+  version (a `[gt4r]` section in its versions file: the engine's `set-versions.sh --game gt4r`), never its main game's; the requests'
+  header carries the engine's own version, which a relay without games checks against its main game's. Direct-IP
+  sessions compare this game's version. The local network and addresses are never affected.
 
 ### Discord status
 

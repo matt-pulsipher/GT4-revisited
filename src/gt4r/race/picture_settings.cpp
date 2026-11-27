@@ -40,20 +40,6 @@ std::array<std::array<u8, 3>, 256> correction_levels(const float gamma[3], float
     return out;
 }
 
-namespace {
-// The grade's own tables where the shared engine takes them (DrawOptions::PostGrade::own_table).
-template <class Grade> bool set_levels(Grade& g, const std::array<std::array<u8, 3>, 256>& levels) {
-    if constexpr (requires { g.own_table; g.table; }) {
-        g.own_table = true;
-        for (size_t i = 0; i < 256; ++i)
-            for (size_t c = 0; c < 3; ++c) g.table[i][c] = levels[i][c];
-        return true;
-    } else {
-        return false;
-    }
-}
-} // namespace
-
 gt3r::render::DrawOptions::PostGrade correction_grade(const float gamma[3], float black, float white, float saturation, float most) {
     gt3r::render::DrawOptions::PostGrade g;
     // (0x3EFD08: nothing to do when every gamma, the white level and the saturation are 1 and the black level 0; `most` under
@@ -63,11 +49,11 @@ gt3r::render::DrawOptions::PostGrade correction_grade(const float gamma[3], floa
     g.saturation = std::clamp(saturation, -1.0f, 1.0f);
     g.black = black;
     g.white = white;
-    if (!set_levels(g, correction_levels(gamma, black, white, most))) {
-        // An engine without own tables: its curve through the gammas' middle.
-        g.white = std::max(white, black + 0.05f);
-        for (int i = 0; i < 3; ++i) g.curve[i] = std::clamp(2 * std::pow(0.5f, 1 / std::max(gamma[i], 0.05f)) - 0.5f, 0.0f, 1.0f);
-    }
+    // The grade's own tables (DrawOptions::PostGrade::own_table): GT4's levels, in place of the engine's curve.
+    g.own_table = true;
+    const std::array<std::array<u8, 3>, 256> levels = correction_levels(gamma, black, white, most);
+    for (size_t i = 0; i < 256; ++i)
+        for (size_t c = 0; c < 3; ++c) g.table[i][c] = levels[i][c];
     return g;
 }
 
