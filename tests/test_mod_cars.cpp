@@ -2,6 +2,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/audio/car_sound.h"
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/save/game_data.h"
@@ -188,6 +189,10 @@ TEST(mod_car_rows) {
     const std::optional<db::ModCars::Picture> logo = mods.picture("piece/car_logo2/gt4r_test_coupe_26.img");
     CHECK(logo && logo->disc.empty());
     CHECK(!mods.picture("piece/car_mini/impreza_wrx_sti_00.img"));
+
+    // Its engine sounds: the donor's.
+    const audio::CarSoundFiles sound = audio::car_sound_files(sdb, "gt4r_test_coupe_26"), donor_sound = audio::car_sound_files(sdb, "impreza_wrx_sti_00");
+    CHECK(!sound.engine.empty() && sound.engine == donor_sound.engine && sound.exhaust == donor_sound.exhaust);
 
     // The race builds it: its weight, power, gears and tires in the spec.
     const sim::Program program = sim::Program::load(*disc);
