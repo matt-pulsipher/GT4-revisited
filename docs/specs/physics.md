@@ -979,7 +979,8 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
     1.25) in 0x3E0FF8 are the PAL picture's. Our views keep their own (the window's shape).
 - **Japan** is an earlier build with its data moved (0x620AD8 there 0x618040). The address words in its tables are its
   own (11 of them, not counted as differences).
-  - The engine condition's oil is old from **5,000 km** (static +0xD7 = 50; v1.01 60). ✔ Served.
+  - The engine condition's oil limit (static +0xD7) is 50 (5,000 km; v1.01 60). ✔ Served. Japan's torque factor reads no
+    limit past the fresh oil's (0x34AFD0, below): the byte takes nothing off there.
   - Its static block lacks v1.01's +0x14E .. +0x155 (100 x 5, 0, 0, 4), 8 bytes: what follows is 8 bytes earlier there,
     and Japan's code reads it there (v1.01's 0x620E30 is Japan's 0x618390). Served as 0.
 - 🔎 **The code**: of the routines our simulation and race code port, Europe changes 81 and Japan 106 (`build_map`
@@ -1022,6 +1023,29 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
 - ✔ **The player's car after the test** (0x3F14A8, v1.01 0x3F8818): after a stop in the box, passed or failed, it coasts
   down (v1.01: it brakes to a stop when passed). `race::license_end_mode`.
 - ✔ **The stop driver's count** (0x45D238, v1.01 0x464C38): 120 steps from kind 5 after kind 4 too (v1.01: not). `Field::set_kind`.
+- ✔ **The spreads' switches during the set-up**: the switches (0x61B3A8 +0xA / +0xB) are 0 in the image and set by the
+  single race's preparation after every car is set up, so the plans the set-up makes (each driver's first arcs' speeds and
+  braking) take no draw; the race's first step and on, they do. `Field::step` (`spread_live_`).
+- ✔ **The pace level at the set-up** (0x3EA6A8, v1.01 0x3F1890): the player's level (0x6195D8) for control source 1 only;
+  a pad car's driver (control source 0) takes the computer drivers' (0x6195D9) with passing allowed but in a run alone
+  (v1.01: control sources 0 and 1 the player's, no passing). Both bytes are 2. `Field::set_shadow`.
+- ✔ **The B-spec commands** (0x3EA7E8, v1.01 0x3F19E0; 0x3EA8F0, v1.01 0x3F1BD8): passing turned off keeps the driver's line
+  (v1.01: a passing line back to the main line); the pit command takes and drops the request at any time (v1.01: not
+  before the first crossing nor after the laps, 0x343C20) and keeps no mark F +0x5C1 (Japan's program has no F +0x5C1 at
+  all). There is no command 10 (v1.01's driver change). `Field::command`, `PitStops::command`.
+- ✔ **The record and skill at the race's start** (the conductor's virtual 28, 0x3EAB68, v1.01 0x3F1E60): for control
+  source 1 only (v1.01: 0 or 1). Ours sets the B-spec driver's skill after the set-up's plans, as both programs do
+  (`RecordedRace`, `RaceWorld::arm_bspec`); a pad car's driver takes none in either.
+- ✔ **A car's run over and the rolling start's hold** (0x33FAA8, 0x33FCC8, 0x33FC48, 0x33FD48; v1.01 0x3452F0, 0x345520,
+  0x3454A8, 0x345598): no change for control source 4; the driver asks for the main line from any line, blended (v1.01: from
+  the passing line 7 alone, at once), and takes its kind (1, 6 or 5) only when the change is made; on the drag strip modes 1
+  and 3 keep the lane (both). `Field::finish`, `Field::hold_rolling`.
+- ✔ **The odometer** (0x358330, v1.01 0x35DD00): the car's distance F +0x5D0 wraps at 8,000 km (v1.01 80,000 km); no
+  distance while control source 1 (F +0x6AC, v1.01's). `rules::speeds`.
+- ✔ **The engine condition's factor** (0x34AFD0, v1.01 0x350868): the oil's part is its gain while fresh (below 0 the
+  share of the gain, under the limit +0x14 the whole) and 1 after; v1.01 takes up to the gain off past the limit +0x20.
+  `condition_factor` (both), `engine_condition`. Checked: `gt4r_diff <jp> showroom`'s 260 condition blocks equal to Japan's
+  program (221 with v1.01's rule).
 - Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
   splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
   not run alone, and does not write F +0x5C1; the skill (0x3EA6A8, 0x3EA8F0),

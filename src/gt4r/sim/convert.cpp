@@ -734,7 +734,8 @@ void base_grips(const Program& program, ParamBlock& p, u32 axles = 3) {
 
 // ---- the top speed (0x360780 with 0x34F3F8, 0x360520, 0x3F3278, 0x3F86E8) ----
 
-// 0x350868: the engine's torque factor of its condition (1 for a fresh engine).
+// 0x350868: the engine's torque factor of its condition (1 for a fresh engine). SCPS-17001 v1.05's (0x34AFD0): the oil's
+// gain while it is fresh only, no loss once it is old.
 F condition_factor(const ConditionTable& L, const u8* cond) {
     if (cond == nullptr || cond[0x14] != 0) return kOne;
     F w4, w8;
@@ -751,7 +752,7 @@ F condition_factor(const ConditionTable& L, const u8* cond) {
     F b = kOne;
     if (x < L.l[5]) b = L.l[6] + b;
     else if (x < kZero) b = ((x * L.l[6]) / L.l[5]) + b;
-    else if (L.l[8] < x) {
+    else if (!L.japan && L.l[8] < x) {
         F t = (x - L.l[8]) / (L.l[7] - L.l[8]);
         if (b < t) t = b;
         b = b - L.l[6] * t;
@@ -954,6 +955,7 @@ ConditionTable condition_table(const Program& program) {
     c.l[5] = (-big(0xD5)) * kHalf;
     c.l[7] = big(0xD7);
     c.l[8] = big(0xD8);
+    c.japan = program.known() && program.release() == Release::Japan;
     return c;
 }
 

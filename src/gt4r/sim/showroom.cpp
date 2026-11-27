@@ -96,6 +96,7 @@ ConditionLimits condition_limits(const Program& program) {
     l.new_engine = -metres(0), l.new_loss = share(1), l.run_in = metres(2);
     l.worn = metres(3) + l.run_in, l.worn_loss = share(4);
     l.fresh_oil = -metres(5) * kHalf, l.oil_gain = share(6), l.old_oil = metres(7), l.oil_from = metres(8);
+    l.japan = program.known() && program.release() == Release::Japan;
     return l;
 }
 
@@ -112,7 +113,7 @@ F engine_condition(const Program& program, F engine, F oil, bool no_wear) {
     F o = kOne;
     if (oil < l.fresh_oil) o = l.oil_gain + o;
     else if (oil < k0) o = (oil * l.oil_gain) / l.fresh_oil + o;
-    else if (l.oil_from < oil) {
+    else if (!l.japan && l.oil_from < oil) {
         F t = (oil - l.oil_from) / (l.old_oil - l.oil_from);
         if (kOne < t) t = kOne;
         o = o - l.oil_gain * t;

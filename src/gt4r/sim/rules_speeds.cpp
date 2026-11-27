@@ -40,6 +40,7 @@ SpeedTables speed_tables(const Program& program, u8 special_row) {
     t.lean_row = {F::raw(program.w(row + 0x30)), F::raw(program.w(row + 0x34))};
     t.special_x10 = F::raw(program.w(row + 0x10));
     t.throttle_share = F::raw(program.w(0x62075C)), t.brake_share = F::raw(program.w(0x620760));
+    t.japan = program.known() && program.release() == Release::Japan;
     return t;
 }
 
@@ -109,11 +110,11 @@ void speeds(ex::Car& c, SpeedExtra& x, const WheelLayout& l, const SpeedTables& 
     if (!(c.speed_abs < kZero)) {
         const F d = c.speed_abs * c.dt;
         c.odo_carry = odometer_add(c.odometer, c.odo_carry + d);
-        const F wrap = F::raw(0x4C989680); // (80,000 km)
+        const F wrap = F::raw(t.japan ? 0x4AF42400 : 0x4C989680); // (80,000 km; SCPS-17001 v1.05's 0x358330: 8,000 km)
         const F total = c.dist_total + d;
         c.dist_total = total;
         if (wrap <= total) c.dist_total = total - wrap;
-        if (c.control == 1) {
+        if (c.control == 1 && !t.japan) {
             x.drive_distance = x.drive_distance + d;
             if (wrap <= x.drive_distance) x.drive_distance = x.drive_distance - wrap;
         }
