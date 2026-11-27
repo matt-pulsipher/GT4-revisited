@@ -11,6 +11,7 @@
 #include "gt4r/sim/showroom.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -82,7 +83,21 @@ const PartsType kTypes[32] = {
 constexpr u64 kStiffness = make_code(31, 0); // the stiffness "part"
 constexpr u32 kStiffnessPrice = 30000;       // 0x44A458
 
-const PartsType* type_of(int t) { return t >= 1 && t <= 31 ? &kTypes[t] : nullptr; }
+// Japan's program (SCPS-17001 v1.05) offers 4 suspensions and 5 turbine kits (its table of categories, 0x6A7C28's
+// counterpart: 2, 2, 4, 2, 2, ...), and its owned bits leave out the two it lacks (its 0x43F270: ASCC on at 8, the port
+// polish on at 31, the stiffness work 92; 94 bits, its 0x43F470's limit). The rest of the parts' tables are the same.
+const std::array<PartsType, 32> kTypesJapan = [] {
+    std::array<PartsType, 32> t;
+    std::copy(std::begin(kTypes), std::end(kTypes), t.begin());
+    t[3].categories = 4, t[14].categories = 5;
+    for (int i = 4; i < 32; ++i)
+        if (t[size_t(i)].owned_from >= 0) t[size_t(i)].owned_from -= i <= 14 ? 1 : 2;
+    return t;
+}();
+
+bool japan_parts(const Database& d) { return d.program.known() && d.program.release() == sim::Release::Japan; }
+
+const PartsType* type_of(int t, bool japan = false) { return t >= 1 && t <= 31 ? japan ? &kTypesJapan[size_t(t)] : &kTypes[t] : nullptr; }
 
 u64 sheet_part(const u8* eq, int type) {
     const PartsType* p = type_of(type);
@@ -115,7 +130,7 @@ void mark_stock_owned(Database& d, CarRecord& r) {
     // 0x43FA10: the category each part the car comes with is owned.
     static const int kOrder[] = {1, 2, 11, 3, 25, 26, 10, 24, 4, 5, 8, 15, 16, 17, 18, 13, 14, 22, 21, 23, 19, 20, 27, 28, 31};
     for (int t : kOrder) {
-        const PartsType& p = kTypes[t];
+        const PartsType& p = *type_of(t, japan_parts(d));
         if (t == 31) {
             if (r.sheet(0)[0x168]) r.set_owned(p.owned_from + 1, true);
             continue;
@@ -570,8 +585,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         for (const auto& [code, cat] : parts().parts) n += code != kNoCode && int(code >> 32) == t;
         return number(n);
     });
-    car->method("getPartsTypeMax", [](Vm&, const Value&, Args a) {
-        const PartsType* p = type_of(arg_int(a, 0));
+    car->method("getPartsTypeMax", [db](Vm&, const Value&, Args a) {
+        const PartsType* p = type_of(arg_int(a, 0), japan_parts(db()));
         return number(p ? p->categories : 0);
     });
     car->method("isExistPartsType", [parts](Vm&, const Value&, Args a) {
@@ -594,23 +609,23 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     });
     car->method("getEquipedParts", [rec, db](Vm&, const Value&, Args a) { return number(equipped(db(), rec().active(), arg_int(a, 0))); });
     // getParts(type, category): owned (the script pays and fits it itself).
-    car->method("getParts", [rec](Vm&, const Value&, Args a) {
-        const PartsType* p = type_of(arg_int(a, 0));
+    car->method("getParts", [rec, db](Vm&, const Value&, Args a) {
+        const PartsType* p = type_of(arg_int(a, 0), japan_parts(db()));
         if (p && p->owned_from >= 0) rec().set_owned(p->owned_from + arg_int(a, 1), true);
         return Value{};
     });
-    car->method("isHavingParts", [rec](Vm&, const Value&, Args a) {
+    car->method("isHavingParts", [rec, db](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
-        const PartsType* p = type_of(t);
+        const PartsType* p = type_of(t, japan_parts(db()));
         if (!p || p->owned_from < 0) return number(0);
         if (p->removable && !p->stock_row && cat == 0) return number(1);
         return number(rec().owned(p->owned_from + cat));
     });
     car->method("isHavingStiffnessParts", [](Vm&, const Value&, Args) { return number(0); });
-    car->method("isAllowedParts", [rec, parts](Vm&, const Value&, Args a) {
+    car->method("isAllowedParts", [rec, parts, db](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
         if (t != 8 || cat <= 1) return number(1);
-        if (rec().owned(kTypes[8].owned_from + cat - 1)) return number(1);
+        if (rec().owned(type_of(8, japan_parts(db()))->owned_from + cat - 1)) return number(1);
         return number(find_part(parts(), 8, cat - 1) == kNoCode);
     });
     car->method("isReversibilityType", [](Vm&, const Value&, Args a) {
@@ -627,8 +642,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         if (arg_int(a, 0) != 20 || !db().db) return number(0);
         return number(!db().db->default_part(c->label, 20).has_value());
     });
-    // setParts = changeParts (0x1403A0): the part of the car's list; category 0 of a removable
-    // type that has none takes it off. Parts that cannot be undone go on all three sheets.
+    // setParts = changeParts (0x1403A0): the part of the car's list (0x44A048) fitted by 0x440B50; category 0 of a
+    // removable type (0x44A250: 13, 18, 19, 20, 22, 23, 27, 28) that has none takes it off the sheet in use (0x446AE0).
+    // The parts that cannot be undone (8, 15, 16, 17), the wheel and the wing go on all three sheets, the others on the sheet
+    // in use with their settings' defaults from the part's row.
     auto set_parts = [rec, parts, db, update](Vm&, const Value&, Args a) {
         const int t = arg_int(a, 0), cat = arg_int(a, 1);
         const PartsType* p = type_of(t);
@@ -643,6 +660,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
             for (int s = 0; s < 3; ++s) r.sheet(s)[0x168] = 1;
             return Value{};
         }
+        // (The chassis, the racing modification, the steering and the engine: 0x440B50 fits nothing; no shop sells them.)
+        if (t == 6 || t == 7 || t == 9 || t == 12) return Value{};
         const bool every_sheet = !p->reversible || t == 29 || t == 30;
         for (int s = 0; s < 3; ++s) {
             u8* eq = every_sheet ? r.sheet(s) : r.active();
@@ -1097,6 +1116,11 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
 
     (void)d;
     return object_value(car);
+}
+
+int parts_owned_from(int type, bool japan) {
+    const PartsType* p = type_of(type, japan);
+    return p ? p->owned_from : -1;
 }
 
 void install_car_class(GameNatives& n, script::Module& menu) {

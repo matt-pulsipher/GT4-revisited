@@ -3297,7 +3297,7 @@ public:
         // A replay: Start ends it; the title's time-out's any button, and the time-out with it (0x10BBB0's end code 2).
         if (race_->replaying()) {
             if (attract_ && menus_ && any_button_pressed(m)) menus_->game().menu_result = "terminate", race_->stop_replay();
-            if (m.pressed(PadButton::Start)) race_->stop_replay();
+            if (m.pressed(PadButton::Start)) race_->stop_replay(), replay_quit_ = true;
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
             if (is_license(sequence_)) race_->license_sound(prize_level());
@@ -3935,7 +3935,6 @@ private:
     // ---- The PIT STOP menu (menu/common/pitmenu.strb, 0x3DCC50 .. 0x3DD688): up from the pit lane's start until the choice is
     // made or the car is out again, the race going on. True while it is up.
 
-    static constexpr int kFrontTiresOwned = 0x40, kRearTiresOwned = 0x4D; // (0x43F270: the first owned bit of types 0x19 / 0x1A)
     struct PitChoice {
         bool tires = false, fuel = false;      // what may be chosen (+0xE8, +0xEC)
         bool mode = true;                      // the driving mode may be (+0x100: the race's +0x970, 0x110498: an event only without its license, which its entry asks for)
@@ -3985,7 +3984,9 @@ private:
             if (menus_ && sequence_ != "single_race" && !sequence_.empty())
                 if (const int at = menus_->game().race.garage_slot; at >= 0 && size_t(at) < menus_->game().garage.size() && menus_->game().garage[size_t(at)].record) {
                     const menu::CarRecord& car = *menus_->game().garage[size_t(at)].record;
-                    std::erase_if(kinds, [&](int k) { return k != own && !car.owned((a == 0 ? kFrontTiresOwned : kRearTiresOwned) + k); });
+                    // (the tires' owned bits: 0x43F270's for types 0x19 / 0x1A, by the release)
+                    const int from = menu::parts_owned_from(a == 0 ? 25 : 26, race_->release() == sim::Release::Japan);
+                    std::erase_if(kinds, [&](int k) { return k != own && !car.owned(from + k); });
                 }
             const auto at = std::find(kinds.begin(), kinds.end(), own);
             pit_choice_.tire[size_t(a)] = offer.tires && at != kinds.end() ? int(at - kinds.begin()) : int(kinds.size());
@@ -4980,6 +4981,8 @@ private:
             g.during_quick_menu = false;
             g.next_sequence.clear();
             g.last_sequence = sequence_;
+            // The Replay Theater's play list: its next replay, unless the player ended this one (menu::play_list_next).
+            if (sequence_ == "replay") menu::play_list_next(*menus_, false, replay_quit_ || !saved_replay_);
             if (g.next_menu_project.empty()) g.next_menu_project = g.major_menu_project;
             if (!menus_->finished()) menus_->finish();
         }
@@ -5508,6 +5511,7 @@ private:
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
+    bool replay_quit_ = false;  // the player ended it (Start)
     std::string last_saved_;
     menu::GameSettings settings_; // the game's options as the race reads them
     App& app_;
