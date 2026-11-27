@@ -74,6 +74,9 @@ public:
     // Phones and tablets: the on-screen controls over this screen (input/touch_controls.h): none on the app's own pages, which are
     // tapped, the D-pad and buttons over the game's menus, the driving controls in a race.
     virtual gt3r::TouchLayout touch_layout() const { return gt3r::TouchLayout::None; }
+    // The on-screen controls fade out 3 s after the last touch while this screen only shows something watched (a replay, a
+    // demonstration); a touch then brings them back and presses nothing (TouchControls::set_fade).
+    virtual bool touch_fades() const { return false; }
     // Android's back button here: Start (a race the player drives pauses), else Triangle (back). Either is pressed for one frame
     // only, so what it closes does not see it held after (App::event).
     virtual bool back_is_start() const { return false; }
@@ -346,6 +349,8 @@ std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0, bool to_g
 // 5 Mods: kModsPage).
 constexpr int kDiscPage = 4, kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
+// Settings > Controls > Touch screen > Layout: the on-screen controls placed, sized and hidden (screen_touch_editor.cpp).
+std::unique_ptr<Screen> make_touch_editor_screen();
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
