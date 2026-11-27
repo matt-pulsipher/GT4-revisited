@@ -36,6 +36,8 @@ PitHooks session_pit_hooks(Session& session) {
     h.face_box = [s](size_t i, F heading) { s->face(i, heading); };
     h.hold = [s](size_t i, u16 steps) { s->set_pit_hold(i, steps); };
     h.flags = [s](size_t i, u8 flags) { s->set_pit_flags(i, flags); };
+    h.mark = [s](size_t i) { return s->pit_mark(i); };
+    h.set_mark = [s](size_t i, u8 v) { s->set_pit_mark(i, v); };
     return h;
 }
 
@@ -159,7 +161,9 @@ void PitStops::after(const Session& session, Field& field) {
         ServiceInputs sv;
         sv.pits_on = race_.pits, sv.lap_state = lap_state, sv.fuel_on = need.fuel_on, sv.control = gt3r::s8(control);
         sv.player_choice = race_.pit_menu;
+        if (hooks_.mark) c.pad_state = hooks_.mark(i); // (F +0x62E: a "Passing pit lane" penalty given this step asks the visit)
         flow_.step(c, in, line_, acts, [&] { return service_of(c, sv); });
+        if (hooks_.set_mark) hooks_.set_mark(i, c.pad_state);
         for (const PitAction& a : acts) {
             switch (a.kind) {
             case PitAction::Enter: // (0x3453A0 also marks the car as asked for the pits)

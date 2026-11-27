@@ -27,7 +27,7 @@ namespace {
 
 // The single race's tables in SCUS-97328 v1.01's program: the elements every race of that kind
 // shows, then the lap times' side.
-constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableMode1 = 0x6A0BA0, kTableStacked = 0x6A0DE0, kTableSide = 0x6A0FD8;
+constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableTotal = 0x6A08F0, kTableMode1 = 0x6A0BA0, kTableStacked = 0x6A0DE0, kTableSide = 0x6A0FD8;
 constexpr size_t kRow = 0x24;
 
 // The same tables in the other releases' programs: Europe's at v1.01's places; Japan's (SCPS-17001) where its routines
@@ -41,6 +41,7 @@ u32 table_at(ByteSpan program, u32 load_address, u32 address) {
     case 0x6A3C50: return 0x69A108;
     case kTableCommon: return 0x696E88;
     case kTableTimes: return 0x696D18;
+    case kTableTotal: return 0x696DD0;
     case kTableMode1: return 0x6970C8;
     case kTableStacked: return 0x697308;
     case kTableSide: return 0x697500;
@@ -138,6 +139,13 @@ DisplayLayout read_single_race_layout(ByteSpan program, u32 load_address) {
     if (!read_table(program, load_address, kTableCommon, l.places) || !read_table(program, load_address, kTableTimes, l.places)) l.places.clear();
     // The tables of this release name the position, the lap count and the map.
     if (!l.find(element::kPosition) || !l.find(element::kLapCount) || !l.find(element::kMap)) l.places.clear();
+    return l;
+}
+
+DisplayLayout read_total_race_layout(ByteSpan program, u32 load_address) {
+    DisplayLayout l;
+    if (!read_table(program, load_address, kTableCommon, l.places) || !read_table(program, load_address, kTableTotal, l.places)) l.places.clear();
+    if (!l.find(element::kLapCount) || !l.find(element::kTotalTime) || !l.find(element::kBestTime) || l.find(element::kLastTime)) l.places.clear();
     return l;
 }
 

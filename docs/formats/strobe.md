@@ -406,7 +406,7 @@ named instances each frame (0x3D8DB8 → 0x3DAF60 the current car, `BAR%d` rows,
 `RaceMonitorLapFormat1` / `2`, `TOTAL`; 0x3DBF90 / 0x3DC5D8 the rows and `CARPOS_%c`). The instances
 (`gt4tool race <disc> strobe-tree menu/common/racemonitor.strb`): `CURRENTCAR` (text), `CURRENTCAR_ICON`
 (the car's picture, an external), `CURRENTCARGRID` (a letter, sprite of 6 frames A .. F), `TOTAL`, `LAP`,
-`SPEED` (the replay speed "x 1"), `PACEPANEL` with `PACETEXT` and `PACE1` .. `PACE7` (3 frames each),
+`SPEED` (the view's speed "x 1" .. "x 3"), `PACEPANEL` with `PACETEXT` and `PACE1` .. `PACE7` (3 frames each),
 `BAR1` .. `BAR6` (2 frames: the second lit, the player's row) each with `NAME`, `GRID` (6 frames), `TIME`,
 `DIFF`, `LAP`, `PIT`, `BEST`, `ICON` (6 frames), `BESTMARK` and two externals; `CARPOS_A` .. `F` (the map's
 letters: `GRID` of 12 frames, `PACEUP_MARK`), `GAP1` .. `GAP5` (`TEXT`: the gap strip), `PITPANEL` (three
@@ -418,6 +418,27 @@ player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's gr
 (the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip and
 the pit panel are not filled (hidden). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
+**The view's speed** (`SPEED`, `"x %d"` 0x3DBBD0 of the monitor's +0x74): the monitor's keys (0x3D95F0) with the race pad's bit
+0x80 held (L1, the help line's "L1 + ◁▷ Change View Speed") take Left (0x100) one slower down to 1 (0x3DA008) and Right (0x200) one
+faster up to 3 (0x3D9FB8); each opening of the monitor sets it to 1 (0x3D91C0). While the monitor is up (its +0x28 and +0x2C 1),
+0x3D8B00 gives the race the scale +0x74 x +0x78 (vf30 0x38A288: race +0xD3C, +0xD38 set when it is not 1), and the race's frame
+(RaceBase::vf74 0x389990) then runs as many steps as the scale's whole part accumulated (+0xD40). +0x78 is 4 once the monitor has
+faded fully in (0x3DA3EC) and 1 otherwise, and the same value goes to the frame's vsync count (0x6186E4 by vf142 → 0x107AB8):
+the monitor is drawn at 15 frames a second with four times the steps each, so x1 .. x3 run the race one to three times as fast
+as real time (✔ 21-gtmode-deep `bspec_race_monitor_speed_up.png` "x 3"; the race's clock in ours: 15 s in 5 s at x 3). Here
+(`screen_race.cpp`): L1 held with Left / Right while the monitor is up, its speed's steps for each 60th of a second (the pace is
+not changed then); drawn every frame.
+
+**The pit panel** (`PITPANEL`, 0x3DB7B8): shown while the followed car is the player's (0x3D8BD0: the monitor's +0x64 = +0x60);
+the three stops' rows; over them `TIRE_PANEL`, a sprite of 80 frames that plays on its own (12 a second, so every 6.7 s) and
+fades a black cover with the external `tire` in and out. The program draws on that external (0x3D7EAC, in the external's colour's
+alpha x 1/128): the tire diagram (its RaceTireWearDisplay, colours by 0x3D80A8) from (x0 + 12, y0 + 10) of the external's box and
+the fuel gauge (its RaceFuelMeter) from (x0 + 60, y0 + 44), the gauge at a quarter of the alpha when the car's tank is empty
+(0x354E38: a race that counts no fuel). ✔ 21-gtmode-deep `bspec_race_monitor_speed_up.png` (blue tires, the bar),
+26-endurance `practice_monitor_lap6_b_blank_tire_diagram.png` (black tires, a dim bar in a Practice without wear or fuel),
+`fc_race_monitor_lap2.png` (the stops' table between). Here `RaceHud::draw_monitor_tires` at the movie's `TIRE_PANEL` external.
+`MAP_PANEL` is shown while the monitor's +0x70 is set (Show Map, toggled by the monitor's keys 0xC00; 1 at the start).
+
 ## The PIT STOP menu (`menu/common/pitmenu.strb`)
 
 Opened (RaceBasic::vf74) in the step 0x35BC70 finds the player's car asked for its choice (F +0x4B8 bit 0, set by 0x35AF18 as the car
