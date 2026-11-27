@@ -105,6 +105,13 @@ template <class Rule> bool all_tests(Database& d, const GameState& s, const std:
 
 } // namespace
 
+int machine_test_unit(const std::string& name) {
+    static const char* const kNames[4] = {"0_400", "0_1000", "MAXSPEED", "LASVEGAS"}; // (0x6A57C0)
+    for (int i = 0; i < 4; ++i)
+        if (name == kNames[i]) return i;
+    return -1;
+}
+
 bool license_all_bronze(Database& d, const GameState& s, const std::string& cat) {
     return all_tests(d, s, cat, 16, [](u32, u32 r) { return r != 15 && r <= 11; });
 }
@@ -485,13 +492,14 @@ void install_records(GameNatives& n, Object& g, script::Module& menu) {
     });
     course_record->method("create", [course_unit](Vm&, const Value&, Args a) { return number(course_unit(arg_text(a, 0), true) >= 0); });
     g.set("course_record", object_value(course_record));
-    // ❓ The four machine tests' names (a table at 0x846320) are not read: by the RACE labels'
-    // order, 400 m, 1000 m, the top speed (the unit kept as speeds), and a fourth.
+    // The machine tests' four units by name (0x15C9D8 → 0x433C98: the name looked up, exactly, in the table 0x846320 that
+    // 0x433E68 fills from 0x6A57C0): "0_400" 0, "0_1000" 1, "MAXSPEED" 2 (kept as speeds), "LASVEGAS" 3. quick-mt asks by its
+    // UnitData (mt400_testcourse "0_400", mt1000_testcourse "0_1000", mtmax_testcourse "MAXSPEED", mt400_lasvegas "LASVEGAS").
+    // Any other name finds no unit (the program then reads before the record; here nil, which quick-mt leaves alone).
     auto machine_record = std::make_shared<Object>("MCourseRecord");
     machine_record->method("getMTUnit", [s, course_unit_value](Vm&, const Value&, Args a) {
-        const std::string name = arg_text(a, 0);
-        const int unit = name.find("400") != std::string::npos ? 0 : name.find("1000") != std::string::npos ? 1 : name.find("max") != std::string::npos ? 2 : 3;
-        return course_unit_value(&s->machine_record, size_t(unit) * kCourseUnit, unit == 2);
+        const int unit = machine_test_unit(arg_text(a, 0));
+        return unit < 0 ? Value{} : course_unit_value(&s->machine_record, size_t(unit) * kCourseUnit, unit == 2);
     });
     g.set("machine_record", object_value(machine_record));
 

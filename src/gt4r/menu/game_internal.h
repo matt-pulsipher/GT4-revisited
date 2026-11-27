@@ -170,6 +170,9 @@ bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
 // (0x433260 by time, 0x433348 by top speed: the place by the value, the real clock's date, the car's code, the pass code;
 // false past the tenth). `base` the unit's offset in `block` (the course record's or the machine test's).
 int course_record_unit(Database& d, GameState& s, const std::string& course, bool make);
+// A machine test's unit by its name (0x433C98, the names 0x6A57C0, compared exactly): "0_400" 0, "0_1000" 1, "MAXSPEED" 2,
+// "LASVEGAS" 3; -1 any other.
+int machine_test_unit(const std::string& name);
 bool ranking_insert(Database& d, Bytes& block, size_t base, bool by_speed, u32 value, const std::string& car, const std::string& pass_code);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
