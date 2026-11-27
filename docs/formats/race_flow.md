@@ -563,6 +563,32 @@ lap 2 timed 1'43.539, Position 6 by the bests, the page's grid after it Opera, R
 log's bests give. ❓ Not compared with a capture of the original's Free Qualify (none in the reference): whether the original
 shows "In progress.." under the pit start's hold.
 
+## Power & Speed (the machine tests)
+
+The sequence 0x115A90 runs a `RaceMachineTest` with `DynamicsConductorMachineTest` (vtable 0x685BF0). The test's kind is the
+event's laps (RACE +0x43, through the base vf37 0x3577F0 and 0x3F69F8: 1 the 0-400 m, 2 the 0-1000 m, 3 the top speed; 4 and
+more 0): `mt400_testcourse` 1, `mt1000_testcourse` 2, `mtmax_testcourse` 3, `mt400_lasvegas` 1. Its start is the row's standing
+start (+0x40 0, +0x41 7 s). The conductor:
+- **no laps** (vf37 0x3F69C0: 0), nothing at the line (vf20 the base's, empty; vf21 0x3F6C28 empty);
+- **the goal and the split points** from the program's floats at 0x622490 (400, 1000, 6845, -1): sections (vf42 0x3F6A38) 1, 2 or
+  3 by the kind (any other 1), the goal (vf39 0x3F6AA8) the sections' last distance, each section's end (vf43 0x3F6B00) the
+  distances before it: 400 m; 1000 m with a split at 400; 6845 m with splits at 400 and 1000 (the Test Course's lap is 10,342 m);
+- **at the goal** (vf23 0x3F6C30): the car's top speed car +0x6CC = the most of it and its speed now (+0x6C8); not in a replay,
+  the car's driver takes it (0x343D78 with 1: it coasts down and stops); the 400 m and 1000 m tests post the run's time
+  (0x358000, 0x35E550), the top speed test its top speed (0x35E7C0: into the race entry's +0x3464, a `RaceDisplaySpeedEvent` of
+  the speed in the display's unit x 10, 0x472940, truncated, at most 9,999); car 0's event 5;
+- the display's time (vf34 0x3F69C8): the car's best (0x35E3F0) once it has finished, else the running time (0x357800).
+The sequence after a finished run (its +0x5B6, 0x115CC4): the top speed test (race mode 0x12) keeps `BestMaxSpeed` (+0x49C) as
+the most of it and trunc((v x 60 x 60 + 5) / 10) of the top speed v (m/s): km/h x 100 (the page shows it in the player's unit,
+✔ "199.01 mph" for 320.28 km/h); the others `BestTime` (+0x498) the least of it and the best (0x35E3F0); then the rankings
+(0x1161A0: the 400 m and 1000 m by time, the top speed into unit 2 by speed, 0x1165B8 → 0x433348).
+Here: `race::machine_test_course`, `FlowSetup::machine_test` (the run's time kept as the car's best at the goal: ❓ where the
+program writes what 0x35E3F0 reads back), `screen_race.cpp` `end_machine_test`, `report_result`, `game_race.cpp`'s rankings.
+✔ Scripted (`GT4R_RACE="course=testcourse,menus=machinetest,race=mt400_testcourse,drive=auto"`): FINISH at 400 m, "0'11.156" on
+the lap line and as the page's Session Record; the top speed test 87.6 s to 6845 m, Session Record 199.01 mph. ❓ The race
+display of the test (RaceMachineTest's own: the words `MaxSpeed`, `RecordSpeedLabel`, `SessionSpeedLabel`, `RecordTimeLabel` are
+in the word table) is not read: the single race's display stands in; the top speed's line is written "<whole>.<tenth> <unit>".
+
 ## What runs where (the race screen)
 
 Every piece of the race as the player sees it, by whose code it runs: **GT4** (ported from the program,

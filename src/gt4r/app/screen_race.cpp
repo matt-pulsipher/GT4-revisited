@@ -161,6 +161,8 @@ struct Setup {
     // A championship's Free Qualify (0x119310): the race's field in a free practice (no laps, no hold, the others rolling in from
     // behind the line), its best laps the grid after it.
     bool qualify = false;
+    // A machine test's kind (its RACE row's laps: 1 the 0-400 m, 2 the 0-1000 m, 3 the top speed; 0 not one).
+    int machine_test = 0;
     // A license test, pace car test or mission: its conductor, its rules (its row's) and its target times.
     race::Conductor conductor = race::Conductor::Other;
     race::LicenseRules rules;
@@ -809,6 +811,11 @@ public:
         } else fs.sectors = splits_;
         if (free_practice(setup_) && !(db_ && db_->prologue()))
             for (size_t i = 0; i < world_->car_count(); ++i) fs.practice_grid.push_back(grid_place(i));
+        // A machine test: its goal and split points by its kind (vf39 / vf42 / vf43), the run ended at the goal.
+        if (setup_.machine_test != 0 && disc_) {
+            const race::MachineTestCourse mt = race::machine_test_course(sim::Program::load(*disc_), setup_.machine_test);
+            fs.machine_test = setup_.machine_test, fs.goal = mt.goal, fs.sectors = mt.splits;
+        }
         return fs;
     }
     void begin_run(bool watched = false, bool demo = false) {
@@ -868,7 +875,7 @@ public:
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = page_replay_ = false, over_ = false;
-        event_steps_ = -1, license_line_ms_ = -1;
+        event_steps_ = -1, license_line_ms_ = -1, machine_line_.clear(), machine_speed_ = gt3r::ee::F();
         release_past_line();
         begin_start_camera(false);
         if (net_) attach_online(net_); // (the world's session may be a new one)
@@ -1217,6 +1224,7 @@ public:
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
         end_test();
+        if (ev.player_finished && setup_.machine_test != 0) end_machine_test();
         // A test failed by its rules: the camera circling the car from the fail on (CameraSys::CameraFinishType1, 0x37CCA8: half a
         // degree a step).
         if (license_fail_view()) fail_orbit_deg_ = std::fmod(fail_orbit_deg_ + 0.5f, 360.0f);
@@ -1674,6 +1682,16 @@ public:
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
 
     // What the race display shows now.
+    // The top speed on the lap line: the speed in the display's unit x 10 (0x472940: km/h v x 3.6, mph v x 3.6 x 0.6214),
+    // truncated, at most 9,999 (RaceDisplaySpeedEvent::vf2 0x3A36E0). ❓ How the display writes it (its word, decimals) is not
+    // read: here "<whole>.<tenth> <unit>".
+    std::string machine_speed_text(const RaceHud& hud) const {
+        using gt3r::ee::F;
+        F v = machine_speed_ * F::raw(0x40666666);
+        if (hud.mph()) v = v * F::raw(0x3F1F136A);
+        const int tenths = std::clamp(int(gt3r::ee::to_int((v * F::raw(0x41200000)).bits)), 0, 9999);
+        return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + (hud.mph() ? " mph" : " km/h");
+    }
     void fill(HudState& h, const RaceHud& hud) const {
         const std::span<const race::CarState> cars = shown();
         const bool demo = demo_run_.has_value();
@@ -1862,7 +1880,7 @@ public:
             // The lap's time for three seconds (RaceDisplay::vf47 0x3A0A78): named "L1/3   1'23.456" only with the option
             // race_display_config (the display's flags +0x58 bit 10; a new game's off: ✔ the original's chase race shows
             // "1'47.118"); the gap to the first car through the line on that lap under it, 2.85 s.
-            h.event = license_line_ms_ >= 0 ? race::format_lap_time(license_line_ms_)
+            h.event = !machine_line_.empty() ? machine_speed_text(hud) : license_line_ms_ >= 0 ? race::format_lap_time(license_line_ms_)
                       : (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") +
                             race::format_lap_time(flow_.car(target).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
@@ -2084,6 +2102,21 @@ public:
         if (!license_failed_) event_steps_ = 0, license_line_ms_ = flow_.run_ms(0), split_steps_ = -1;
     }
     s64 license_line_ms_ = -1; // the time a license test's end posted to the lap line (-1: a lap's)
+    // A machine test at its goal (DynamicsConductorMachineTest::vf23 0x3F6C30): the car's top speed (car +0x6CC, the most of it
+    // and the speed now), the car's driver takes it (0x343D78 with 1: it coasts down and stops); the 400 m and 1000 m tests post
+    // the run's time to the lap line (0x35E550), the top speed test its top speed (0x35E7C0: the race entry's +0x3464, a
+    // RaceDisplaySpeedEvent of the speed in the display's unit x 10, 0x472940, truncated, at most 9,999).
+    void end_machine_test() {
+        machine_speed_ = world_->car_max_speed(0);
+        LOG_INFO("Drive: the machine test's goal: %lld ms, top speed %.2f km/h", (long long)flow_.run_ms(0), double(machine_speed_.host() * 3.6f));
+        world_->finish_car(0, false, 1);
+        event_steps_ = 0, split_steps_ = -1, license_line_ms_ = -1, machine_line_.clear();
+        if (setup_.machine_test != 3) license_line_ms_ = flow_.run_ms(0);
+        else machine_line_ = "speed";
+    }
+    std::string machine_line_; // the top speed test's line ("speed": made by the display's unit)
+    gt3r::ee::F machine_speed_;
+    gt3r::ee::F machine_speed() const { return machine_speed_; }
     // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
     int license_end_mode() const {
         const race::LicenseRules& r = judge_.rules();
@@ -2345,7 +2378,7 @@ public:
     void follow(size_t car) {
         if (car == focus_) return;
         focus_ = car;
-        event_steps_ = split_steps_ = -1, license_line_ms_ = -1;
+        event_steps_ = split_steps_ = -1, license_line_ms_ = -1, machine_line_.clear();
         name_steps_ = watched_ && !replaying_ && !menu_scene_ ? 0 : -1;
         camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
@@ -3899,6 +3932,7 @@ private:
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
         if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.best_lap_ms = u32(best);
+        if (setup_.machine_test == 3 && r.finished) r.max_speed = race_->machine_speed().host(); // (the top speed test's, car +0x6CC)
         // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
         if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
             r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
@@ -3920,7 +3954,17 @@ private:
             LOG_WARN("Race result: %s", e.what());
         }
         // (The time trial's and the free run's BestTime: the result routine's, with the course ranking's insert.)
-        if (sequence_ == "machinetest" || is_license(sequence_) || (menus_->is_prologue() && (sequence_ == "time_trial" || sequence_ == "freerun"))) {
+        // A machine test the car finished (0x115A90, its +0x5B6): the top speed test keeps the most of BestMaxSpeed and its top
+        // speed as trunc((v x 60 x 60 + 5) / 10) (car +0x6CC, m/s: km/h x 100), the others the least of BestTime and the run's
+        // time (0x35E3F0).
+        if (sequence_ == "machinetest" && setup_.machine_test == 3) {
+            if (r.finished) {
+                using gt3r::ee::F;
+                const F sixty = F::raw(0x42700000);
+                const s32 v = s32(gt3r::ee::to_int((((race_->machine_speed() * sixty) * sixty + F::raw(0x40A00000)) / F::raw(0x41200000)).bits));
+                if (v > w.get("BestMaxSpeed")) w.set("BestMaxSpeed", v);
+            }
+        } else if (sequence_ == "machinetest" || is_license(sequence_) || (menus_->is_prologue() && (sequence_ == "time_trial" || sequence_ == "freerun"))) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)
             const s64 best = is_license(sequence_) ? (r.finished && r.result != "failed" ? s64(r.time_ms) : -1) : flow.car(0).best_lap_ms;
             s32 have = w.get("BestTime");
@@ -4610,6 +4654,9 @@ private:
             // An endurance race of a time limit (RACE +0x18 minutes, its laps +0x43 0): no number of laps, the time ends it.
             if (!setup_.online && race::row_time_limit_ms(setup_.event_row) > 0 && setup_.event_row.size() > 0x43 && setup_.event_row[0x43] == 0) setup_.laps = 0;
             if (setup_.limit_seconds > 0) setup_.laps = 0;
+            // A machine test (DynamicsConductorMachineTest): its row's laps are the test's kind (0x3F69F8), no laps run (vf37).
+            setup_.machine_test = 0;
+            if (setup_.sequence == "machinetest" && setup_.event_row.size() > 0x43) setup_.machine_test = std::max(1, int(setup_.event_row[0x43]) < 4 ? int(setup_.event_row[0x43]) : 1), setup_.laps = 0;
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.online) {
                 online_ = std::make_unique<net::NetRace>(gt3r::net::online(), *setup_.online);

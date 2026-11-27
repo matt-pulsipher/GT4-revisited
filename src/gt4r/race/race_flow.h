@@ -60,6 +60,10 @@ struct FlowSetup {
     // by the best lap, no time behind every time, ties keeping their order); a car's times count from its counted start
     // (vf20 0x3F50F0: F + 0x614 the crossing's moment).
     std::vector<int> practice_grid;
+    // A machine test's kind (DynamicsConductorMachineTest; 0 not one): no laps (vf37), nothing at the line (vf20, vf21), the run
+    // ended at the goal (vf23 0x3F6C30 → 0x358000, as a license test of kind 2): its time the car's best (what 0x35E3F0 reads
+    // back, vf34 and the sequence 0x115A90).
+    int machine_test = 0;
 };
 
 // A championship's Free Qualify (0x119310): the grid by the practice's best laps (0x3EE808): each entry's place the count of

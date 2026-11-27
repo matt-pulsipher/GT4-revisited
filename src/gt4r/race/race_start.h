@@ -80,4 +80,13 @@ int planned_crossings(const StartRace& race, const PlannedStart& p, float v);
 // crossings 0 wherever it stands: its first crossing of the line taken back, its laps counted from the next), else 0.
 int planned_back(const StartRace& race, const PlannedStart& p, float v);
 
+// A machine test (DynamicsConductorMachineTest) of kind `kind` (its RACE row's laps, 0x3F69F8: 1 the 0-400 m, 2 the 0-1000 m,
+// 3 the top speed; any other 1's): its goal along the course (vf39 0x3F6AA8) and its split points before it (vf42 0x3F6A38
+// the count of sections, vf43 0x3F6B00 each one's end), the program's distances at 0x622490 (400, 1000, 6845 m).
+struct MachineTestCourse {
+    float goal = -1;
+    std::vector<float> splits;
+};
+MachineTestCourse machine_test_course(const sim::Program& program, int kind);
+
 } // namespace gt4r::race

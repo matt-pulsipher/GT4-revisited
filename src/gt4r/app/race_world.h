@@ -421,6 +421,9 @@ public:
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
     // speedometer's face.
     float car_top_speed(size_t i) const;
+    // A car's top speed while racing (car +0x6CC, m/s: the most of its speed, 0x35DEC4, kept until its run ends) and its speed
+    // now (+0x6C8) if more: a machine test's top speed at its goal (vf23 0x3F6C30).
+    gt3r::ee::F car_max_speed(size_t i) const;
     // The materials a wheel counts as off the course on (the program's 0x622430, a word per material).
     bool soft_material(u8 material) const { return material < soft_.size() && soft_[material] != 0; }
     // The cars move by the game's simulation (false: the stand-in).

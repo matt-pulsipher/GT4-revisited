@@ -720,6 +720,12 @@ float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
 
+gt3r::ee::F RaceWorld::car_max_speed(size_t i) const {
+    if (!session_ || i >= car_visuals_.size()) return gt3r::ee::F();
+    const auto& c = session_->record(i);
+    return c.max_speed < c.speed_abs ? c.speed_abs : c.max_speed; // (vf23 0x3F6C30: with the speed now)
+}
+
 void RaceWorld::arm_bspec(const sim::Program& program) {
     // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
     const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));

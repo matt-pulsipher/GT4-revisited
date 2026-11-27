@@ -190,9 +190,12 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
             }
         }
         // The goal (virtual 23: a test of kind 2 ends there).
-        if (setup_.goal > 0 && setup_.test_kind == 2) {
+        if (setup_.goal > 0 && (setup_.test_kind == 2 || setup_.machine_test != 0)) {
             const F d(setup_.goal);
-            if (prev < d && d <= cur) end_car(i, clock_ + units((d - prev) / run), ev);
+            if (prev < d && d <= cur) {
+                end_car(i, clock_ + units((d - prev) / run), ev);
+                if (setup_.machine_test != 0) r.best_lap_ms = run_ms(i); // (❓ where the program writes it: read back by 0x35E3F0)
+            }
         }
         return;
     }

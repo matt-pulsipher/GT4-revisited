@@ -10,6 +10,7 @@
 
 #include "gt4r/formats/db/specdb_prologue.h"
 
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 
@@ -574,7 +575,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // course's ranking (its unit made when it has none, 0x433C10), and the best is the menus' BestTime. A machine test the car
     // finished (+0x5B6) inserts its best lap every run (0x115A90 -> 0x1161A0): the 400 m test into the machine record's unit
     // 0 (Las Vegas's, mt400_lasvegas, 3), the 1000 m into 1 (0x116268, 0x116440); the top speed test into 2 by its top speed
-    // (0x1165B8, 0x433348): not run here (the machine test's own conductor is not built), so not inserted. ❓ The race's kind
+    // (0x1165B8, 0x433348, below). ❓ The race's kind
     // (+0xD68: 0x10, 0x11, 0x12) taken as the RACE row's +0x10 (0x16, 0x17, 0x18) less 6. The pass code (0x10F718 ->
     // 0x44B258) is not made: "--------".
     if (r.kind == RaceResult::Kind::Course && d.db && !d.db->prologue() && !r.watched && r.best_lap_ms > 0) {
@@ -590,6 +591,17 @@ s64 Runtime::race_finished(const RaceResult& r) {
             const int u = kind == 0x10 ? (race == "mt400_lasvegas" ? 3 : 0) : kind == 0x11 ? 1 : -1;
             if (u >= 0) ranking_insert(d, s.machine_record, size_t(u) * kCourseUnit, false, r.best_lap_ms, car, "--------");
         }
+    }
+    // The top speed test (kind 0x12): its top speed (car +0x6CC, the float itself) into the machine record's unit 2 by speed
+    // (0x1165B8: 0x433C78 with 2, 0x433348).
+    if (r.kind == RaceResult::Kind::Course && r.course_kind == 6 && r.finished && !r.watched && r.max_speed > 0 && d.db && !d.db->prologue() &&
+        row.size() > 0x10 && u8(row[0x10] - 6) == 0x12) {
+        std::string car;
+        for (const RaceResult::Finisher& f : r.order)
+            if (f.entry == 0) car = f.car;
+        u32 bits;
+        std::memcpy(&bits, &r.max_speed, 4);
+        ranking_insert(d, s.machine_record, 2 * kCourseUnit, true, bits, car, "--------");
     }
     // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player
     // drove and finished keeps its A-spec points when they are the course's best (0x111E98: the course of the race's row,

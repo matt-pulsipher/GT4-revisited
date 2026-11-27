@@ -221,3 +221,31 @@ TEST(endurance_free_practice_flow) {
     CHECK(flow.car(2).best_lap_ms < 0);
     CHECK(flow.place(1) == 1 && flow.place(0) == 2 && flow.place(2) == 3);
 }
+
+// Power & Speed (DynamicsConductorMachineTest): the goal and split points by the test's kind from the program's distances
+// (0x622490: vf39, vf42, vf43), the run ended at the goal with its time as the car's best, nothing at the line.
+TEST(endurance_machine_test) {
+    Field f({2.0f}, 10);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 0, s.lap_length = kLap, s.machine_test = 1, s.goal = 400;
+    race::RaceFlow flow(s, f.cars);
+    int steps = 0;
+    for (; steps < 1000 && !flow.player_finished(); ++steps) f.step(), flow.step(f.cars);
+    // 410 m at 2 m a step: 205 steps, the goal 5 steps after the line's crossing (3,416.7 ms).
+    CHECK(flow.player_finished() && steps == 205);
+    CHECK(flow.car(0).best_lap_ms == flow.run_ms(0) && std::llabs(flow.run_ms(0) - 3417) <= 1);
+    CHECK(flow.car(0).laps_done == 0);
+    int ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        ++ran;
+        const sim::Program program = sim::Program::load(*d);
+        const race::MachineTestCourse a = race::machine_test_course(program, 1), b = race::machine_test_course(program, 2),
+                                      c = race::machine_test_course(program, 3), z = race::machine_test_course(program, 0);
+        CHECK(a.goal == 400 && a.splits.empty());
+        CHECK(b.goal == 1000 && b.splits == std::vector<float>({400}));
+        CHECK(c.goal == 6845 && c.splits == std::vector<float>({400, 1000}));
+        CHECK(z.goal == 400 && z.splits.empty());
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
+}
