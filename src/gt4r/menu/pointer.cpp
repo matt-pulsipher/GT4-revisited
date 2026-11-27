@@ -322,9 +322,10 @@ bool pointer_tap(Runtime& rt, const std::vector<DrawnBox>& drawn, float x, float
     // Off a bar whose popup is open: Accept, keeping its value.
     if (LiveWidget* bar = open_bar(rt); bar && (h.kind != PointerHit::Kind::Widget || h.widget.get() != bar)) return rt.key(Key::Accept), true;
     if (h.kind == PointerHit::Kind::None) {
-        // Off an open option list: Cancel closes it. A page with nothing to choose ("press a button"): Accept.
+        // Off an open option list: Cancel closes it. A page with nothing to choose (the opening movie, whose script skips on
+        // Start; Prologue's pages take Start as Accept): Start.
         if (open_option_menu(candidates)) return rt.key(Key::Cancel), true;
-        if (candidates.empty() && !page->focus.lock()) return rt.key(Key::Accept), true;
+        if (candidates.empty() && !page->focus.lock()) return rt.key(Key::Start), true;
         return false;
     }
     if (h.kind == PointerHit::Kind::Arrow) return step_list(rt, h.box, h.row), true;

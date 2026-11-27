@@ -242,7 +242,7 @@ moves the pad makes, so the scripts see nothing new:
 - **A tap or a click** on what does not have the focus puts it there (the page's `navigate_sound`; a select box's index
   moves with its sound and `onValueChanged`; a list box's row as `focus_index`); on what has it, Accept. On a focused
   bar whose keys move it (no popup, or its popup open) a tap beside the pinch is the key toward it. Off an open option
-  list, Cancel; off a bar whose popup is open, Accept (the value kept). On a page with nothing that takes the focus ("press a button"), Accept.
+  list, Cancel; off a bar whose popup is open, Accept (the value kept). On a page with nothing that takes the focus, Start (the opening movie's script skips on Start alone; Prologue's pages take Start as Accept).
 - **A hover** (a mouse, not a finger) focuses what it is over; a row of a list or select box only when the rows fit
   (rows that scroll would move under a pointer that stays still), and nothing in a scroll window or box (the map). So one click chooses with a mouse, and a finger taps
   twice.
