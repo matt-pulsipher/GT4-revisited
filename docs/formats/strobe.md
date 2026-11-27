@@ -224,7 +224,7 @@ no fade). The rows appear one frame after the panel.
   saturation held to -1 .. 1 (more than 1 is 1: the settings' +1 .. +5 change nothing), the shared engine's mix. Which record
   (0x33F680): the camera manager's own colors, else `Env0`'s (bit 7), else these (when not plain, 0x3EFD08).
   Here (`race/picture_settings.*` `correction_levels`, `correction_grade`) they are the 3D view's grade, its tables our own
-  where the engine takes them (`PostGrade::own_table`), else its curve through the gammas' middle. (It was taken for a gain and a stretch about the middle before: wrong.)
+  (the engine's `PostGrade::own_table`). (It was taken for a gain and a stretch about the middle before: wrong.)
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
 
