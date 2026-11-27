@@ -76,6 +76,7 @@ public:
     // pages; leaving the menus leaves the screen.
     int title_frames_ = 0; // frames the game's title has been up (the update dialog waits for it: update_prompts)
     bool autodemo_ = false; // the title's time-out is playing its demonstrations (menu::autodemo_step)
+    bool attract_replay_ = false; // the race asked for is one of them (RaceStart::attract)
 
     explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
@@ -466,12 +467,21 @@ private:
                 // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
                 // "autodemo" sequence (0x10BE20): its demonstrations one after another
                 // (menu::autodemo_step: the opening movie, demo_movie after the Polyphony logo,
-                // when the movie's count has run out; the disc's demonstration list plays
-                // nothing), then the project the title named (`next_menu_project`, arcade).
+                // when the movie's count has run out; else the disc's recorded races of its
+                // demonstration list, played as the Replay Theater plays them, a key ending the
+                // time-out), then the project the title named (`next_menu_project`, arcade).
                 menu::GameState& g = runtime_->game();
-                auto run_demo = [&](const std::pair<std::string, std::string>& step) {
-                    g.next_menu_arg = step.second;
-                    runtime_->start_project(step.first);
+                auto run_demo = [&](const menu::DemoStep& step) {
+                    g.menu_result.clear();
+                    if (!step.replay.empty()) {
+                        menu::RaceRequest r;
+                        r.sequence = "replay", r.replay_file = step.replay;
+                        g.replay_file = step.replay;
+                        race_ = r, attract_replay_ = true;
+                        return;
+                    }
+                    g.next_menu_arg = step.arg;
+                    runtime_->start_project(step.project);
                     g.next_menu_project.clear(), g.next_menu_arg.clear();
                 };
                 if (race_ && race_->sequence == "autodemo") {
@@ -484,8 +494,9 @@ private:
                     else g.next_menu_project = back; // (nothing played: the title again, 0x42FC50)
                 } else if (!race_ && autodemo_) {
                     // A demonstration's project ended: the sequence's next, or the project it named.
+                    const bool key = g.menu_result == "terminate"; // (left with a key: the title's wait starts from it)
                     if (const auto step = menu::autodemo_step(*runtime_, false)) run_demo(*step);
-                    else autodemo_ = false;
+                    else autodemo_ = false, key ? runtime_->note_input() : void();
                 }
                 if (!race_ && !runtime_->finished()) {
                 } else if (!race_) {
@@ -518,6 +529,7 @@ private:
                     if (race_->laps > 0) start.laps = race_->laps;
                     start.menus = runtime_.get();
                     start.sequence = race_->sequence;
+                    start.attract = std::exchange(attract_replay_, false);
                     race_.reset();
                     if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
                     app.push(make_race_screen(app, start));

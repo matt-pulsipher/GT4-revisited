@@ -1015,7 +1015,12 @@ recorded races and then the movie (the count 2, 1, 0). PCSX2 cannot read the dis
 three times running, at 0 never. `resetMovieCount` (the Misc options' OK) sets the count to 0: the
 movie at the next time-out. Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's
 time-out (✔ test `disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title:
-the movie). ❓ The replay kind's recorded races are not played here (the try goes on to the next).
+the movie): a recorded race of the list (replay/Rdemo0/Rdemo0 ..) plays as the Replay Theater's
+Demo tab plays it (the sequence "replay", `RaceStart::attract`), the game's mark over it; any button
+ends it and the time-out (its `menu_result` "terminate"), the title again with its wait from that
+key (✔ by pictures: a new game, the title left 20 s: Rdemo0, George V Paris, the Bentley; Cross:
+the title, Arcade Mode; 20 s later Rdemo1, El Capitan). ❓ The card's replays, which 0x4349A8 plays
+before the disc's, are not played here.
 
 ❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).

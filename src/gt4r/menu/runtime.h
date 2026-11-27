@@ -291,6 +291,7 @@ public:
     // other than 0).
     script::Value bubble_now(LiveWidget& from, const std::string& name, std::vector<script::Value> args);
     float seconds_since_input() const { return float(frame_ - last_input_frame_) / 60.0f; }
+    void note_input() { last_input_frame_ = frame_; } // (a key the menus did not see: a demonstration left with one)
     FileReader& reader() { return read_; }
     // The options as a text file under the data folder ("gt4r-options.txt"): written when the
     // scripts apply or save them and when a project ends; read when the runtime is made.

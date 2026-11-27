@@ -490,6 +490,12 @@ void arcade_tires(App& app, Setup& setup, const menu::RaceRequest& q) {
 // A recorded race of the disc's (the Replay Theater's Demo tab: docs/formats/replay.md): its course, laps, cars with their
 // parts, settings and places, its event's row; false when the disc has none by that path.
 bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file);
+// Any of the pad's buttons pressed this frame.
+bool any_button_pressed(const MenuInput& m) {
+    for (size_t b = 0; b < gt3r::kPadButtonCount; ++b)
+        if (m.pressed(PadButton(b))) return true;
+    return false;
+}
 // The entries of a file: u32 the cars, then each its equipment record (0x178 bytes) and its grid place (u32).
 void load_entries(App& app, Setup& setup) {
     std::FILE* fp = std::fopen(setup.entries_file.c_str(), "rb");
@@ -2626,7 +2632,7 @@ public:
             // GT4R_AUTODRIVE=1: the computer drives the player's car in every race the menus start (scripted
             // play through Gran Turismo mode, license tests included).
             if (const char* e = SDL_getenv("GT4R_AUTODRIVE"); e && *e == '1') setup_.auto_drive = true;
-            menus_ = chosen->menus, sequence_ = chosen->sequence;
+            menus_ = chosen->menus, sequence_ = chosen->sequence, attract_ = chosen->attract;
             setup_.sequence = chosen->sequence;
             if (chosen->online) {
                 const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`, `pit`)
@@ -2925,8 +2931,11 @@ public:
         } else {
             replay_paused_ = false;
         }
-        // A demonstration ends when its recording runs out, or on Start.
-        if (race_->demonstrating() && (race_->demo_over() || m.pressed(PadButton::Start))) {
+        // A demonstration ends when its recording runs out, or on Start; the title's time-out's on any button, and the time-out with
+        // it (0x10BBB0's end code 2).
+        const bool attract_left = attract_ && menus_ && race_->demonstrating() && any_button_pressed(m);
+        if (attract_left) menus_->game().menu_result = "terminate";
+        if (race_->demonstrating() && (race_->demo_over() || m.pressed(PadButton::Start) || attract_left)) {
             race_->end_demo();
             race_->end_run(false);
             return finish_run(app);
@@ -2935,8 +2944,9 @@ public:
         // has no result and brings no one out).
         if (is_license(sequence_) && !prologue_hud_ && !race_->replaying() && race_->flow().player_finished() && !race_->license_failed())
             race_->world().license_result(prize_level() < 3);
-        // A replay: Start ends it.
+        // A replay: Start ends it; the title's time-out's any button, and the time-out with it (0x10BBB0's end code 2).
         if (race_->replaying()) {
+            if (attract_ && menus_ && any_button_pressed(m)) menus_->game().menu_result = "terminate", race_->stop_replay();
             if (m.pressed(PadButton::Start)) race_->stop_replay();
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
@@ -4893,6 +4903,7 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
+    bool attract_ = false; // a recorded race the title's time-out plays (RaceStart::attract)
     bool replay_paused_ = false; // a replay held still (Select)
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
     std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race

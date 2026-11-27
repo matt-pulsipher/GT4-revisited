@@ -498,7 +498,8 @@ gt3r::PadState App::scripted_keys() {
         }
         if (k.compare(0, 5, "type:") == 0) { // text typed on a keyboard
             SDL_Event e{};
-            const std::string text = k.substr(5);
+            std::string text = k.substr(5);
+            for (size_t at; (at = text.find("\\n")) != std::string::npos;) text.replace(at, 2, "\n"); // ("\n": Enter)
             ++key_, key_frames_ = 0;
             e.type = SDL_EVENT_TEXT_INPUT, e.text.text = text.c_str();
             event(e);

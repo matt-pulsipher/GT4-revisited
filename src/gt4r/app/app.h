@@ -380,6 +380,9 @@ struct RaceStart {
     // ("single_race"): the race runs that sequence's own menus on them and leaves them where it ends.
     menu::Runtime* menus = nullptr;
     std::string sequence;
+    // The title's time-out plays it (a demonstration's recorded race, sequence "replay"): any button ends it and the time-out
+    // (the menus' menu_result "terminate", menu::autodemo_step).
+    bool attract = false;
     // An online race the lobby loaded (net/online_race.h): its cars, rules and places in place of the fields above, and the
     // game's options (menu::GameState::options; empty: a new game's).
     std::shared_ptr<const net::OnlineRace> online;

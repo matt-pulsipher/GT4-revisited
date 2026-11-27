@@ -245,8 +245,8 @@ TEST(disc_car_gets_dirty) {
 
 // The title's time-out (the autodemo sequence 0x10BE20): up to repeat_time (3) tries, each counting the movie's count
 // down (0x434770); the movie (demo_movie, "opening") when it has run out, the option demo_movie_interval less 1 again
-// after it; the disc's demonstration list (setNextDemo: Demo(2, "Rdemo0") .., kind replay) is not played here.
-// A skipped movie ("terminate") ends the time-out.
+// after it; else the disc's demonstration list's recorded race (setNextDemo: Demo(2, "Rdemo0") .., kind replay: the file
+// replay/Rdemo0/Rdemo0 ..), so each time-out plays three. A skipped movie or race ("terminate") ends the time-out.
 TEST(disc_menu_title_demonstrations) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
@@ -256,12 +256,21 @@ TEST(disc_menu_title_demonstrations) {
     menu::GameState::Demonstration& d = g.demonstration;
     std::printf("  initialized: count %d, replay time %d, tries %d, movie in %d\n", d.count, d.replay_time, d.repeat, d.movie_left);
     CHECK(d.count == 13 && d.replay_time == 150 && d.repeat == 3 && d.movie_left == 2);
-    // The movies each time-out plays.
+    // The movies each time-out plays (and the recorded races: the rest of its three).
+    int races = 0;
+    std::string first_race;
     auto timeout = [&](bool skip = false) {
         int movies = 0;
+        races = 0;
         for (auto step = menu::autodemo_step(*f.rt, true); step; step = menu::autodemo_step(*f.rt, false)) {
-            CHECK(step->first == "demo_movie" && step->second == "opening");
-            ++movies;
+            if (step->replay.empty()) {
+                CHECK(step->project == "demo_movie" && step->arg == "opening");
+                ++movies;
+            } else {
+                CHECK(step->replay.rfind("replay/Rdemo", 0) == 0 && f.rt->reader()(step->replay).has_value());
+                if (first_race.empty()) first_race = step->replay;
+                ++races;
+            }
             g.menu_result = skip ? "terminate" : "";
         }
         return movies;
@@ -273,13 +282,15 @@ TEST(disc_menu_title_demonstrations) {
         for (const int want : expected) {
             const int got = timeout();
             seen += std::to_string(got) + " ";
-            CHECK(got == want);
+            CHECK(got == want && races == 3 - want);
         }
         std::printf("  interval %d: movies per time-out %s, the list's entry %d\n", interval, seen.c_str(), d.index);
         if (interval == 5) CHECK(d.type == 3 && d.name.rfind("Rdemo", 0) == 0); // (the list's entries: kind replay, a recording's name)
     }
     g.options["demo_movie_interval"] = 1, d.movie_left = 0;
-    CHECK(timeout(true) == 1); // skipped: the time-out ends
+    CHECK(timeout(true) == 1 && races == 0); // skipped: the time-out ends
+    std::printf("  the first recorded race: %s\n", first_race.c_str());
+    CHECK(first_race == "replay/Rdemo0/Rdemo0");
     // resetMovieCount (the Misc options' OK): the movie at the next time-out.
     g.options["demo_movie_interval"] = 5, d.movie_left = 3;
     script::Vm& vm = f.rt->vm();

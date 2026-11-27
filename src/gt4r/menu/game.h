@@ -419,7 +419,13 @@ std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_s
 // And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
 std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
-// run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
+// run and its argument (the movie), or a recorded race of the disc to play (`replay`: its file, "replay/Rdemo0/Rdemo0"); none
+// when the sequence is over. `first` at the time-out, then after each one played; a played one left with a key sets the
+// game's menu_result "terminate", which ends the sequence (0x10BBB0's end code 2).
+struct DemoStep {
+    std::string project, arg;
+    std::string replay;
+};
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first);
 
 } // namespace gt4r::menu
