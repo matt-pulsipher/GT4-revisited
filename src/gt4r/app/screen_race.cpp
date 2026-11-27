@@ -2841,6 +2841,7 @@ public:
     gt3r::TouchLayout touch_layout() const override {
         return !race_ ? gt3r::TouchLayout::None : playing() ? gt3r::TouchLayout::Driving : gt3r::TouchLayout::Menu;
     }
+    bool touch_top_row() const override { return race_ != nullptr; } // (its display's top corners under the menu layout's buttons)
     bool back_is_start() const override { return playing(); } // (Android's back while driving: the pause, never the reverse gear)
     // The Discord status (app/presence.h): the kind of run and the course, the car, the lap and the place.
     bool presence(App& app, net::PresenceText& t) override {
