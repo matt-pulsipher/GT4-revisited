@@ -30,7 +30,7 @@ own code or is judged rather than read.
 ## Next
 
 1. **Details of the game still open**, from the docs' "What runs where" lists, `PLAYING.md`'s
-   known problems and the menu comparisons: Arcade's Quick Tune in the race, machine tests' start,
+   known problems, the game rules not yet the game's ([RULES_AUDIT.md](RULES_AUDIT.md), ranked) and the menu comparisons: Arcade's Quick Tune in the race, machine tests' start,
    photo mode's reflections and films, the driver's gaze and gear changes, Prologue's race sound,
    the pages and screens not yet compared with the original's captures.
 2. **Online, the rest**: other players' pit stops in the prediction of their car, then racing

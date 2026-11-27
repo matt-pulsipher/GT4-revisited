@@ -254,7 +254,8 @@ void Field::setup(Driver& d) {
     if (c.p.weight != F()) {
         d.p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.weight;
         const rules::BodyExtra& b = session_->extra(d.car).body;
-        d.p.aero_bonus = b.speed_part_kind == 7 ? (b.speed_part_lift * F::raw(0x3F4CCCCC)) / c.p.weight : F();
+        // (SCPS-17001 v1.05's 0x45F1C8 makes no aero bonus: its block has no word for it)
+        d.p.aero_bonus = b.speed_part_kind == 7 && !tables_.japan ? (b.speed_part_lift * F::raw(0x3F4CCCCC)) / c.p.weight : F();
     }
     // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
     int thr = pace_.throttle[size_t(d.drive_class)], brk = pace_.brake[size_t(d.drive_class)], cs = pace_.corner[size_t(d.drive_class)];
@@ -264,8 +265,11 @@ void Field::setup(Driver& d) {
     int off = 0;
     if (tables_.driver_spread && d.control == 2) {
         const int idx = d.index;
-        if (!tables_.tuning.brake_spread) brk -= (idx % 3) * 7;
-        if (!tables_.tuning.corner_spread) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
+        // (SCPS-17001 v1.05's car set-up 0x35E050 does not set the draws' switches, 0x469468: its single race's preparation,
+        // the conductor's virtual 27, does, after every car is set up. So its drivers differ by their grid index too.)
+        const bool japan = tables_.japan;
+        if (!tables_.tuning.brake_spread || japan) brk -= (idx % 3) * 7;
+        if (!tables_.tuning.corner_spread || japan) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
         d.p.yaw_gain = d.p.yaw_gain * (int_f(((idx + 1) % 3) * 3 + 97) * kHundredth);
     }
     if (thr != 100) d.p.throttle = int_f(thr) * kHundredth;
@@ -550,19 +554,21 @@ F Field::corner_speed(const Driver& d, int i) {
         a = a * (-r);
         if (zero < bank) a = a / (kOne - gt3r::ee::sin(bank));
     }
-    const F e = pt.crest ? zero : d.p.aero_bonus;
+    // (SCPS-17001 v1.05's 0x45FA50: no aero bonus, and every driver's own multipliers, a pad car's too)
+    const bool japan = session_->japan();
+    const F e = pt.crest || japan ? zero : d.p.aero_bonus;
     F q = e + kOne, v;
     for (int k = 0; k < 3; ++k) {
         v = gt3r::ee::sqrt(a * q);
         q = ((d.p.downforce * v) * v + kOne) + e;
     }
-    F m = d.control == 0 ? kOne : d.corner_mult;
+    F m = d.control == 0 && !japan ? kOne : d.corner_mult;
     const Tuning& t = tables_.tuning;
     if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
     F scale = d.p.corner_scale * m;
     if (d.control == 1 && d.kind == 0) scale = scale * d.pace_corner;
     if (const auto& zc = near_[d.car].zone; t.alongside_slow && (zc[kFrontLeft] || zc[kLeft] || zc[kRight] || zc[kFrontRight]))
-        scale = scale * (kOne - t.alongside_share * (d.control == 0 ? kOne : d.alongside_mult));
+        scale = scale * (kOne - t.alongside_share * (d.control == 0 && !japan ? kOne : d.alongside_mult));
     const F offset = d.p.corner_offset + int_f(pt.speed_adjust == -128 ? 0 : pt.speed_adjust) * kPerKmh;
     // (on the front's first tire record the scale takes T+0x158's factor of its paved grip: 1 throughout in this program)
     F out = scale * v + offset;
@@ -1210,7 +1216,7 @@ void Field::zones(Near& z, F dist, F u, F v, F ahead, F behind, F w) const {
 }
 
 // 0x3F42D0: car a closing on car b ahead along the course: the gap less the two cars' lengths and the closing speed;
-// false when b is not ahead (or, within 20 m, not overlapping a sideways).
+// false when b is not ahead (or, within 20 m, not overlapping a sideways; SCPS-17001 v1.05's 0x3ECFE0: at any gap).
 bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
     const ex::Car &ca = session_->record(a), &cb = session_->record(b);
     const F lap(lines_.lap()), sa = course_s(a), sb = course_s(b);
@@ -1220,7 +1226,7 @@ bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
     if (gp <= k::zero) return false;
     const F rb = rate_[b], ra = rate_[a];
     const F diff = rb - ra;
-    if (gp < F::raw(0x41A00000)) {
+    if (session_->japan() || gp < F::raw(0x41A00000)) {
         const F h = (ca.p.body_width + cb.p.body_width) * k::half;
         if (h < v || v < -h) return false;
     }
@@ -1282,7 +1288,8 @@ void Field::proximity() {
             zones(near_[i], dist, ua, va, ab, ba, w);
             zones(near_[j], dist, ub, vb, ba, ab, w);
             F gap, rate;
-            if (pace_.contact) {
+            // (SCPS-17001 v1.05's phase 0x3ED338: the contacts only of cars less than 50 m apart)
+            if (pace_.contact && !(session_->japan() && !(dist < F::raw(0x42480000)))) {
                 if (closing(i, j, va, gap, rate)) contact(i, j, gap, rate);
                 else if (near_[i].follow == int(j)) near_[i].follow = -1;
                 if (closing(j, i, vb, gap, rate)) contact(j, i, gap, rate);
@@ -1315,7 +1322,7 @@ void Field::traffic(Driver& d) {
         lanes = 0;
     }
     if (d.status == 1 || d.status == 2 || d.status == 5) lanes = 0;
-    else if ((d.status == 3 || d.status == 4) && (d.line == 1 || d.line == 2)) lanes = -1;
+    else if ((d.status == 3 || d.status == 4) && (d.line == 1 || d.line == 2) && !tables_.japan) lanes = -1; // (not in SCPS-17001 v1.05's 0x462000)
     F cn = d.cooldown > 0 ? F() : z.contact;
     if (k::zero < d.blend) lanes = 0;
     if (d.control == 1 && !d.overtake && lanes == 1) lanes = -1;
@@ -1386,7 +1393,7 @@ void Field::decide(Driver& d) {
             if (long_start) look = look + (int_f(left) * F::raw(0x43480000)) / F::raw(0x459C4000);
             else look = look + (int_f(left) * F::raw(0x42200000)) / F::raw(0x44FA0000);
         }
-        if (d.stop_count) look = look + int_f(d.stop_count) * F::raw(0x3EAAAAAA);
+        if (d.stop_count && !tables_.japan) look = look + int_f(d.stop_count) * F::raw(0x3EAAAAAA); // (not in SCPS-17001 v1.05's 0x45D668)
     }
     d.look = look.host();
     F ax, ay;
@@ -1576,6 +1583,8 @@ void Field::decide(Driver& d) {
             if (moving == -1) tgt = -tgt;
         }
     }
+    // (SCPS-17001 v1.05's 0x45D668 gives its stop driver the steering without the lock's bound)
+    if (d.kind == 6 && tables_.japan) return stop(d, tgt);
     const F lock = c.p.max_lock;
     if (lock < tgt) tgt = lock;
     else if (tgt < -lock) tgt = -lock;

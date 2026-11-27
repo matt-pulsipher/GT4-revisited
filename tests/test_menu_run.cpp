@@ -934,6 +934,21 @@ TEST(disc_menu_race_results) {
     menu::RaceResult retired = won;
     retired.finished = false;
     CHECK(f.rt->race_finished(retired) == 0 && g.rank_counts[0] == 1 && g.diary.back().b1 == 15);
+    // A license run without a grade (failed, or not finished) is kept nowhere (0x1105A8): no unit, no ranking, no day.
+    {
+        menu::RaceResult failed;
+        failed.kind = menu::RaceResult::Kind::License, failed.race = "l0b0002", failed.result = "failed", failed.time_ms = 12'000;
+        const size_t days = g.diary.size();
+        f.rt->race_finished(failed);
+        failed.finished = false;
+        f.rt->race_finished(failed);
+        const Value flabel[1] = {Value::string("l0b0002")};
+        const Value funit = vm.call(vm.attribute(record, "getUnit"), flabel);
+        const Value franking = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "license_record"), "getUnit"), flabel);
+        std::printf("  a failed run: the unit's type %s, result %s; %d ranked; days %zu -> %zu\n", vm.attribute(funit, "type").as_string().c_str(),
+                    vm.attribute(funit, "result").as_string().c_str(), int(vm.call(vm.attribute(franking, "getRankNum"), {}).i), days, g.diary.size());
+        CHECK(vm.attribute(funit, "type").as_string() == "none" && vm.call(vm.attribute(franking, "getRankNum"), {}).i == 0 && g.diary.size() == days);
+    }
     // A license test passed with gold: its unit, its ranking, a day.
     menu::RaceResult test;
     test.kind = menu::RaceResult::Kind::License, test.race = "l0b0001", test.result = "gold", test.time_ms = 10'123;
@@ -950,6 +965,54 @@ TEST(disc_menu_race_results) {
     f.focus_on("Diary");
     f.press({menu::Key::Accept});
     CHECK(f.page() == "LogRoot" && f.clean());
+}
+
+// The course rankings a run writes (0x113320, 0x117898, 0x1161A0 through 0x433260): a time trial's or free run's best lap
+// that beats the sequence's best goes into the course's ranking (and BestTime); a B-spec run's does not; a machine test's
+// 1000 m run goes into the machine record's second unit.
+TEST(disc_menu_course_rankings) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    script::Vm& vm = f.rt->vm();
+    menu::QuickWork& w = menu::quick_work(g);
+    const std::string car = g.garage[size_t(g.riding_car)].car;
+    auto run = [&](int kind, const char* course, u32 best, bool watched = false, const char* race = "") {
+        menu::RaceResult r;
+        r.kind = menu::RaceResult::Kind::Course, r.course_kind = kind, r.course = course, r.race = race, r.watched = watched;
+        r.best_lap_ms = best, r.time_ms = best;
+        menu::RaceResult::Finisher me;
+        me.car = car;
+        r.order.push_back(me);
+        f.rt->race_finished(r);
+    };
+    const Value label[1] = {Value::string("tsukuba")};
+    auto unit = [&] { return vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "course_record"), "getUnit"), label); };
+    auto ranked = [&] { return int(vm.call(vm.attribute(unit(), "getRankNum"), {}).i); };
+    auto entry = [&](int i) {
+        const Value at[1] = {Value::integer(i)};
+        return vm.call(vm.attribute(unit(), "getBestTime"), at).as_string() + " " + vm.call(vm.attribute(unit(), "getCarName"), at).as_string();
+    };
+    w.set("BestTime", s32(menu::kNoTime));
+    CHECK(ranked() == 0);
+    run(7, "tsukuba", 62'345);                 // the time trial's first lap: ranked, the best
+    run(7, "tsukuba", 63'000);                 // slower than the sequence's best: not ranked
+    run(7, "tsukuba", 61'000, true);           // B-spec: not ranked
+    run(1, "tsukuba", 61'500);                 // the free run's better lap: ranked
+    std::printf("  tsukuba: %d ranked: %s / %s; BestTime %d\n", ranked(), entry(0).c_str(), entry(1).c_str(), int(w.get("BestTime")));
+    CHECK(ranked() == 2 && entry(0).rfind("1'01.500", 0) == 0 && entry(1).rfind("1'02.345", 0) == 0 && w.get("BestTime") == 61'500);
+    CHECK(entry(0).size() > 9); // the car's name
+    // A machine test: every finished run of the 1000 m test into unit 1.
+    run(6, "mt_testcourse", 30'100, false, "mt1000_testcourse");
+    run(6, "mt_testcourse", 30'500, false, "mt1000_testcourse");
+    const Value name[1] = {Value::string("1000")};
+    const Value mt = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "machine_record"), "getMTUnit"), name);
+    std::printf("  the 1000 m test: %d ranked\n", int(vm.call(vm.attribute(mt, "getRankNum"), {}).i));
+    CHECK(vm.call(vm.attribute(mt, "getRankNum"), {}).i == 2);
+    CHECK(f.clean());
 }
 
 // A car's settings: Start at home opens the setting project on the car driven; the sheets

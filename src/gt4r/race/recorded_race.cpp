@@ -209,7 +209,7 @@ void RecordedRace::step() {
     for (size_t i = 0; i < flow_.car_count(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
     if (p.field)
         for (const size_t i : e.finished) p.field->finish_run(session, i);
-    if (e.lap_done == 0) laps_.push_back(flow_.car(0).last_lap_ms);
+    if (e.lap_done == 0) laps_.push_back(flow_.car(0).last_lap_ms), laps_in_run_ = run_.over(at_) ? laps_in_run_ : laps_.size();
     ++at_;
 }
 
@@ -218,7 +218,10 @@ bool RecordedRace::exact() const {
     s64 best = laps_[0];
     for (s64 t : laps_) best = std::min(best, t);
     const s64 total = total_ms();
-    return s64(run_.demo.time_ms) == (total >= 0 ? total : laps_.back()) && (run_.demo.time2_ms < 0 || best == s64(run_.demo.time2_ms));
+    if (s64(run_.demo.time_ms) == (total >= 0 ? total : laps_.back()) && (run_.demo.time2_ms < 0 || best == s64(run_.demo.time2_ms))) return true;
+    s64 within = 0, best_within = laps_[0];
+    for (size_t k = 0; k < laps_in_run_; ++k) within += laps_[k], best_within = std::min(best_within, laps_[k]);
+    return laps_in_run_ > 0 && s64(run_.demo.time_ms) == within && (run_.demo.time2_ms < 0 || best_within == s64(run_.demo.time2_ms));
 }
 
 } // namespace gt4r::race

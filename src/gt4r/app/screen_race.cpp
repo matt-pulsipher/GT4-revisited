@@ -81,6 +81,8 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <fstream>
+#include <iterator>
 #include <array>
 #include <optional>
 #include <map>
@@ -835,6 +837,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
+        begin_ghost(watched || demo);
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
             // (built for its menus, the run is not begun yet: its page comes first)
@@ -845,7 +848,7 @@ public:
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = page_replay_ = false, over_ = false;
-        event_steps_ = -1;
+        event_steps_ = -1, license_line_ms_ = -1;
         release_past_line();
         begin_start_camera(false);
         if (net_) attach_online(net_); // (the world's session may be a new one)
@@ -854,6 +857,7 @@ public:
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
     // (the last run is kept for its replay).
     void stand(bool guide = false) {
+        world_->set_ghost(std::nullopt, kGhostAlpha);
         // A Gran Turismo 4 license test's page (quick-license) shows the last run as its replay: the race in mode 2 (0x11D1B8),
         // the replay's start shots and cameras; before any run there is none, and the page is black (✔ the original's B-1 page
         // before and after a run, reference 05-gtmode / 11-license-tt). The course's scenic shots are not used there.
@@ -1193,6 +1197,9 @@ public:
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
         end_test();
+        // A test failed by its rules: the camera circling the car from the fail on (CameraSys::CameraFinishType1, 0x37CCA8: half a
+        // degree a step).
+        if (license_fail_view()) fail_orbit_deg_ = std::fmod(fail_orbit_deg_ + 0.5f, 360.0f);
         if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
@@ -1203,7 +1210,7 @@ public:
         if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
         step_lap_gaps();
         // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
-        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1;
+        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
@@ -1219,6 +1226,7 @@ public:
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
         if (name_steps_ >= 0) ++name_steps_;
+        step_ghost(ev, hold);
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -1325,8 +1333,99 @@ public:
 
     // `page`: behind a license test's page (stand), again from its start when it ends, not heard (🔎 the original's page is
     // quiet next to its menus' music; whether the replay's own sound plays under it is not read).
+    // ---- The best lap's ghost (the time trial's and free run's RaceFreeRun, the license test's RaceLicense: RaceSolitaire's
+    // recorders). The option automatic_ghost (MOption +0x10CC, 1 in a new game) on: each lap the player drives is kept from
+    // its crossing of the line; a lap faster than the ghost's becomes the ghost, and from the next crossing on the ghost runs
+    // that lap again beside the player's car (✔ 25-sound-cars: the time trial's ghost after a first lap). The sequence keeps it
+    // for its next runs (0x3C0B30 keeps the run's best lap, 0x3C08C0 gives it to the next run's race: the race information's
+    // +0x98, +0x94). A license test's run is its lap, from the start to its end; a graded run faster than the ghost's becomes
+    // the ghost of the next run (report_result: ghost_run_graded). Up (BUTTON_GHOST) shows or hides it.
+    // ❓ The program runs the lap's controller records again from its recorder's moment (0x35AB08 / 0x35ABA8) on the ghost car,
+    // entry 1 of the race (the player's equipment copied at 0x3EA768); here the lap's car states are shown as they were, the same
+    // car for a lap driven by the pad. Its look (see-through at a half) and whether a better lap takes over at once are not
+    // read; the original's ghost entry counts in the race display's Position (2 in the time trial's first lap, 25-sound-cars):
+    // not here. Not in Prologue (its own program, not read).
+    struct GhostLap {
+        std::vector<race::CarState> states;
+        s64 ms = -1;
+    };
+    static constexpr float kGhostAlpha = 0.5f;
+    void set_ghost_option(bool on) { ghost_option_ = on; }
+    void toggle_ghost() { ghost_shown_ = !ghost_shown_; }
+    bool ghost_available() const { return ghost_best_ != nullptr; }
+    const GhostLap* ghost_best() const { return ghost_best_.get(); }
+    void begin_ghost(bool watched_or_demo) {
+        const std::string& q = setup_.sequence;
+        ghost_on_ = ghost_option_ && !watched_or_demo && !gt3_road_ && (q == "time_trial" || q == "freerun" || q == "license");
+        ghost_lap_.clear(), ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false, ghost_at_ = 0;
+        ghost_counter_ = flow_.car(0).counter;
+        world_->set_ghost(std::nullopt, kGhostAlpha);
+    }
+    void step_ghost(const race::RaceFlow::Events& ev, bool hold) {
+        if (!ghost_on_) return;
+        const race::RaceFlow::CarRecord& c = flow_.car(0);
+        const bool license = is_license(setup_.sequence);
+        bool start = false;
+        if (license) {
+            start = !hold && !ghost_lap_open_ && !ghost_run_done_;
+        } else if (c.counter != ghost_counter_) {
+            // A crossing of the line: the lap just completed kept when it is the best so far; a new lap begins.
+            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done == 0 && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
+                auto lap = std::make_shared<GhostLap>();
+                lap->states = std::move(ghost_lap_), lap->ms = c.last_lap_ms;
+                ghost_best_ = std::move(lap);
+                LOG_INFO("Drive: the ghost: a lap of %lld ms", (long long)c.last_lap_ms);
+            }
+            start = c.counter > ghost_counter_;
+            ghost_counter_ = c.counter;
+        }
+        if (start) {
+            ghost_lap_.clear(), ghost_lap_open_ = true, ghost_at_ = 0, ghost_playing_ = ghost_best_ != nullptr;
+            if (ghost_playing_) LOG_INFO("Drive: the ghost's lap of %lld ms starts", (long long)ghost_best_->ms);
+        }
+        if (ghost_lap_open_ && ghost_lap_.size() < kHistory) ghost_lap_.push_back(world_->cars()[0]);
+        if (license && ghost_lap_open_ && (ev.player_finished || flow_.player_finished())) ghost_lap_open_ = false, ghost_run_done_ = true;
+        std::optional<race::CarState> g;
+        if (ghost_playing_ && ghost_best_ && ghost_at_ < ghost_best_->states.size()) g = ghost_best_->states[ghost_at_++];
+        else ghost_playing_ = false;
+        world_->set_ghost(ghost_shown_ ? g : std::nullopt, kGhostAlpha);
+    }
+    // The ghost's lap as a best lap's replay (Save Best Lap Replay): the player's car alone over the lap.
+    race::ReplayFile ghost_file(const std::string& sequence, const std::string& race_label) const {
+        race::ReplayFile f;
+        if (!ghost_best_) return f;
+        f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = 1;
+        f.cars.push_back({world_->setup().entries[0].label, world_->setup().entries[0].paint});
+        for (const race::CarState& c : ghost_best_->states) f.steps.push_back({c});
+        f.time_ms = u32(ghost_best_->ms);
+        Bytes ms(4);
+        for (int k = 0; k < 4; ++k) ms[size_t(k)] = u8(u32(ghost_best_->ms) >> (8 * k));
+        f.other.emplace_back(race::ReplayFile::kBestLap, ms);
+        return f;
+    }
+    // A best lap's replay loaded (Load Best Lap Replay, 0x11CEF8): its lap is the ghost from the next start or crossing.
+    bool load_ghost(const race::ReplayFile& f) {
+        if (!f.best_lap() || f.steps.empty() || f.time_ms == 0) return false;
+        auto lap = std::make_shared<GhostLap>();
+        for (const std::vector<race::CarState>& step : f.steps)
+            if (!step.empty()) lap->states.push_back(step[0]);
+        lap->ms = s64(f.time_ms);
+        ghost_best_ = std::move(lap);
+        return true;
+    }
+    // A license run graded (report_result): its run becomes the ghost when faster than the ghost's.
+    void ghost_run_graded(s64 ms) {
+        if (!ghost_on_ || !ghost_run_done_ || ghost_lap_.empty() || ms <= 0 || (ghost_best_ && ms >= ghost_best_->ms)) return;
+        auto lap = std::make_shared<GhostLap>();
+        lap->states = std::move(ghost_lap_), lap->ms = ms;
+        ghost_best_ = std::move(lap);
+        ghost_lap_.clear();
+        LOG_INFO("Drive: the ghost: a run of %lld ms", (long long)ms);
+    }
+
     void start_replay(bool page = false) {
         if (history_.empty() || (replaying_ && !page_replay_)) return;
+        world_->set_ghost(std::nullopt, kGhostAlpha);
         replaying_ = true, replay_done_ = false, page_replay_ = page;
         begin_view();
         menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
@@ -1671,6 +1770,8 @@ public:
             h.caption_opacity = std::clamp(std::min(view_time_ - 7.2f, 17.6f - view_time_) / 0.25f, 0.0f, 1.0f);
         }
         if (replaying_ || demo) {
+        } else if (flow_.player_finished() && is_license(setup_.sequence) && !gt3_road_) {
+            // (A license test's display has no FINISH: RaceLicenseDisplay's virtual 41 does nothing.)
         } else if (flow_.player_finished()) {
             // FINISH: 3.7 s and a fade of 0.3 s.
             h.message = hud.word("RaceFinish");
@@ -1740,7 +1841,9 @@ public:
             // The lap's time for three seconds (RaceDisplay::vf47 0x3A0A78): named "L1/3   1'23.456" only with the option
             // race_display_config (the display's flags +0x58 bit 10; a new game's off: ✔ the original's chase race shows
             // "1'47.118"); the gap to the first car through the line on that lap under it, 2.85 s.
-            h.event = (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(target).last_lap_ms);
+            h.event = license_line_ms_ >= 0 ? race::format_lap_time(license_line_ms_)
+                      : (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") +
+                            race::format_lap_time(flow_.car(target).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
             h.event_gap.clear(), h.event_gap_opacity = 0;
             if (event_gap_ms_ > 0 && !gt3_road_) {
@@ -1915,7 +2018,7 @@ public:
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
                          double(flow_.time_ms()) / 1000);
                 flow_.finish_now(0);
-                license_failed_ = true;
+                license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
                 return;
             }
             if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
@@ -1934,14 +2037,14 @@ public:
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         // Kind 6: the car may not lead (its place byte +0x5B3 at 1 fails, 0x3F8F00).
         if (r.kind == 6 && world_->car_count() > 1 && flow_.place(0) == 1) {
             LOG_INFO("Drive: the test failed (kind 6, leading) at %.3f s", double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
@@ -1955,12 +2058,17 @@ public:
         const int mode = license_end_mode();
         LOG_INFO("Drive: the test's end: the car %s (mode %d)", mode == 1 ? "coasts down" : mode == 2 ? "brakes to a stop" : "drives on", mode);
         world_->finish_car(0, true, mode);
+        // A run ended with a time posts it to the display's lap line, the time alone for 3 s (0x3F8AB0 → RaceDisplayGeneralTimeEvent
+        // 0x35E550, only when it has a time; ✔ the original's B-1 pass: "0'11.166" under the clock from the stop).
+        if (!license_failed_) event_steps_ = 0, license_line_ms_ = flow_.run_ms(0), split_steps_ = -1;
     }
+    s64 license_line_ms_ = -1; // the time a license test's end posted to the lap line (-1: a lap's)
     // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
     int license_end_mode() const {
         const race::LicenseRules& r = judge_.rules();
-        if (!license_failed_) return race::license_end_mode(r);
-        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6);
+        const bool japan = release_ == sim::Release::Japan;
+        if (!license_failed_) return race::license_end_mode(r, false, japan);
+        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6, japan);
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
     // A series' last race has its own jingles.
@@ -2010,15 +2118,18 @@ public:
         prev_cars_.assign(now.begin(), now.end());
         camera_prev_ = camera_, start_prev_ = start_camera_;
         tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+        fail_orbit_prev_ = fail_orbit_deg_;
         view_cut_ = false;
     }
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
         before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         return p;
     }
 
@@ -2086,6 +2197,22 @@ public:
         if (dissolve_left_ == 0) dissolve_total_ = 0;
     }
 
+    // A Gran Turismo 4 test failed by its rules: CameraFinishType1 (0x37CC58 starts it at 0 degrees, 0x37CCA8 steps it): 4 m from
+    // the car's drawn point, 30 degrees above it, turning about it half a degree a step from the course's +z, a lens of 65 degrees.
+    // The results page puts it on (0x3E1E10 → 0x3E1FB0 → 0x3720A0, mode 6) on event 10 with the result word not 0: the rule
+    // failure's end (0x3F8980 sets it to -1), not a slow finish's.
+    bool license_fail_view() const { return !gt3_road_ && is_license(setup_.sequence) && license_failed_ && flow_.player_finished() && !replaying_ && !menu_scene_; }
+    race::ViewPose fail_orbit_pose(const race::CarState& me) const {
+        race::ViewPose p;
+        const RVec c{me.position.x, me.position.y, me.position.z};
+        constexpr float kDeg = 3.14159265f / 180;
+        p.view = render::translate({0, 0, -4}) * render::rotate_x(30 * kDeg) * render::rotate_y(fail_orbit_deg_ * kDeg) * render::translate(c * -1.0f);
+        p.eye = c + render::rotate_y(-fail_orbit_deg_ * kDeg).transform_point(render::rotate_x(-30 * kDeg).transform_point({0, 0, 4}));
+        p.fov = 65 * kDeg;
+        return p;
+    }
+    float fail_orbit_deg_ = 0, fail_orbit_prev_ = 0;
+
     // Prologue's license test ended: the camera circles the car (race/start_camera_prologue.h).
     bool finish_view() const { return gt3_road_ && finish_camera_.distance > 0 && is_license(setup_.sequence) && flow_.player_finished() && !replaying_ && !menu_scene_; }
 
@@ -2103,8 +2230,10 @@ public:
         if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
         // (Cross leaves a replay's start shots for the car's own cameras: 0x374630.)
         posed = posed || (start_camera_.active() && !(viewing() && view_.ride_on()) && start_camera_.pose(pose, &body));
-        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8).
+        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8); a test failed by
+        // its rules: the camera circling the car.
         if (!posed && !replaying_ && !menu_scene_) posed = world_->license_camera(pose, before_);
+        if (!posed && license_fail_view()) pose = fail_orbit_pose(me), posed = true;
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
@@ -2195,7 +2324,7 @@ public:
     void follow(size_t car) {
         if (car == focus_) return;
         focus_ = car;
-        event_steps_ = split_steps_ = -1;
+        event_steps_ = split_steps_ = -1, license_line_ms_ = -1;
         name_steps_ = watched_ && !replaying_ && !menu_scene_ ? 0 : -1;
         camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
@@ -2204,8 +2333,9 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
-    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false) {
-        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false,
+                    const render::ItemLights* lights = nullptr) {
+        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection, lights);
     }
     audio::RaceSound* sound() { return world_->sound(); }
 
@@ -2233,6 +2363,11 @@ private:
     std::unique_ptr<race::RecordedRace> behind_;
     sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
     std::vector<replay::PadRecord> records_; // the run's records, one a step
+    std::shared_ptr<const GhostLap> ghost_best_; // the ghost's lap (kept for the sequence's next runs)
+    std::vector<race::CarState> ghost_lap_;      // the lap being driven, from its crossing
+    bool ghost_option_ = true, ghost_on_ = false, ghost_shown_ = true, ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false;
+    int ghost_counter_ = 0;
+    size_t ghost_at_ = 0;
     bool recording_ = false;
     std::optional<std::array<u8, 0x40>> bspec_start_; // the B-spec driver's record at the run's start
     race::PadRecord player_frame_; // the player's frame of this step (inputs_[0].pad)
@@ -2849,7 +2984,9 @@ public:
         const bool mine = !race_->watched() && !race_->replaying();
         player_input_ = input::read_player(app.input(), 0, controllers_.port[0], wheel_, !mine ? input::Mode::Watch : directions_taken ? input::Mode::DriveNoDirections : input::Mode::Drive);
         const std::pair<u32, u32> down{player_input_.views & ~last_views_, player_input_.menu & ~last_menu_};
-        last_views_ = player_input_.views, last_menu_ = player_input_.menu;
+        // Up (BUTTON_GHOST): the best lap's ghost shown or hidden.
+        if (mine && (player_input_.special & ~last_special_ & input::RaceInput::kGhost)) race_->toggle_ghost();
+        last_views_ = player_input_.views, last_menu_ = player_input_.menu, last_special_ = player_input_.special;
         return down;
     }
 
@@ -2907,9 +3044,11 @@ public:
         // The results page goes up at the player's finish over the race display, which goes on under it: its
         // movie's first 3.3 s show nothing (result.strb's root waits on its sprite 1), so FINISH and the A-spec
         // points are seen first (✔ the original's: the page up at the FINISH state, the rows ~3.5 s after the line).
-        // A license test's page covers it. (Nor is it drawn under the Race Monitor.)
+        // A license test's display goes out over 0.25 s from the test's end under its page (RaceLicenseDisplay 0x3BCFF0 and
+        // virtual 36: its fader +0xBC), its words on their own times. (Nor is it drawn under the Race Monitor.)
         const bool monitor_up = monitor_ && race_->watched() && !race_->replaying();
-        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()))) {
+        const bool license_fading = is_license(sequence_) && !prologue_hud_ && results_shown();
+        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()) || license_fading)) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 // At the player's finish the display stays full 1 s, then fades out over 0.25 s (RaceDisplay::vf41 0x3A1568,
@@ -2917,7 +3056,7 @@ public:
                 hud_state_.opacity = 1;
                 if (const race::RaceFlow& f = race_->flow(); !race_->viewing() && f.player_finished()) {
                     const float t = float(f.steps_since_player_finish()) / 60;
-                    hud_state_.opacity = t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
+                    hud_state_.opacity = license_fading ? std::max(0.0f, 1 - t / 0.25f) : t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
                 }
                 // The display's parts the options switch off; a replay's display as they say.
                 const menu::GameSettings::Display& d = settings_.display;
@@ -3486,6 +3625,12 @@ private:
         else menu::quick_work(menus_->game()).set("canReplay", can_replay);
         menu::quick_work(menus_->game()).set("dispGuidePage", guide ? 1 : 0); // (Prologue's lesson: its guide film's page)
         if (prologue_hud_ && is_license(sequence_)) menu::quick_work(menus_->game()).set("canSaveGhost", can_replay ? 1 : 0); // (✔ lit after a run)
+        // Gran Turismo 4's time trial, free run and license test: once a run made a best lap, Save Best Lap Replay and the Analyzer
+        // (canSaveGhost +0x474, CanLogger +0x4B0: 0x1128E0, 0x117110, 0x11CE1C; ✔ 18-round4-gt, the B-1 page after a bronze run).
+        if (!prologue_hud_ && (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "license") && race_->has_run() && race_->ghost_available()) {
+            menu::QuickWork& w = menu::quick_work(menus_->game());
+            w.set("canSaveGhost", 1), w.set("CanLogger", 1);
+        }
         last_can_replay_ = can_replay;
         menus_->game().during_quick_menu = true;
         try {
@@ -3614,6 +3759,7 @@ private:
             race_->set_last_race(series.race_count > 0 && series.races_run + 1 >= series.race_count);
         }
         race_->set_player(player_choice());
+        if (menus_) race_->set_ghost_option(menu::settings_of(menus_->game()).ghost);
         race_->begin_run(watched);
         clock_ = 0;
     }
@@ -3654,7 +3800,11 @@ private:
     // The run is over (its results page left and its replay played, or the pause's Exit): its
     // result to Gran Turismo mode, then the sequence's menus.
     void run_over() {
-        const int can = spectator_ ? 2 : 1;
+        int can = spectator_ ? 2 : 1;
+        // A license test's page after a demonstration has no Replay (0x11CED8: canReplay 0; ✔ 34-b3-demo, the Replay icon a
+        // run added is gone after the demo), nor after a run that ended before 2 s on the race clock (0x11CE3C: 0x358440,
+        // cond + 0xF898 / 3, under 2,001 ms). ❓ The program then also reloads the test's settings (0x1100D0): not done here.
+        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) can = 0;
         report_result();
         if (session_kind() && !demo_) return enter_quick(can, false);
         enter_quick(can);
@@ -3687,6 +3837,7 @@ private:
             const int level = prize_level();
             r.result = level == 0 ? "gold" : level == 1 ? "silver" : level == 2 ? "bronze" : "failed";
             r.name = entered_name_;
+            if (r.finished && level <= 2) race_->ghost_run_graded(s64(r.time_ms));
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
         } else if (sequence_ == "championship") {
@@ -3700,6 +3851,7 @@ private:
             r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
+        if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.best_lap_ms = u32(best);
         // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
         if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
             r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
@@ -3720,7 +3872,8 @@ private:
         } catch (const std::exception& e) {
             LOG_WARN("Race result: %s", e.what());
         }
-        if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
+        // (The time trial's and the free run's BestTime: the result routine's, with the course ranking's insert.)
+        if (sequence_ == "machinetest" || is_license(sequence_) || (menus_->is_prologue() && (sequence_ == "time_trial" || sequence_ == "freerun"))) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)
             const s64 best = is_license(sequence_) ? (r.finished && r.result != "failed" ? s64(r.time_ms) : -1) : flow.car(0).best_lap_ms;
             s32 have = w.get("BestTime");
@@ -3797,6 +3950,19 @@ private:
         if (guide_page_ && !guide_told_ && (race_->guide_done() || m.pressed(PadButton::Start))) end_guide();
         if (!menus_->finished()) return;
         menu::QuickWork& w = menu::quick_work(menus_->game());
+        if (option_ && loading_ghost_) {
+            loading_ghost_ = false;
+            if (std::string& path = menus_->game().replay_file; !path.empty()) {
+                try {
+                    std::ifstream in(path, std::ios::binary);
+                    const Bytes b((std::istreambuf_iterator<char>(in)), {});
+                    if (race::ReplayFile::is_replay(b) && race_->load_ghost(race::ReplayFile::decode(b))) LOG_INFO("Drive: the ghost loaded from %s", path.c_str());
+                } catch (const std::exception& e) {
+                    LOG_WARN("Drive: the best lap replay %s: %s", path.c_str(), e.what());
+                }
+                path.clear();
+            }
+        }
         if (option_) return menus_->game().pending_replay.reset(), enter_quick(w.get("canReplay"), false);
         // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
@@ -3836,11 +4002,18 @@ private:
                 menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
                 menus_->start_project("labomode");
             }
+        } else if (command == "COMMAND_SAVE_GHOST" && !prologue_hud_ && race_->ghost_available()) {
+            // Save Best Lap Replay (0x112B50, 0x11CF78): labomode's save page in MODE_SAVE_BESTLAP_REPLAY with the ghost's lap.
+            pend_replay(app, true);
+            option_ = true;
+            menus_->game().next_menu_arg = "MODE_SAVE_BESTLAP_REPLAY";
+            menus_->start_project("labomode");
         } else if (command == "COMMAND_LOAD_GHOST") {
             // Load Best Lap Replay: the program's project labomode on its load page (0x11CF08, 0x10FEE8: next_menu_arg
-            // MODE_LOAD_BESTLAP_REPLAY), then the menus again. ❓ No best lap replays are kept here: its list is empty, and a
-            // loaded ghost is not driven against.
-            option_ = true;
+            // MODE_LOAD_BESTLAP_REPLAY: the best lap replays of this course and car), then the menus again; the replay chosen is the
+            // ghost (load_ghost: update_quick on the way back).
+            option_ = true, loading_ghost_ = !prologue_hud_;
+            menus_->game().replay_file.clear();
             menus_->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
             menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
@@ -3892,6 +4065,11 @@ private:
             menu::complete_race_request(*menus_, q);
             if (q.course.empty() || q.car.empty()) return false;
             q.sequence = sequence_;
+            // The test's own run loop ends here (0x11CB38 puts its day, 0x110800); the next test's starts afresh (its best,
+            // its day).
+            g.end_race_sequence();
+            g.race_session = {};
+            g.race_session.sequence = sequence_, g.race_session.license_open = true;
             menu::start_quick_work(*menus_, q);
         } else {
             return false;
@@ -3939,10 +4117,10 @@ private:
 
     // The run for the menus' save page (menu::GameState::pending_replay; the modes by the program's names, 0x6A0020; ❓ the
     // number given for the license tests and missions alone).
-    void pend_replay(App& app) {
+    void pend_replay(App& app, bool best_lap = false) {
         const menu::RaceRequest& q = menus_->game().race;
         auto pending = std::make_shared<menu::GameState::PendingReplay>();
-        auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
+        auto file = std::make_shared<race::ReplayFile>(best_lap ? race_->ghost_file(sequence_, q.race) : race_->replay_file(sequence_, q.race));
         static const std::pair<const char*, const char*> kModes[] = {
             {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
             {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
@@ -3963,6 +4141,7 @@ private:
         if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
         pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
         if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
+        if (best_lap) pending->time_ms = file->time_ms, pending->best_lap = true;
         pending->bspec = spectator_, pending->picture = replay_picture_;
         file->mode = pending->mode, file->submode = pending->submode, file->time_ms = pending->time_ms, file->bspec = pending->bspec, file->picture = replay_picture_;
         pending->kb = int((file->encode().size() + 1023) / 1024);
@@ -4222,9 +4401,8 @@ private:
         if (is_license(sequence_) && license_movie_) {
             // The live picture behind the page: a run that ended with a time keeps the race's own view until the staff's
             // cameras take over (✔ the original's pass, 18-round4-gt, and slow finish, 05-gtmode `license_b1_test_run_fail.mp4`:
-            // the chase view on); a run failed by the rules turns to a camera beside the course (27-license-fails ❓ its rule
-            // not read: the replay's cameras here).
-            if (race_->license_failed() || prologue_license_) race_->tv_view();
+            // the chase view on); a run failed by the rules has the camera circling the car (license_fail_view).
+            if (prologue_license_) race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
@@ -4527,6 +4705,8 @@ private:
     input::Controllers controllers_;
     input::WheelSettings wheel_;
     input::RaceInput player_input_;
+    u32 last_special_ = 0;
+    bool loading_ghost_ = false; // the race's menus' Load Best Lap Replay page is up
     u32 last_views_ = 0, last_menu_ = 0;
     input::RaceFeedback feedback_;
     std::string device_; // the player's pad or wheel as last seen while driving
@@ -4589,7 +4769,16 @@ private:
         if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
-        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true); // (its reflection picture its own)
+        // Its own light (0x3E1780, light set 0x66 alone: ambient 0.3, diffuse and specular 0.5, from above in the trophy's view).
+        static const render::ItemLights kTrophyLight = [] {
+            render::ItemLights l;
+            l.count = 1;
+            for (int c = 0; c < 3; ++c) l.ambient[c] = 0.3f, l.diffuse[0][c] = 0.5f, l.specular[0][c] = 0.5f;
+            l.dir[0][1] = 1;
+            return l;
+        }();
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true, // (its reflection picture its own)
+                          prologue_license_ ? nullptr : &kTrophyLight);
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
         const Uint64 now = App::frame_time_ns();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);

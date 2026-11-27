@@ -141,3 +141,39 @@ TEST(disc_menu_save_replay) {
     CHECK(saved.size() == 1 && !saved.empty() && !saved[0].first.empty() && saved[0].first.back() == '3' && saved[0].second.empty());
     CHECK(f.clean());
 }
+
+// Load Best Lap Replay (the race's menus' LOAD_GHOST: labomode in MODE_LOAD_BESTLAP_REPLAY): the list holds the best lap replays of
+// the race's course and car alone (race::ReplayFile::best_lap), not full replays nor another course's.
+TEST(disc_menu_load_best_lap_list) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-bestlap";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "replays");
+    auto best = [&](const std::string& name, const std::string& course, const std::string& car) {
+        race::ReplayFile f;
+        f.course = course, f.sequence = "time_trial", f.laps = 1, f.title = name, f.time_ms = 83'457;
+        f.cars.push_back({car, 0});
+        f.steps.assign(10, std::vector<race::CarState>(1));
+        f.other.emplace_back(race::ReplayFile::kBestLap, Bytes{0x01, 0x46, 0x01, 0x00});
+        const race::ReplayFile back = race::ReplayFile::decode(f.encode());
+        CHECK(back.best_lap() && back.time_ms == 83'457);
+        const Bytes b = f.encode();
+        std::ofstream out(dir / "replays" / (name + ".gt4rrep"), std::ios::binary);
+        out.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    };
+    best("mine", "tsukuba", "ka_01");
+    best("other course", "fuji_90s", "ka_01");
+    best("other car", "tsukuba", "panda_super_ie_90");
+    write_replay(dir / "replays" / "tsukuba-20261124-101500.gt4rrep", "tsukuba", "ka_01");
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    menu::GameState& g = f.rt->game();
+    g.race.course = "tsukuba", g.race.car = "ka_01";
+    g.next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
+    f.rt->start_project("labomode");
+    f.rt->settle();
+    std::printf("  the load page: %s, first row %s\n", pages(f).c_str(), f.text_of("title").c_str());
+    CHECK(f.page() == "LoadReplayRoot" && f.text_of("title") == "mine");
+    std::filesystem::remove_all(dir);
+}

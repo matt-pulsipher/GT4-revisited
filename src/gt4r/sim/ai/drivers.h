@@ -68,7 +68,8 @@ struct Pace {
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
     // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
     // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
-    // conductors) by their grid index (0x467148).
+    // conductors) by their grid index (0x467148). SCPS-17001 v1.05's: by their grid index always, and by draws too where its
+    // conductor's virtual 27 sets the switches (the single race's 0x341F60; not the free run's).
     bool random_spread = true;
     bool standing_start = true; // the long look ahead off the grid of a standing start
     // The race's rolling start's speed (km/h; 0 a standing start): Prologue's drivers look far ahead at a start under 30 km/h.
@@ -130,6 +131,8 @@ public:
     virtual bool finished(size_t) const { return false; }
     // The race's tire wear on (0x367D40: the tread's or the second's, the wear rules' +0x68 / +0x69).
     virtual bool wear_on() const { return false; }
+    // SCPS-17001 v1.05's program: its own rules where they differ from v1.01's.
+    virtual bool japan() const { return false; }
     // The wear phase's and the pits' marks of a car (false: not known, the field keeps what the pit stops give it): on the pit
     // lane (F +0x4B1 bit 4) and a tire not scrubbed in, worn out or gone (F +0x5C2, 0x353218).
     virtual bool marks(size_t, bool& lane, bool& tire_out) const {
@@ -159,6 +162,7 @@ public:
         return s_->gt4_rules();
     }
     bool wear_on() const override { return s_->wear_rules().tread_on != 0 || s_->wear_rules().second_on != 0; }
+    bool japan() const override { return s_->japan(); }
     bool finished(size_t i) const override { return s_->gt4_record(i).phases.finished != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {

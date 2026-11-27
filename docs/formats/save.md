@@ -243,6 +243,14 @@ program's sequence `load_replay` (the title's third item asks for it), which run
 MODE_SAVE_BESTLAP_REPLAY list the replays the race saved in the data folder's `replays/` and Gran Turismo 4's own
 (`menu/game_replays.cpp`): a save's folder of `replays/` or of the memory card's folder (the data file named like it beside its
 `thumbnail`, `icon0.ico`, `icon.sys`), or the data file alone in `replays/`.
+**Best lap replays** (Save Best Lap Replay on the time trial's, free run's and license test's pages, `COMMAND_SAVE_GHOST`, offered once a
+run made a best lap: canSaveGhost / CanLogger, 0x1128E0, 0x117110, 0x11CE1C): ours are replay files of the player's car alone over the
+ghost's lap with a section `BLAP` (the lap's ms), shown with labomode's best-lap icon (objectName neither FileReplayFull nor
+FileReplayLicense: `bg_best`). MODE_SAVE_BESTLAP_REPLAY lists the best lap replays; MODE_LOAD_BESTLAP_REPLAY those of the race's course and
+car (the sequence gives the manager the car's and course's codes, 0x11CF30; ❓ the manager's own filter not read), and the one loaded is
+the race's ghost from the next start (`screen_race.cpp` load_ghost). ❓ The program's own FileGT4ReplayBest (GhostData: a recorder's
+moment and its records) is not written or read; the original's best lap file is 23 KB, ours keeps every step's states (about 0.9 MB a
+Tsukuba lap).
 
 ### A replay's particulars
 

@@ -42,8 +42,9 @@ public:
     const RaceFlow& flow() const { return flow_; }
     const std::vector<s64>& laps() const { return laps_; } // the player's lap times, ms
     s64 total_ms() const; // the player's race time, -1 before his finish
-    // The run came out as recorded: the file's time is the race's when it was run to its end, else the last lap's; and (+0xC4)
-    // the best lap's.
+    // The run came out as recorded: the file's time is the race's when it was run to its end, else the last lap's (or the sum
+    // of the laps crossed while the recording's records last: Japan's demo races, whose laps word is 0 or more than they run);
+    // and (+0xC4) the best lap's.
     bool exact() const;
 
 private:
@@ -54,6 +55,7 @@ private:
     RaceFlow flow_;
     size_t at_ = 0;
     std::vector<s64> laps_;
+    size_t laps_in_run_ = 0; // of laps_, those crossed within the recording's records
 };
 
 } // namespace gt4r::race

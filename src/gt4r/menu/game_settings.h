@@ -41,6 +41,7 @@ struct GameSettings {
     bool automatic = true;                   // automatic_gear
     bool asm_on = true, tcs_on = true;       // assist_asm, assist_tcs
     bool license_manual = false;             // license_transmission_MT: license tests in manual
+    bool ghost = true;                       // automatic_ghost (+0x10CC): the best lap's ghost in the time trial, free run and license tests
     std::string steering_assist = "AMATEUR"; // steering_assist_1p
     bool active_steering = false;            // active_steering_1p
     // The race entry's +0x344C: the steering wheel's lock (F +0x547): 0 AMATEUR, 1 PROFESSIONAL, 2 SIMULATION.
