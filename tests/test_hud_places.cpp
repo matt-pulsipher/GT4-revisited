@@ -66,8 +66,8 @@ TEST(gt4_display_text_starts) {
 TEST(disc_gt4_display_texts_land_as_the_original) {
     Disc* gt4 = nullptr;
     for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) gt4 = disc.get();
-    if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+        if (disc->info().game == Game::GT4 && disc->info().region == "us") gt4 = disc.get();
+    if (!gt4) SKIP("set GT4R_DISC to the US Gran Turismo 4 disc (the dump's; Japan's fonts have other steps)");
     gt3r::Vfs vfs(&gt4->volume());
     const std::optional<Bytes> file = vfs.read("font/system.fnt");
     CHECK(file.has_value());
