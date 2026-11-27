@@ -216,7 +216,8 @@ thumb = images/thumb.png     ; the car strips' picture; picture = the showroom's
 The car is made of the donor's rows of the game's own database (docs/formats/database.md "Mod cars"), so it races,
 is sold, tuned, saved and replayed as the game's own cars are; it is drawn with its body car's model and pictures, or
 the mod's pictures. A mod car is at the end of its maker's dealer and of its maker's page in Arcade (always available
-there). The Mods page lists each mod's cars, and why one is not in the game. A save keeps the car by a code its label
+there). The Mods page lists each mod's cars, and why one is not in the game; `gt4tool modcar <disc> <mods folder>
+[disc:<label> ...]` does the same and prints the weight, power, gears and tires the race builds of each, next to its donor's. A save keeps the car by a code its label
 gives: removing the mod leaves a garage place for a car the game no longer has. In a Multi-LAN Race a player who lacks
 another's mod car, and has its donor, gets its file and pictures from him: they are checked and installed as a mod of
 their own (`mods/dl-<number>/`). Gran Turismo 4 Prologue takes no mod cars. Not yet: a body of a mod's own (glTF),
