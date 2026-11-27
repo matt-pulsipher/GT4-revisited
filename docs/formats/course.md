@@ -107,7 +107,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0x914 / +0x91C | u32 smoke picture divisors (1; 2 on two wet courses) | data |
 | +0x930..+0x938 | the depth of field: +0x938 the nearest focus (m); +0x930 an f-number and +0x934 a focal length (mm) with no reader: the lens is the camera's ("The passes of a replay") | read (+0x938) |
 | +0x950..+0x974 | vignette: outer / inner radius, outer RGBA, inner RGBA | read |
-| +0x980..+0x994 | color grade: g per channel, black, white, saturation | read |
+| +0x980..+0x994 | color grade: a gamma per channel, black, white, saturation (the screen settings' correction with at most 235 a level, strobe.md "The pass") | read |
 | +0x9C0..+0x9E8 | sun: RGB, occlusion weight, glare size, disc size, disc gain, elevation, azimuth (degrees), i32 style (0 on 96 courses, 2 on 12, 1 on 2), occlusion box | read |
 | +0x9F0..+0xA1C | the cars' lamp glow type: RGB, intensity, glow size, halo size, halo gain, attenuation c / l / q, max distance, +0xA1C; with the new +0x17A0 | read |
 | +0xA60..+0xA78 | car shadows: RGB, alpha scale, direction elevation / azimuth (degrees), length | read (+0xA70..+0xA78), data |
