@@ -123,6 +123,10 @@ LoggerPopup (Cross): Display Speed / Accel / Brake Yes or No, Display Track A, B
 ## Ours
 
 `menu/logger.*` (the control, the analysis, the samples, the readouts), `app/logger_face.*` (the picture),
-`screen_race.cpp` `update_quick` (`COMMAND_LOGGER`, the loads). The laps run again are the race's kept laps' controller
+`screen_race.cpp` `open_logger` / `logger_back` (`COMMAND_LOGGER`, the loads; after a file loaded into Track A the run's
+laps are dropped and Replay, Save Best Lap Replay and the Analyzer's run with them, 0x3EB040 / 0x3EB0D0: ✔ the B-1 page
+then has eight icons), `RaceHud::draw_map_on_screen` (the course map face: the course's map from the face's top left at
+its picture's size, ✔ the original's place in PCSX2, with point_target / point_rival at the tracks' places at the middle
+once `display_main_point` is set; ❓ the face's own drawing is not read, its span (`display_span`) is not shown). The laps run again are the race's kept laps' controller
 records (the ghost's, `Race::ghost_best`) on a car of their own (`sim::Session::solo`), not the race's replay; ❓ the two
 values at +4 / +6 of a sample are not read by any picture and are not kept.
