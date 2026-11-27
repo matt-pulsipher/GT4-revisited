@@ -384,7 +384,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   submodule; the app is ours (`GT4Activity`, the manifest, `org.gt4revisited.gt4r`). The on-screen touch controls are the
   shared engine's (`input/touch_controls`, `app/screen_touch_overlay`): its D-pad and buttons over the game's menus and pauses,
   its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Ours: Select and
-  Start under L1 and R1 at the screen's sides over the menus; the race display's lower corner parts (meters, signs, fuel) moved
+  Start under L1 and R1 at the screen's sides over the menus, the four in one row at the top's middle over a race's display
+  (`Screen::touch_top_row`: its pause, replays; clear of the place and the lap times at the corners); the race display's lower corner parts (meters, signs, fuel) moved
   sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); the race's pause, PIT STOP menu and
   split-screen pause take a tap on a row (the first focuses it, the second chooses it; a mouse's hover focuses); their settings in Settings › Controls
   (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
