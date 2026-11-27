@@ -4417,6 +4417,7 @@ private:
         if (g.logger && g.logger->load_track >= 0) {
             logger_load_ = g.logger->load_track;
             g.replay_file.clear();
+            g.ghost_course = setup_.course, g.ghost_car = race_->world().setup().entries[0].label; // (the race's course and car's files)
             g.next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
             menus_->start_project("labomode");
             return;
