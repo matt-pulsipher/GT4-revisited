@@ -5,6 +5,7 @@
 // the wheel or a finger's drag scrolls the list or the details.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/mod_car_pictures.h"
 #include "gt4r/app/page.h"
 #include "gt4r/menu/car_database.h"
 #include "gt4r/menu/project.h"
@@ -28,7 +29,7 @@ using gt3r::PointerInput;
 using gt3r::UiRect;
 using menu::CarDatabase;
 
-// The car's picture of the disc (piece/car_pict/<label>.img), the last one drawn kept.
+// The car's picture of the disc (piece/car_pict/<label>.img; a mod car's own or its body car's), the last one drawn kept.
 class CarPicture {
 public:
     ~CarPicture() {
@@ -50,21 +51,27 @@ private:
         label_ = label;
         if (texture_) SDL_DestroyTexture(texture_);
         texture_ = nullptr;
-        try {
-            const std::optional<Bytes> data = app.vfs()->read("piece/car_pict/" + label + ".img");
-            if (!data || !gt3r::Tex1::is_tex1(*data)) return;
-            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
-            if (set.textures.empty()) return;
-            gt3r::GsMemory gs;
-            set.upload(*data, gs);
-            const gt3r::Tex1::Image img = set.decode(gs, 0);
-            texture_ = SDL_CreateTexture(app.renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
-            if (!texture_) return;
-            SDL_UpdateTexture(texture_, nullptr, img.rgba.data(), int(img.width) * 4);
-            SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_BLEND);
-        } catch (const std::exception&) {
-            // (no picture)
-        }
+        auto decode = [&app](const std::string& path) -> std::optional<gt3r::Tex1::Image> {
+            try {
+                const std::optional<Bytes> data = app.vfs()->read(path);
+                if (!data || !gt3r::Tex1::is_tex1(*data)) return std::nullopt;
+                const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                if (set.textures.empty()) return std::nullopt;
+                gt3r::GsMemory gs;
+                set.upload(*data, gs);
+                return set.decode(gs, 0);
+            } catch (const std::exception&) {
+                return std::nullopt; // (no picture)
+            }
+        };
+        const std::string path = "piece/car_pict/" + label + ".img";
+        std::optional<gt3r::Tex1::Image> img = decode(path);
+        if (!img) img = mod_car_picture(app, path, decode); // a mod car's: the mod's picture, else its body car's
+        if (!img || !img->width || !img->height) return;
+        texture_ = SDL_CreateTexture(app.renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img->width), int(img->height));
+        if (!texture_) return;
+        SDL_UpdateTexture(texture_, nullptr, img->rgba.data(), int(img->width) * 4);
+        SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_BLEND);
     }
 };
 
