@@ -1344,6 +1344,40 @@ icons (`image/gtmode/map/panel_*.mdl` of the page's pack); entering a place sets
 `rotate_v = [0, 2, 0]`, leaving it `target_mode = 1` (nine places stop where they are). Here each
 face is drawn over a part of the page three times its rectangle around it.
 
+### The Car database
+
+The home screen's Car database (`menu/car_database.*`, `app/screen_database.cpp`; `gt4tool cardb <disc> list | <car>`)
+takes its facts from the game's own code and data; on a Gran Turismo 4 disc Gran Turismo mode's project runs behind the
+menus' natives on a new game (the save editor's `SaveEditor`, no page shown, nothing kept).
+
+- **The spec sheet**: the rows of the dealer's purchase dialog (`BuyCarDialog`: Type, Displacement, Power, Torque,
+  Dimensions, Weight, Drivetrain, Price) as the car's natives write them (`getCatEngineType` + `:` + `getCatEngineCam`,
+  `getCatPs` 0x445EE8 and `getCatTq` 0x445F70 truncated in the unit, with `%d%s/%s%s`, `getCatLength` x `getCatWidth` x
+  `getCatHeight`); the units are a new game's for the disc's region (`GameState::option_defaults`). ✔ The MOVE Custom RS
+  Limited '02's sheet and the Copen Active Top '02's strip equal the original's (reference `05-gtmode`
+  `18_purchase_spec_sheet.png`, `17_dealer_new_car_copen.png`). What the page adds below (wheelbase, tread, gears, tires,
+  rev limit, weight over power) is read from the parts' rows (database.md).
+- **The curves**: `buildEngineCurveData`'s figures (sim::Showroom::charts, the car as sold, a new engine), in the page's
+  units. Prologue's program is not one the showroom car is built for: there the ENGINE row's own curve with its output
+  factor (❓ not the program's chart).
+- **The parts**: the tune shop's groups (TuningRoot's widgets' `parts_types`: Muffler 20; Brake 1, 2; Engine 12, 13, 15,
+  16, 17, 18, 27; DriveTrain 11, 21, 22, 24, 23; Turbo 14, 19, 28; Suspension 3; Tire 25; Others 10, 7, 8, 31, 32), each
+  stage the scripts' `TuningApplyRoot::getPartsCondition(car, type, category)` says exists ([exists, owned, allowed, price];
+  type 32, the rigidity refresh, Cr. 50,000), named by `getPartsShopName` in TuningApplyRoot's text. Category 0 (the part
+  as sold or none) is left out but for the tires (the standard tires, free).
+- **The events**: `EventData::AllEvents` (the halls' lists, as the save editor reads them) and, for each, the scripts'
+  `getViolatedRegulatoin(car, race)` (`share/regulation.ad`) on the event's first race, as the event's page asks it of the
+  car driven: a `Regulation` whose `violated` is set, and each of `drivetrain`, `aspiration`, `cartype`, `tiretype`,
+  `need_ps`, `need_price`, `weight`, `length`, `country`, `year`, `carlist` non-nil when that rule is broken. The rows are the
+  event page's (`EventInfoDialog`'s texts and the race's `getNeed*` / `getLimited*`, a row only where the rule is set). The
+  car is the car as sold (`set_car`); the license an event asks is the driver's, not the car's, and is not counted.
+- **Words**: the menus' language's; where the app's font cannot draw them (the Japanese release's kana) the database's
+  American car names (the Japanese discs carry them), makers by the words their cars' names share, and our own words.
+
+The scripts compare a length limit with `getLength`'s text: an integer's operators take the other value's integer (hInt
+asks it of the operand, vtable +0x58; a string's is strtol base 10, hString 0x314A40 -> 0x5A2F88), as the VM now does for
+the comparisons and the arithmetic but `+` (❓ `int + string` and an integer with a float: hFloat's +0x58 not read).
+
 ### What runs where (the drawing)
 
 The menus' drawing is this repository's code throughout; where it still leans on the shared
