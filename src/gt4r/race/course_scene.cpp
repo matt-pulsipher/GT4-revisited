@@ -186,6 +186,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     };
     vis_[size_t(View::Half)] = lists(course::kSlotWorldVis + 2, View::Race);
     vis_[size_t(View::HalfMirror)] = lists(course::kSlotWorldVis + 5, View::Mirror);
+    vis_[size_t(View::Photo)] = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotPhotoVis));
     env_vis_ = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotEnvironment + 1));
 
     // The road reflection: the scenery stored mirrored below the road (slot 9) and the road as its
@@ -250,7 +251,7 @@ void CourseScene::upload_animations(std::span<const CarState> cars) {
 }
 
 void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view,
-                            const gt3r::race::SceneryFade* fade) const {
+                            const ListFade* fade) const {
     const render::ItemLights* lights = has_lights_ ? &lights_ : nullptr;
     const bool mirror = view == View::Mirror || view == View::HalfMirror;
     // The sky is drawn round the camera with the view's translation taken off.
@@ -370,7 +371,7 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
             items.push_back(it);
         }
     if (fade)
-        for (const gt3r::race::SceneryFade::Group& g : fade->faded()) {
+        for (const ListFade::Group& g : fade->faded()) {
             if (g.nodes.empty()) continue;
             render::DrawItem it{scenery_.get(), {}, 0};
             it.nodes = &g.nodes;

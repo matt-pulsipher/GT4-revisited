@@ -19,7 +19,7 @@ Gran Turismo 3's table of section offsets
 | 2, 3, 4 | `Vls0` | Its visibility lists: the race view, the mirror, a two-player half |
 | 5 | `MDLS` | The scenery drawn into the cars' reflection picture (6: its lists) |
 | 7 | `Vls0` | Slot 1's lists for the mirror of a two-player half |
-| 8 | `Vls0` | Slot 1's lists for the race view's second mode (63 courses; "Visibility lists" below) |
+| 8 | `Vls0` | Slot 1's lists for a photo's pictures (63 courses, none of the photo locations; "Visibility lists" below) |
 | 9 / 13 | `MDLS` | The scenery mirrored below the road, and the road mask of that reflection (10 / 14: lists; "Road reflection" below) |
 | 17 | `MDLS` | Drawn after the cars (`ss_shibuya`, `ss_snow`, `ss_tsumago` only; slots 18-20 would hold its lists, no course has them) |
 | 21 / 22 | `MDLS` | Sky dome / distant backdrop |
@@ -312,9 +312,15 @@ The reflection picture of the cars is drawn before all this as in the shared eng
 (slot 23) turned by +0x28 about the vertical and then +0x48, depth cleared, slot 5 by slot 6's
 list of the car's place. ✔ Its camera (`DynamicEnvmapCamera`, 0x44EEA8; the panels 0x44E660) has the shared engine's numbers: 0.8 m
 above the car, tilted 15 degrees, three panels (79.975 degrees, 120 degrees apart) to 200 m from 0.005 m, warped at 0.9 into the
-sphere map. The race's map is 128 x 256 pixels (race + 0xE330 = 256, halved across; 512 in the photo drive, 0x3338A8) of 32-bit color
-(its frame's format 0): GT4 keeps no 5-bit steps in it. Here the engine's cube (128 pixels a face, `env_gt3_lookup`, 200 m), without
-`quantize_rgb5`.
+sphere map. The race's map is 128 x 256 pixels (race + 0xE330 = 256 from the race's start 0x33DD18, halved across; 512 for a photo's
+exposure, 0x3338A8, back to 256 after it, 0x33393C) of 32-bit color (its frame's format 0): GT4 keeps no 5-bit steps in it. Here the
+engine's cube (128 pixels a face, `env_gt3_lookup`), without `quantize_rgb5`; near the map's middle (what a body facing the camera
+shows) a 128-pixel face holds about as many pixels a degree as the original's map up and down (1.1 against 1.2), twice as many across.
+**Its reach**: the original's panels end at a far plane 200 m along each panel's axis, so it reaches 200 m on the axis and further
+off it (about 1,150 m towards the pole, 200 / cos 80 degrees); ours drops slot 5's meshes lying wholly beyond 200 m of the map's
+centre (`draw_distance`), which reaches no further than the original on any axis but draws a mesh that crosses 200 m whole and
+leaves out what lies beyond 200 m towards the pole. 🔎 The panels' own plane needs the engine's cube drawn as the original's three
+panels (an engine change, not made).
 
 ### Road reflection (slots 9, 13, 50)
 
@@ -347,12 +353,19 @@ Gran Turismo 3's.
 ### Visibility lists
 
 `Vls0` is unchanged and the lookup (grid cell under the camera, nearest point of the cell, its
-list) is the same routine. Which lists belong to which view, from the draw routines:
+list) is the same routine (0x4580F0). **Each picture draws its list as it is**: RacePS2Base::vf110 (0x3403B8, the one-view
+draw's scenery) takes the list (0x396E10) and 0x396F00 draws its models in its order, then their billboards (0x4506F0, no
+distance test), keeping nothing from one picture to the next: a model that joins the list appears at once and one that
+leaves is gone at once. Ours (`race::ListFade`, test `scenery_list_fade`): the list of every picture as the game's, a model
+that leaves gone at once, a model that joins dithered in over 0.6 s (a cut of 20 m, the first picture and a photo take the
+list whole), so the picture never shows a model the list leaves out. Checked by picture from the original's eye in
+`07-courses/state_grand_canyon_chase` (`eye=`): the ridge, the trees and the far camper vans as the original's. Which
+lists belong to which view, from the draw routines:
 
 | Slot | For | View |
 |---|---|---|
 | 2 | slot 1 | the race view (and the `GTFX` lamp lists) |
-| 8 | slot 1 | the race view when the race object's list switch is off (🔎 who turns it off was not followed; it starts on). A course without slot 8 then draws every model, and the reflection's slots 9 and 13 are drawn whole too |
+| 8 | slot 1 | the race view when the race object's list switch (race +0xE334, 1 from the race's start, 0x33DD18) is off: a photo's exposure (0x334730, the race's photo pause and Photo Travel) and the race's photo finder (0x3C5430) turn it off for their pictures; Photo Travel's finder (mPhotoViewFace::vf71) leaves it on. A course without slot 8 then draws every model (0x397048), and the road reflection's slots 9 and 13 are drawn whole too (0x397098, 0x397130). Slot 8's lists are much longer: at slot 2's view points Tsukuba's hold 684 models on average against 212, Grand Valley's 238 against 96, Seattle's 74 against 72 |
 | 4 | slot 1 | a two-player half |
 | 3 | slot 1 | the mirror |
 | 7 | slot 1 | the mirror of a two-player half (slot 3 without it) |

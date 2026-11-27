@@ -198,4 +198,4 @@ Revisited's app defaults:
 | The music's and effects' levels over the game's options | `app.h` Sound | the options alone (115 / 128) | ported: the app's levels start at 1 (the player's own [audio] levels kept) |
 | Looking back from a car the pad does not drive | `screen_race.cpp` (`gt3r::race::look_back_held`) | the port's word 0x43CF90 for the pad's car | engine, watched cars only |
 | Prologue's race display rows for modes Prologue lacks | `race_hud_prologue.h` (`gt3r::race::HudRun`) | Prologue's own modes | nogt3's list D |
-| The scenery's 0.6 s fade, the frame pacer, the pause when the window loses focus | `gt3r::race::SceneryFade`, `FramePacer`, `focus_loss` | none | ours |
+| A joining scenery model dithered in over 0.6 s (leaving ones gone at once, as GT4's), the frame pacer, the pause when the window loses focus | `race::ListFade` (GT4R's own), `FramePacer`, `focus_loss` | none | ours |

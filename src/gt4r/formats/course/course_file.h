@@ -15,6 +15,7 @@ enum Slot : int {
     kSlotWorld = 1,          // MDLS: the scenery of the race view
     kSlotWorldVis = 2,       // Vls0: its visibility lists (3: the mirror's, 4: a two-player half's)
     kSlotEnvironment = 5,    // MDLS: the scenery drawn into the cars' reflection picture (6: its lists)
+    kSlotPhotoVis = 8,       // Vls0: slot 1's lists with the race's list switch off (a photo's exposure)
     kSlotReflection = 9,     // MDLS: the scenery mirrored below a wet road (10: its lists)
     kSlotReflectionMask = 13, // MDLS: its mask (14)
     kSlotAfter = 17,         // MDLS: drawn after the cars (18)

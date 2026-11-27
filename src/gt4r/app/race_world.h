@@ -361,11 +361,17 @@ public:
     void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
 
     // The photo mode's lens on the next frames (none: the plain one): a shear of the projection (photo/picture.h), the depth of
-    // field, the cars in their nearest level of detail.
+    // field, the scenery's lists.
     struct Lens {
         float shear_x = 0, shear_y = 0;
         gt3r::render::DrawOptions::DepthOfField dof;
-        bool full_detail = true;
+        // The race object's list switch off (race +0xE334 = 0), as a photo's exposure (0x334730) and the race's photo finder
+        // (0x3C5430) draw: the scenery by slot 8's lists, or every model of a course without them (CourseScene::View::Photo),
+        // taken whole each picture. Off: the race view's lists (Photo Travel's finder, mPhotoViewFace::vf71, leaves it on).
+        bool photo_lists = true;
+        // The exposure's reflection map, twice the race's across (0x333808, from a photo's exposure 0x333E50 / 0x333A00); the
+        // finders keep the race's.
+        bool photo_map = true;
         const gt3r::render::ScreenBatch* vignette = nullptr;
     };
     void set_lens(std::optional<Lens> lens) { lens_ = std::move(lens); }

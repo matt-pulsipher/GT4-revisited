@@ -380,7 +380,7 @@ void RacePhotoPause::render(Ui& ui) {
         RaceWorld::Lens lens;
         lens.dof.on = true;
         lens.dof.f_number = camera_.f_number(), lens.dof.focal_mm = 35, lens.dof.focus = camera_.focus();
-        lens.full_detail = false;
+        lens.photo_map = false;
         race_.draw(ui, dst, pose(dst.w / dst.h), &lens, grade(), 0);
         // The edges the view is turned to (0x3C4F38): small red marks at the finder's sides, turned with the roll.
         if (const u8 limits = camera_.limits()) {

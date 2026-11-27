@@ -13,7 +13,7 @@
 #include "gt4r/race/animated_models.h"
 #include "gt4r/race/gadgets.h"
 #include "race/occluder.h"
-#include "race/scenery_fade.h"
+#include "gt4r/race/list_fade.h"
 #include "race/sun_glare.h"
 #include "render/gpu_model.h"
 #include "render/view3d.h"
@@ -34,13 +34,15 @@ public:
     CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name, int section = -1);
     ~CourseScene();
 
-    // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7).
-    enum class View { Race, Mirror, Half, HalfMirror };
+    // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7); the race view with
+    // the race object's list switch off (race +0xE334 = 0: a photo's exposure 0x334730 and the race's photo finder 0x3C5430;
+    // RacePS2Base::vf110 0x3403B8 then draws by slot 8's lists, every model on a course without them: 0x397048).
+    enum class View { Race, Mirror, Half, HalfMirror, Photo };
     // Appends the draw items for a camera at `eye`, in the game's order: sky, backdrop (the depth
     // is reset after it), then the scenery's models named by the view's list for `eye` (with
-    // `fade`: those drawn whole and, dithered, those coming or going).
+    // `fade`: those drawn whole and, dithered, those coming in).
     void add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view = View::Race,
-                   const gt3r::race::SceneryFade* fade = nullptr) const;
+                   const ListFade* fade = nullptr) const;
     // The models drawn after the cars (slot 17), all of them.
     void add_after_items(std::vector<render::DrawItem>& items) const;
     // The cars' reflection picture: its sky (slot 23) turned by `sky_rotation`, then slot 5 by
@@ -118,7 +120,7 @@ private:
         std::array<float, 4> plane{0, 1, 0, 0};
     };
     mutable std::vector<GadgetLight> gadget_light_;
-    std::array<gt3r::course::Visibility, 4> vis_; // slot 1's lists per View
+    std::array<gt3r::course::Visibility, 5> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's
     gt3r::race::Occluder occluder_;
     render::ItemLights lights_;
