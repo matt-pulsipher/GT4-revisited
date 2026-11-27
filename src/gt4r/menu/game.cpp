@@ -1,4 +1,5 @@
 #include "gt4r/menu/game.h"
+#include "gt4r/menu/race_natives.h"
 
 #include "gt4r/sim/equipment.h"
 
@@ -181,15 +182,57 @@ void CarRecord::set_condition(size_t field, float v) {
 
 GameState::GameState() { new_game(); }
 
+namespace {
+u32 word_at(const Bytes& b, size_t o) { return u32(b[o]) | u32(b[o + 1]) << 8 | u32(b[o + 2]) << 16 | u32(b[o + 3]) << 24; }
+constexpr u64 kNoCourse = ~u64(0);
+} // namespace
+
 // 0x110800 (from the license sequence, 0x114E38): a run's day with its result, the note 14 and
 // its time; a day with nothing in it when the result is 13 (no run, or failed).
+// A course visit's day (0x42F448: RUN_COURSE, the course, the kind, place 15, note 14, no time), put when its sequence
+// ends: the machine test's (0x115E90), practice's (0x1184DC) and photo drive's (0x11B0D8) as it is; the free run's
+// (0x1179F8) with the session's best (its +0x498, no time when none) and note 13 when that best is the course's
+// record, the first of its ranking and not the second's time too (0x4334F8; the course's unit made when it has none,
+// 0x433C10).
 void GameState::end_race_sequence() {
     if (race_session.license_open) {
         const DayEvent& d = race_session.license_day;
         put_day(d.type == 4 && d.b1 != 13 ? d : DayEvent{});
         race_session.license_open = false;
     }
+    if (race_session.course_kind) {
+        DayEvent d;
+        d.type = 8, d.b3 = race_session.course_kind, d.b1 = 15, d.b2 = 14, d.word = kNoTime, d.code = race_session.course_code;
+        if (d.b3 == 1) {
+            const u32 best = u32(menu::quick_work(*this).get("BestTime"));
+            const int unit = course_unit(d.code, true);
+            auto entry = [&](size_t k) { return unit < 0 ? kNoTime : word_at(course_record, size_t(unit) * kCourseUnit + 8 + k * 0x30); };
+            d.word = best;
+            if (best != kNoTime && entry(0) == best && entry(1) != best) d.b2 = 13;
+        }
+        put_day(d);
+        race_session.course_kind = 0;
+    }
     race_session.sequence.clear();
+}
+
+int GameState::course_unit(u64 code, bool make) {
+    if (code == kNoCourse || course_record.size() < kCourseUnit * kCourseUnits) return -1;
+    Bytes& b = course_record;
+    auto code_at = [&b](size_t i) { return u64(word_at(b, i * kCourseUnit)) | u64(word_at(b, i * kCourseUnit + 4)) << 32; };
+    size_t i = 0;
+    for (; i < kCourseUnits; ++i) {
+        const u64 c = code_at(i);
+        if (c == code) return int(i);
+        if (c == kNoCourse || c > code) break;
+    }
+    if (!make || i >= kCourseUnits || code_at(kCourseUnits - 1) != kNoCourse) return -1;
+    std::memmove(b.data() + (i + 1) * kCourseUnit, b.data() + i * kCourseUnit, (kCourseUnits - 1 - i) * kCourseUnit);
+    // A fresh unit, as a new game has them.
+    GameState fresh;
+    std::memcpy(b.data() + i * kCourseUnit, fresh.course_record.data(), kCourseUnit);
+    for (int k = 0; k < 8; ++k) b[i * kCourseUnit + size_t(k)] = u8(code >> (8 * k));
+    return int(i);
 }
 
 namespace {

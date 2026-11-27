@@ -115,24 +115,11 @@ bool event_aspec_allowed(Database& d, const GameState& s, u8 license) {
     return license <= 5 && license_all_bronze(d, s, kCategories[license - 1]);
 }
 
-// The unit of a course (0x433C10): the units kept in order of the course's code, one made there when `make`.
+// The unit of a course (0x433C10; GameState::course_unit): the units kept in order of the course's code, one made there
+// when `make`.
 int course_record_unit(Database& d, GameState& s, const std::string& label, bool make) {
     const u64 code = d.code(kCourseTable, label);
-    if (code == kNoCode) return -1;
-    Bytes& b = s.course_record;
-    size_t i = 0;
-    for (; i < kCourseUnits; ++i) {
-        const u64 c = get64(b, i * kCourseUnit);
-        if (c == code) return int(i);
-        if (c == kNoCode || c > code) break;
-    }
-    if (!make || i >= kCourseUnits || get64(b, (kCourseUnits - 1) * kCourseUnit) != kNoCode) return -1;
-    std::memmove(b.data() + (i + 1) * kCourseUnit, b.data() + i * kCourseUnit, (kCourseUnits - 1 - i) * kCourseUnit);
-    // A fresh unit, as a new game has them.
-    GameState fresh;
-    std::memcpy(b.data() + i * kCourseUnit, fresh.course_record.data(), kCourseUnit);
-    put64(b, i * kCourseUnit, code);
-    return int(i);
+    return code == kNoCode ? -1 : s.course_unit(code, make);
 }
 
 // A ranking's insert (0x433260 by time: before the first entry empty or slower; 0x433348 by top speed: before the first

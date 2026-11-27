@@ -282,6 +282,10 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
         w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
     }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
+    // A course visit's one day, put when the sequence ends (GameState::end_race_sequence).
+    const int course_kind = q.sequence == "freerun" ? 1 : q.sequence == "practice" ? 3 : q.sequence == "photo_drive" ? 4 : q.sequence == "machinetest" ? 6 : 0;
+    if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && course_kind && s.race_session.sequence == q.sequence)
+        s.race_session.course_kind = u8(course_kind), s.race_session.course_code = n->db().code(kCourseTable, q.course);
     if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)), w.set("canLoadGhost", 1); // ❓ (Prologue's constructor is not read: dashes, as before; ✔ its card icon is lit on lessons 1 and 2)
     if (q.sequence == "license") {
         // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
@@ -382,9 +386,14 @@ s64 Runtime::race_finished(const RaceResult& r) {
         }
         work.set("numberOfEntries", s32(r.order.size()));
     };
-    // The car's distance: what the race's step adds to the car's condition (0x35DE20).
-    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0)
-        add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
+    // The car's condition: the race's block copied back into the garage car (0x10FA58: the car's +0x6DC into the riding
+    // car's record, Status + 0x13DD8, by the Gran Turismo mode sequences that call it), so its distances and its dirt are
+    // the step's. A run without the block: its distance added (0x35DE20's distances, once for the run).
+    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record) {
+        CarRecord& rec = *s.garage[size_t(r.garage_slot)].record;
+        if (r.condition) std::copy(r.condition->begin(), r.condition->end(), rec.bytes.begin() + 0x498);
+        else if (r.distance_m > 0) add_distance(d, rec, r.distance_m);
+    }
     // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the machine test's 0x115A90, the free run's
     // 0x116E20, practice's 0x1181C8, the championship's 0x118EF0 and photo drive's 0x11ABE0; not by the license tests',
     // the missions' or Arcade's; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's
@@ -392,6 +401,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     const bool counted = r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || (r.kind == RaceResult::Kind::Course && r.course_kind != 7);
     if (counted && r.distance_m > 0) s.bspec_distance += s64(r.bspec_distance_m), s.aspec_distance += s64(r.distance_m - r.bspec_distance_m);
     DayEvent day;
+    bool sequence_day = false; // the day is the sequence's, put when it ends
     s64 prize = 0;
     switch (r.kind) {
     case RaceResult::Kind::Event: {
@@ -565,6 +575,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
         break;
     }
     case RaceResult::Kind::Course:
+        // A course visit's sequence puts its day when it ends (0x1179F8, 0x1184DC, 0x11B0D8, 0x115E90), not by the run.
+        sequence_day = s.race_session.course_kind && s.race_session.course_kind == r.course_kind;
         day.type = 8, day.b3 = u8(r.course_kind), day.b1 = u8(r.finished ? 0 : 15), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime;
         day.code = d.code(kCourseTable, r.course);
         break;
@@ -620,7 +632,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // sequence puts it at once. (Gran Turismo 4's: only a graded run's that beat the sequence's best, above.)
     if (r.kind == RaceResult::Kind::License && s.race_session.license_open) {
         if (day.type == 4) s.race_session.license_day = day;
-    } else if (r.kind != RaceResult::Kind::License || day.type == 4)
+    } else if (!sequence_day && (r.kind != RaceResult::Kind::License || day.type == 4))
         s.put_day(day);
     return prize;
 }
