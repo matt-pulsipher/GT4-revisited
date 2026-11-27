@@ -4,6 +4,10 @@
 #include "test_framework.h"
 
 #include "gt4r/photo/film.h"
+#include "gt4r/save/photo_file.h"
+
+#include <algorithm>
+#include <filesystem>
 
 #include <cmath>
 
@@ -92,4 +96,35 @@ TEST(film_car_state_round_trip) {
         CHECK(near(t.wheels[w].spin, s.wheels[w].spin, 1e-5f) && near(t.wheels[w].steer, s.wheels[w].steer, 1e-6f) && near(t.wheels[w].spin_rate, 16.5f, 1e-3f));
     }
     CHECK(near(t.engine_rpm, 1230, 0) && t.body_placed);
+}
+
+TEST(film_on_the_card) {
+    // A film on the card (FileGT4FilmData): its folder ...F + letters, its record F0000, its data read back as written.
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-film-test";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    save::PhotoCard card(dir.string(), {});
+    Film f;
+    f.course = "tsukuba";
+    Car c;
+    c.label = "ford_gt_05", c.paint = "ford0006";
+    f.cars.push_back(c);
+    Frame fr;
+    CarFrame cf;
+    cf.params = params_of(moving_car());
+    fr.cars.push_back(cf);
+    f.frames = {fr, fr};
+    const Bytes data = f.encode();
+    save::PhotoInfo info;
+    info.course_file = "tsukuba", info.car_name = "Ford GT `05", info.mode = 13;
+    CHECK(card.save_film(info, data, {}, "Film data") == save::Result::Ok);
+    const std::vector<save::PhotoEntry> films = card.list('F');
+    CHECK(films.size() == 1 && card.list('P').empty());
+    if (films.size() == 1) {
+        CHECK(films[0].folder.rfind("BASCUS-97328F", 0) == 0 && films[0].info && films[0].info->name == "F0000" && films[0].info->mode == 13);
+        const std::optional<Bytes> back = card.film(films[0].folder);
+        CHECK(back && back->size() >= data.size() && std::equal(data.begin(), data.end(), back->begin()));
+        CHECK(back && Film::decode(*back).has_value());
+    }
+    std::filesystem::remove_all(dir);
 }

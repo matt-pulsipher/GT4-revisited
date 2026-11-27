@@ -1497,6 +1497,17 @@ public:
         LOG_INFO("Drive: the ghost: a run of %lld ms", (long long)ms);
     }
 
+    // A film's frames as the race's replay (its development): the cars' states of each frame, the first shown.
+    void play_film(const photo::film::Film& f) {
+        history_.clear(), pit_history_.clear();
+        for (const photo::film::Frame& fr : f.frames) {
+            std::vector<race::CarState> cars(world_->car_count());
+            for (size_t i = 0; i < cars.size() && i < fr.cars.size(); ++i) cars[i] = photo::film::state_of(fr.cars[i].params);
+            history_.push_back(std::move(cars));
+        }
+        replaying_ = !history_.empty(), replay_done_ = false, replay_at_ = 0;
+        prev_cars_.clear();
+    }
     void start_replay(bool page = false) {
         if (history_.empty() || (replaying_ && !page_replay_)) return;
         world_->set_ghost(std::nullopt, kGhostAlpha);
@@ -2903,6 +2914,7 @@ public:
                 draw_grid(app, setup_, q);
                 arcade_tires(app, setup_, q);
                 if (sequence_ == "single_race") apply_arcade_options(setup_);
+                if (sequence_ == "photo_develop") develop_setup();
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
                 if (q.laps <= 0) {
@@ -3057,7 +3069,11 @@ public:
         if (saved && race_) race_->play_saved(std::move(*saved));
         if (setup_.demo_run && race_) race_->play_demo(*setup_.demo_run, setup_.demo_skip), demo_ = true;
         if (setup_.save_replay && race_ && race_->has_run()) save_replay(app);
-        if (menus_ && sequence_ == "replay") {
+        if (menus_ && sequence_ == "photo_develop") {
+            // A film's development: its photo at once, its page, then Photo Lab again (0x1C7BF8).
+            if (race_ && film_) open_develop(app);
+            if (!photo_) leave_to_menus(app);
+        } else if (menus_ && sequence_ == "replay") {
             // A saved replay: no race menus; the menus again at its end (or at once without it).
             if (!saved_replay_ || !race_) leave_to_menus(app);
         } else if (menus_ && sequence_ == "race_view") {
@@ -3930,6 +3946,39 @@ private:
         photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), race_->photo_scene(u32(SDL_GetTicksNS() >> 10) | 1), menus_ ? &menus_->game() : nullptr);
         photo_saving_ = false;
     }
+    // A film's development (0x1C7BF8: RacePhotoDevelop reads the film into a race of its course and cars, 0x335248): the film
+    // Photo Lab loaded, its course and cars set up (the first the player's).
+    void develop_setup() {
+        menu::GameState& g = menus_->game();
+        film_ = photo::film::Film::decode(g.develop_film);
+        g.develop_film.clear(), g.menu_result.clear();
+        if (!film_ || film_->cars.empty()) {
+            LOG_WARN("Photo: the film does not read");
+            film_.reset();
+            return;
+        }
+        setup_.course = film_->course;
+        setup_.cars = int(film_->cars.size());
+        setup_.opponents.clear(), setup_.paints.clear(), setup_.opponent_equipment.clear();
+        for (size_t i = 0; i < film_->cars.size(); ++i) {
+            if (i == 0) setup_.car = film_->cars[i].label, setup_.paint = film_->cars[i].b;
+            else setup_.opponents.push_back(film_->cars[i].label);
+            setup_.paints.push_back(film_->cars[i].b);
+        }
+        setup_.laps = 0, setup_.start = race::StartType::None, setup_.start_given = true, setup_.course_start = false;
+        setup_.player_equipment.reset(), setup_.player_condition.reset();
+    }
+    void open_develop(App& app) {
+        RacePhotoPause::Race r;
+        Race* race = race_.get();
+        r.draw = [race](Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {
+            race->draw_photo(ui, rect, pose, lens, grade, ahead);
+        };
+        race_->play_film(*film_);
+        race_->pause_sound(true);
+        photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), *film_, &menus_->game());
+        photo_saving_ = false;
+    }
     void update_photo(App& app, const MenuInput& m, double dt) {
         if (photo_saving_) {
             // The photo's page (photo_save with "filmphoto": START saves it, Square goes back to the camera).
@@ -3943,6 +3992,12 @@ private:
             if (!menus_->finished()) return;
             photo_saving_ = false;
             menus_->photo_picture.reset();
+            if (photo_->developing()) {
+                // Photo Lab again (the photo_labo sequence's next project, 0x1C7A88), on its Film folder as it was left.
+                menu::GameState& g = menus_->game();
+                g.next_menu_project = "labomode", g.next_menu_arg.clear(), g.menu_result.clear();
+                return leave_to_menus(app);
+            }
             photo_->back_from_saving();
             return;
         }
@@ -3953,14 +4008,15 @@ private:
             std::shared_ptr<menu::PhotoPicture> p = photo_->picture();
             p->course = setup_.course, p->car_label = race_->photo_car_label();
             p->mode = photo_race_mode();
-            {
+            if (photo_->developing() && film_) p->course = film_->course, p->car_label = film_->cars.front().label;
+            if (!photo_->developing()) {
                 photo::film::Film f = photo_->film();
                 db::SpecDb* db = app.db();
                 race_->photo_film(f, sequence_.empty() ? setup_.sequence : sequence_, [db](const std::string& car) { return paint_set(db, car); });
                 p->film = f.encode();
             }
             menus_->photo_picture = p;
-            menus_->game().next_menu_arg = "filmphoto";
+            menus_->game().next_menu_arg = photo_->developing() ? "" : "filmphoto"; // (a development's photo: photo_save without it)
             try {
                 menus_->start_project("photo_save");
                 photo_saving_ = true;
@@ -5243,6 +5299,7 @@ private:
     std::unique_ptr<RacePhotoPause> photo_; // the photo pause (Select in the Replay Theater and the photo drive)
     bool photo_saving_ = false;             // its photo's page (photo_save) up
     bool photo_drive_replayed_ = false;     // the photo drive's run has gone on into its replay
+    std::optional<photo::film::Film> film_; // a film being developed (the sequence photo_develop)
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
     std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race
     std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu

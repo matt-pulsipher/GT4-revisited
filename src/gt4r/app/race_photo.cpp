@@ -40,6 +40,69 @@ RacePhotoPause::RacePhotoPause(App& app, RaceHud* hud, Race race, const race::ph
     open_movie();
 }
 
+namespace {
+
+// The step of a setting's table nearest a value.
+size_t nearest(const float* values, size_t n, float v) {
+    size_t best = 0;
+    for (size_t i = 1; i < n; ++i)
+        if (std::fabs(values[i] - v) < std::fabs(values[best] - v)) best = i;
+    return best;
+}
+
+} // namespace
+
+RacePhotoPause::RacePhotoPause(App& app, RaceHud* hud, Race race, const photo::film::Film& film, const menu::GameState* game)
+    : app_(app), hud_(hud), race_(std::move(race)), develop_(true) {
+    if (game) quality_ = photo::jpeg_quality(game->option_text("photo_quality"));
+    const photo::film::Photo& ph = film.photo;
+    // The camera of the film's last frame: its eye, the way to its target, the roll its up gives; the angle over the picture's
+    // height from the projection's (2 atan(tan(fov / 2) x aspect)); the settings by their steps.
+    auto shot_of = [&](const photo::film::Camera& c) {
+        race::photo::Shot s;
+        s.eye = {c.eye.x, c.eye.y, c.eye.z};
+        const RVec d{c.target.x - c.eye.x, c.target.y - c.eye.y, c.target.z - c.eye.z};
+        s.yaw = race::photo::yaw_of(d), s.pitch = race::photo::pitch_of(d);
+        const float k = kPi / 180.0f;
+        const render::Mat4 v = render::rotate_x(s.pitch * k) * render::rotate_y(s.yaw * k);
+        const RVec up = v.transform_point({c.up.x, c.up.y, c.up.z});
+        s.turn_roll = std::atan2(up.x, up.y) / k;
+        s.fov = 2 * std::atan(std::tan(c.fov * 0.5f * k) * c.aspect) / k;
+        s.fov_min = 0.1f, s.fov_max = 179, s.fov_min_set = true;
+        s.distance = s.focus = std::max(render::length(d), 0.1f);
+        float steps[21];
+        for (size_t i = 0; i < race::photo::kApertures.size(); ++i) steps[i] = float(race::photo::kApertures[i]) / 100.0f;
+        s.aperture = int(nearest(steps, race::photo::kApertures.size(), c.f_number));
+        for (size_t i = 0; i < race::photo::kShutters.size(); ++i) steps[i] = race::photo::shutter_seconds(race::photo::kShutters[i]);
+        s.shutter = int(nearest(steps, race::photo::kShutters.size(), c.shutter));
+        s.exposure = int(nearest(race::photo::kExposures.data(), race::photo::kExposures.size(), ph.exposure));
+        s.balance = int(nearest(race::photo::kBalances.data(), race::photo::kBalances.size(), ph.kelvin));
+        s.portrait = ph.upright;
+        return s;
+    };
+    shots_ = {shot_of(film.frames.back().camera)};
+    camera_.begin(shots_[0], kAspect);
+    if (film.frames.size() > 1) {
+        const race::photo::Shot first = shot_of(film.frames.front().camera);
+        pan_from_ = Pan{first.eye, first.yaw + first.turn_yaw, first.pitch + first.turn_pitch, first.fov};
+    }
+    filter_ = ph.filter;
+    saturation_option_ = (ph.saturation - 1) * 10;
+    if (rd32(ByteSpan(ph.frame.data(), ph.frame.size()), 4) == 3) {
+        photo::film::Reader r(ByteSpan(ph.frame.data(), ph.frame.size()), 8);
+        menu::JpegPicture::Focus q;
+        q.x = r.f32_(), q.y = r.f32_(), q.x0 = r.f32_(), q.y0 = r.f32_(), q.x1 = r.f32_(), q.y1 = r.f32_();
+        develop_frame_ = q;
+    }
+    const int w = int(ph.tile_w) * int(ph.tiles_x), h = int(ph.tile_h) * int(ph.tiles_y);
+    exposure_.begin(ph.upright ? h : w, ph.upright ? w : h, correction());
+    samples_ = photo::samples(photo::kSamples); // (the film's 32)
+    state_ = State::Exposing;
+    LOG_INFO("Photo: a film developed (%s, %zu cars, %zu frames): f = %d mm, F%.1f, 1/%d s, %+.1f EV, %.0f K, filter %d", film.course.c_str(), film.cars.size(),
+             film.frames.size(), camera_.focal_mm(), double(camera_.f_number()), int(1.0f / camera_.shutter_seconds() + 0.5f), double(camera_.exposure()),
+             double(camera_.kelvin()), filter_);
+}
+
 RacePhotoPause::~RacePhotoPause() = default;
 
 void RacePhotoPause::play(const char* sound) {
@@ -288,8 +351,8 @@ void RacePhotoPause::expose(Ui& ui) {
         return;
     }
     if (!exposure_.done()) return;
-    std::optional<menu::JpegPicture::Focus> frame;
-    if (race_.car_frame) frame = race_.car_frame(camera_.view(), px, py);
+    std::optional<menu::JpegPicture::Focus> frame = develop_frame_;
+    if (!develop_ && race_.car_frame) frame = race_.car_frame(camera_.view(), px, py);
     picture_ = exposure_.develop(quality_, frame);
     LOG_INFO("Photo pause: a photo of %d x %d, f = %d mm, F%.1f, 1/%d s, %+.1f EV, %.0f K, filter %d", w, h, camera_.focal_mm(), double(camera_.f_number()),
              int(1.0f / camera_.shutter_seconds() + 0.5f), double(camera_.exposure()), double(camera_.kelvin()), filter_);
@@ -304,7 +367,7 @@ void RacePhotoPause::render(Ui& ui) {
     const SDL_FRect c = RaceHud::canvas();
     const float k = c.h / 480.0f;
     ui.fill(c.x, c.y, c.w, c.h, Color{0, 0, 0, 255});
-    if (state_ == State::Closed) return;
+    if (state_ == State::Closed || develop_) return; // (a film's development: black under its photo's page)
     // The finder (0x3C5430: the race drawn through the camera with its depth of field and correction; 0x3C5AB8 puts it on the picture).
     const SDL_FRect f = camera_.portrait() ? kFinderUpright : kFinder;
     const SDL_FRect dst{c.x + f.x * k, c.y + f.y * k, f.w * k, f.h * k};

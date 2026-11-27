@@ -43,6 +43,10 @@ public:
     };
 
     RacePhotoPause(App& app, RaceHud* hud, Race race, const race::photo::ShotScene& scene, const menu::GameState* game);
+    // A film's development (RacePhotoDevelop, 0x1C7BF8 -> 0x3C8AA8): its photo taken again at once with the film's camera and settings
+    // over the race its frames set; no finder.
+    RacePhotoPause(App& app, RaceHud* hud, Race race, const photo::film::Film& film, const menu::GameState* game);
+    bool developing() const { return develop_; }
     ~RacePhotoPause();
 
     // A frame of the pause. `m`: the menus' keys; `pad`: the pad itself (its sticks).
@@ -100,6 +104,8 @@ private:
         float yaw = 0, pitch = 0, fov = 0;
     };
     std::optional<Pan> pan_from_;
+    bool develop_ = false;
+    std::optional<menu::JpegPicture::Focus> develop_frame_; // the film's record of the car's place in the picture
 };
 
 } // namespace gt4r
