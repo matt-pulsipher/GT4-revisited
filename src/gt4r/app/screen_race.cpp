@@ -879,7 +879,7 @@ public:
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1], flow_.setup().limit_ms > 0);
         camera_.reset(world_->cars()[0]);
-        history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
+        history_.clear(), pit_history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
         begin_ghost(watched || demo);
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
@@ -1277,7 +1277,12 @@ public:
         if (split_steps_ >= 0) ++split_steps_;
         if (name_steps_ >= 0) ++name_steps_;
         step_ghost(ev, hold);
-        if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
+        if (history_.size() < kHistory) {
+            history_.emplace_back(world_->cars().begin(), world_->cars().end());
+            std::vector<u8> stages(world_->car_count());
+            for (size_t i = 0; i < stages.size(); ++i) stages[i] = u8(world_->pit_stage(i));
+            pit_history_.push_back(std::move(stages));
+        }
         hear(world_->cars(), true);
     }
 
@@ -1916,6 +1921,23 @@ public:
                 h.event_gap_opacity = h.event_opacity * window(event_steps_, 2.85f, 0.15f);
             }
         }
+        // A notice of the race's (RaceDisplay::vf19 0x3A2198 on the event display: hn_20R, 0x80C8C8C8, its seconds, fades of 0.15 s),
+        // in a replay too.
+        if (notice_time_ >= 0 && notice_time_ < 3.15) {
+            h.event = notice_, h.event_gap.clear(), h.event_gap_opacity = 0, h.event_gap_car = -1;
+            h.event_opacity = std::min(1.0f, float(notice_time_) / 0.15f) * window(int(notice_time_ * 60), 3.0f, 0.15f);
+        }
+    }
+    // A line of the race's text shown for three seconds (RaceDisplay::vf19 through 0x38BC98); its time.
+    void post_notice(std::string text) { notice_ = std::move(text), notice_time_ = 0; }
+    void age_notice(double dt) {
+        if (notice_time_ >= 0) notice_time_ += dt;
+    }
+    // Where the followed car is in a pit visit as the step shown has it (0x35BBD8: RaceWorld::pit_stage).
+    int shown_pit_stage() const {
+        const size_t f = focus() < world_->car_count() ? focus() : 0;
+        if (replaying_) return replay_at_ < pit_history_.size() && f < pit_history_[replay_at_].size() ? pit_history_[replay_at_][f] : 0;
+        return world_->pit_stage(f);
     }
 
     // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on until it is asked off again: the
@@ -2662,6 +2684,9 @@ private:
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
+    std::vector<std::vector<u8>> pit_history_; // each step's pit stages (RaceWorld::pit_stage), beside history_
+    std::string notice_;      // a line of the race's text on the event line (the photo pause's refusal)
+    double notice_time_ = -1; // seconds it has been up
     bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
     bool page_replay_ = false; // the replay runs behind a license test's page (stand)
     bool preview_ = false; // the scene behind the menus is Prologue's run (stand)
@@ -3010,7 +3035,7 @@ public:
             const auto word = [&](const char* key, const char* otherwise) { return gt3r::to_lower(app.config().get("cameras", key).value_or(otherwise)); };
             race_->set_view_options(word("race_views", "original") == "all", word("in_car_shake", "on") != "off");
         }
-        if (race_) race_->set_lap_named(settings_.display.config);
+        if (race_) race_->set_lap_named(settings_.display.config), race_->age_notice(dt);
         if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config())), race_->set_replay_style(settings_.replay_mode == "DIVE" ? race::ReplayStyle::Dive : settings_.replay_display ? race::ReplayStyle::Display : race::ReplayStyle::Plain);
         if (!playing()) feedback_.stop(app.input(), 0);
         if (online_) {
@@ -3807,6 +3832,12 @@ private:
     // race's second pause, +0xE404), Select in a replay or in the photo drive's B-spec run.
     bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
     void open_photo(App& app) {
+        // The pause's first step (PhotoPause::vf4 0x3C4A48): with the followed car in a pit visit (0x35BBD8; the program's
+        // override 0x6201A8 is 0 and never set) the race's text CantCaptureWhenPitSequence for 3 s, and no pause.
+        if (race_->shown_pit_stage() != 0) {
+            if (hud_ && hud_->ready()) race_->post_notice(hud_->word("CantCaptureWhenPitSequence"));
+            return;
+        }
         RacePhotoPause::Race r;
         Race* race = race_.get();
         r.draw = [race](Ui& ui, const SDL_FRect& rect, const race::ViewPose& pose, const RaceWorld::Lens* lens, const render::DrawOptions::PostGrade& grade, float ahead) {

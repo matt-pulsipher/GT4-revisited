@@ -1180,6 +1180,10 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         ui.fill(0, c.y + c.h * 438 / 480, ui.width(), ui.height() - (c.y + c.h * 438 / 480), Color{0, 0, 0, 255});
         impl_->draw_menu_text("hn_14", 1, 320, 461, gt3r::text::HAlign::Center, 0x80A7A5A5u, 1, word("SimplePauseMessage"), 0, 1.07f, 1);
     }
+    // A notice of the race's on the event line in a replay (the photo pause's refusal: the lap lines are not shown there).
+    if (s.replay && s.event_opacity > 0 && !s.event.empty())
+        if (const DisplayPlace* p = impl_->cur->find(element::kEventLine))
+            impl_->draw_text(impl_->font("hn_20R"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, s.event_opacity, s.event);
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
