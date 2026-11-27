@@ -94,6 +94,17 @@ add_custom_command(OUTPUT ${GT3R_UI_FONT_SRC}
   COMMENT "Embedding UI fonts"
   VERBATIM)
 add_library(gt3r_ui_fonts STATIC ${GT3R_UI_FONT_SRC})
+# The application icon (packaging/icon.png itself, so the window's icon and the packages' can never differ), embedded for
+# SDL_SetWindowIcon: a development build's bare binary has no bundle to take one from.
+set(GT4R_APP_ICON_PNG ${CMAKE_SOURCE_DIR}/packaging/icon.png)
+set(GT4R_APP_ICON_SRC ${CMAKE_BINARY_DIR}/generated/app_icon_data.cpp)
+add_custom_command(OUTPUT ${GT4R_APP_ICON_SRC}
+  COMMAND ${CMAKE_COMMAND} -DOUT=${GT4R_APP_ICON_SRC} -DNAMESPACE=gt4r::icon_data -DNAMES=kAppIconPng
+          -DFILES=${GT4R_APP_ICON_PNG} -P ${GT3R_DIR}/cmake/EmbedFiles.cmake
+  DEPENDS ${GT4R_APP_ICON_PNG} ${GT3R_DIR}/cmake/EmbedFiles.cmake
+  COMMENT "Embedding the application icon"
+  VERBATIM)
+add_library(gt4r_app_icon STATIC ${GT4R_APP_ICON_SRC})
 # Its UI toolkit (src/app there is the GT3 game's executable; these files are the
 # game-independent part).
 set(GT3R_UI_SOURCES ${GT3R_DIR}/src/app/ui.cpp ${GT3R_DIR}/src/app/ui_font.cpp ${GT3R_DIR}/src/app/button_prompts.cpp ${GT3R_DIR}/src/app/text_keyboard.cpp
@@ -117,7 +128,7 @@ if(ANDROID)
 else()
   add_executable(gt4r ${GT4R_APP_SOURCES} ${GT3R_UI_SOURCES})
 endif()
-target_link_libraries(gt4r PRIVATE gt4r_engine gt3r_ui_fonts)
+target_link_libraries(gt4r PRIVATE gt4r_engine gt3r_ui_fonts gt4r_app_icon)
 target_include_directories(gt4r SYSTEM PRIVATE ${GT3R_DIR}/third_party/stb)
 # Windows VR builds: the OpenXR loader next to gt4r.exe (the engine's Dependencies.cmake downloads it).
 if(GT3R_OPENXR_LOADER)
