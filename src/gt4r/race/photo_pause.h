@@ -114,8 +114,13 @@ public:
         bool refused = false; // the "disable" sound: a limit met
         bool focused = false; // Square: the focus taken (ISFOCUSTRIGGER, the "zoom" sound)
         bool shutter = false;
+        bool on_point = false; // L1 + Cross: the shutter on the focused place
     };
     Events step(const Pad& pad, const World& world);
+    // L1 + Cross with the focus on a place (0x380A04 -> 0x37FA38): the eye and the focused place carried with the followed car
+    // over a step (`moved`: where course space at the step's start is at its end), the camera aimed at the place again. False
+    // without a focused place.
+    bool recompose(const gt3r::render::Mat4& moved);
 
     const Shot& shot() const { return *shot_; }
     Vec3 eye() const { return shot_->eye; }

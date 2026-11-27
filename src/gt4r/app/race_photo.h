@@ -36,6 +36,9 @@ public:
         // Where the followed car is in a picture through `view` with `px` / `py` the projection's scales (the photo's frame, -1 .. 1; none:
         // not in it).
         std::function<std::optional<menu::JpegPicture::Focus>(const gt3r::render::Mat4& view, float px, float py)> car_frame;
+        // Where course space is carried by the followed car over a step (its body at the next step's state times the inverse of
+        // the shown one's); none without a next step.
+        std::function<std::optional<gt3r::render::Mat4>()> car_motion;
     };
 
     RacePhotoPause(App& app, RaceHud* hud, Race race, const race::photo::ShotScene& scene, const menu::GameState* game);
@@ -61,7 +64,7 @@ private:
     enum class State { Finder, Exposing, Saved, Closed };
     void step(const race::photo::PadButtons& b);
     void open_movie();
-    race::ViewPose pose(float aspect) const;
+    race::ViewPose pose(float aspect, float ahead = 0) const;
     gt3r::render::DrawOptions::PostGrade grade() const;
     photo::Correction correction() const;
     void expose(Ui& ui);
@@ -86,6 +89,13 @@ private:
     std::vector<photo::Sample> samples_;
     std::shared_ptr<menu::PhotoPicture> picture_;
     int quality_ = 50;
+    // L1 + Cross recomposed the camera: during the photo it goes from where it was to where it is (the camera's views between its
+    // last step's and this one's, CameraVariable::vf16 0x3796C8 with the picture's time).
+    struct Pan {
+        race::photo::Vec3 eye;
+        float yaw = 0, pitch = 0, fov = 0;
+    };
+    std::optional<Pan> pan_from_;
 };
 
 } // namespace gt4r

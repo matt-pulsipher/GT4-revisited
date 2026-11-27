@@ -284,6 +284,7 @@ ShotCamera::Events ShotCamera::step(const Pad& pad, const World& world) {
         e.focused = true;
     }
     e.shutter = pad.shoot || pad.shoot_on_point;
+    e.on_point = pad.shoot_on_point;
     if (s.manual_focus) {
         if (s.focus_point_found) focus_ = std::max(-v.transform_point(s.focus_point).z, 0.1f);
     } else if (world.car_focus) {
@@ -291,6 +292,17 @@ ShotCamera::Events ShotCamera::step(const Pad& pad, const World& world) {
     }
     clamp_again_ = false;
     return e;
+}
+
+bool ShotCamera::recompose(const render::Mat4& moved) {
+    Shot& s = *shot_;
+    if (!s.manual_focus || !s.focus_point_found) return false;
+    s.eye = moved.transform_point(s.eye);
+    s.focus_point = moved.transform_point(s.focus_point);
+    const Vec3 d = s.focus_point - s.eye;
+    s.turn_yaw = difference(yaw_of(d), s.yaw), s.turn_pitch = pitch_of(d) - s.pitch;
+    focus_ = s.focus = std::max(render::length(d), 0.1f);
+    return true;
 }
 
 render::Mat4 ShotCamera::view() const {

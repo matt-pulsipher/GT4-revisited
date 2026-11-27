@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace gt4r {
 
@@ -151,6 +152,13 @@ void RacePhotoPause::step(const race::photo::PadButtons& b) {
     if (e.refused) play("disable");
     focus_told_ = e.focused;
     if (e.shutter) {
+        // L1 + Cross on a focused place: the camera carried with the car over the step (0x37FA38), the photo's pictures between.
+        pan_from_.reset();
+        if (e.on_point && race_.car_motion)
+            if (const std::optional<render::Mat4> moved = race_.car_motion()) {
+                const Pan from{camera_.eye(), camera_.yaw(), camera_.pitch(), camera_.fov()};
+                if (camera_.recompose(*moved)) pan_from_ = from;
+            }
         // The shutter (0x3C4D28): the movie gone while the 32 pictures are drawn, a picture a frame.
         play("shutter");
         player_.reset();
@@ -192,9 +200,16 @@ render::DrawOptions::PostGrade RacePhotoPause::grade() const {
 }
 
 // The camera's pose for a picture `aspect` wide: its angle over the picture's height, or its width held upright (0x371F88).
-race::ViewPose RacePhotoPause::pose(float aspect) const {
+race::ViewPose RacePhotoPause::pose(float aspect, float ahead) const {
     race::ViewPose p;
     p.eye = camera_.eye(), p.view = camera_.view();
+    if (pan_from_ && state_ == State::Exposing) {
+        const float t = std::clamp(ahead, 0.0f, 1.0f), d = kPi / 180.0f;
+        p.eye = pan_from_->eye + (camera_.eye() - pan_from_->eye) * t;
+        const float yaw = pan_from_->yaw + race::photo::difference(camera_.yaw(), pan_from_->yaw) * t;
+        const float pitch = pan_from_->pitch + (camera_.pitch() - pan_from_->pitch) * t;
+        p.view = render::rotate_z(camera_.roll() * d) * render::rotate_x(pitch * d) * render::rotate_y(yaw * d) * render::translate(-p.eye);
+    }
     const float t = std::tan(camera_.fov() * 0.5f * kPi / 180.0f); // (over the 24 mm side)
     const float half_height = aspect >= 1 ? t : t / aspect;
     // (ViewPose's angle is across a 4:3 picture's width, a narrower one keeping that width)
@@ -218,7 +233,7 @@ void RacePhotoPause::expose(Ui& ui) {
     const bool shot = exposure_.shoot(ui, [&](Ui& u, const SDL_FRect& all) {
         RaceWorld::Lens lens;
         lens.shear_x = shift.shear_x, lens.shear_y = shift.shear_y;
-        race::ViewPose p = pose(aspect);
+        race::ViewPose p = pose(aspect, ahead);
         p.view = render::translate({shift.move_x, shift.move_y, 0}) * p.view;
         const RVec right{p.view.at(0, 0), p.view.at(0, 1), p.view.at(0, 2)}, up{p.view.at(1, 0), p.view.at(1, 1), p.view.at(1, 2)};
         p.eye = p.eye - right * shift.move_x - up * shift.move_y;
@@ -236,6 +251,9 @@ void RacePhotoPause::expose(Ui& ui) {
     picture_ = exposure_.develop(quality_, frame);
     LOG_INFO("Photo pause: a photo of %d x %d, f = %d mm, F%.1f, 1/%d s, %+.1f EV, %.0f K, filter %d", w, h, camera_.focal_mm(), double(camera_.f_number()),
              int(1.0f / camera_.shutter_seconds() + 0.5f), double(camera_.exposure()), double(camera_.kelvin()), filter_);
+    // (GT4R_PHOTO_OUT=<file>: a scripted run's photo written there as well, to look at)
+    if (const char* out = std::getenv("GT4R_PHOTO_OUT"); out && *out && picture_ && !picture_->jpeg.empty())
+        if (std::FILE* f = std::fopen(out, "wb")) std::fwrite(picture_->jpeg.data(), 1, picture_->jpeg.size(), f), std::fclose(f);
     state_ = State::Saved;
 }
 

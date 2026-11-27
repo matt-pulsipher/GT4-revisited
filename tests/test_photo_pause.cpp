@@ -165,3 +165,23 @@ TEST(photo_pause_zoom_scenery_check) {
     for (int i = 0; i < 400; ++i) cam.step(p, w);
     CHECK(near(cam.fov(), 2 * std::atan(0.35f / 10) * 57.2958f, 1e-3f) && !cam.shot().fov_min_found);
 }
+
+TEST(photo_pause_recompose) {
+    // L1 + Cross with the focus on a place: the eye and the place carried with the car, the camera aimed at the place again.
+    std::vector<Shot> shots = make_shots(scene());
+    ShotCamera cam;
+    cam.begin(shots[0]);
+    CHECK(!cam.recompose(gt3r::render::translate({1, 0, 0}))); // (no focused place yet)
+    ShotCamera::World w;
+    w.middle_depth = [](const Vec3&, const gt3r::render::Mat4&) { return 15.0f; };
+    Pad p;
+    p.focus = true;
+    cam.step(p, w);
+    const Vec3 eye = cam.eye();
+    const gt3r::render::Mat4 v0 = cam.view();
+    const Vec3 place = eye + Vec3{-v0.at(2, 0), -v0.at(2, 1), -v0.at(2, 2)} * 15.0f;
+    CHECK(cam.recompose(gt3r::render::translate({2, 0, 1})));
+    CHECK(near(cam.eye().x, eye.x + 2, 1e-4f) && near(cam.eye().z, eye.z + 1, 1e-4f));
+    const Vec3 seen = cam.view().transform_point(place + Vec3{2, 0, 1});
+    CHECK(near(seen.x, 0, 1e-3f) && near(seen.y, 0, 1e-3f) && near(seen.z, -15, 1e-3f));
+}

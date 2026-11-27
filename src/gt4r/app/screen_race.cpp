@@ -2465,6 +2465,14 @@ public:
         }
         return t0 <= t1 && t1 > 0 ? std::max(t0, 0.1f) : far;
     }
+    // Where course space is carried by the followed car from the step shown to the next (a replay's): L1 + Cross's recomposing.
+    std::optional<render::Mat4> photo_car_motion() const {
+        if (!replaying_ || replay_at_ + 1 >= history_.size()) return std::nullopt;
+        const size_t f = focus() < history_[replay_at_].size() ? focus() : 0;
+        if (f >= history_[replay_at_ + 1].size()) return std::nullopt;
+        const race::CarVisual& v = world_->visual(f);
+        return v.body_matrix(history_[replay_at_ + 1][f]) * render::inverse(v.body_matrix(history_[replay_at_][f]));
+    }
     // Whether a point is in the followed car's box grown by `margin` (0x3FDD60: across and along, and up from its floor).
     bool photo_in_car(const RVec& point, float margin) const {
         const std::span<const race::CarState> cars = shown();
@@ -3863,6 +3871,7 @@ private:
         r.world.middle_depth = [race](const RVec& eye, const render::Mat4& view) { return race->photo_middle_depth(eye, view); };
         r.world.car_focus = [race](const render::Mat4& view, float f_number, float fov) { return race->photo_car_focus(view, f_number, fov); };
         r.world.in_car = [race](const RVec& point, float margin) { return race->photo_in_car(point, margin); };
+        r.car_motion = [race] { return race->photo_car_motion(); };
         r.car_frame = [race](const render::Mat4& view, float px, float py) { return race->photo_car_frame(view, px, py); };
         race_->pause_sound(true);
         photo_ = std::make_unique<RacePhotoPause>(app, hud_.get(), std::move(r), race_->photo_scene(u32(SDL_GetTicksNS() >> 10) | 1), menus_ ? &menus_->game() : nullptr);
