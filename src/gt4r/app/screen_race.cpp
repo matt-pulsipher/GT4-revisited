@@ -38,6 +38,7 @@
 #include "gt4r/input/race_feedback.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/split_lists.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_view.h"
@@ -872,6 +873,7 @@ public:
             license_sounded_ = false;
         }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
+        pace_lists_.reset(int(splits_.size()) + 1), pace_prev_.clear();
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = page_replay_ = false, over_ = false;
@@ -1240,6 +1242,7 @@ public:
         // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
         if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
+        step_pace_lists();
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -2358,6 +2361,7 @@ public:
     }
     RaceWorld& world() { return *world_; }
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const { return world_->pit_record(car); }
+    int pit_stops(size_t car) const { return world_->pit_stops(car); }
     std::optional<std::array<u8, 0x40>> bspec_record() const { return world_->bspec_record(0); }
     int bspec_class() const { return world_->bspec_class(0); }
 
@@ -2551,6 +2555,38 @@ private:
     s64 event_gap_ms_ = 0;         // the display's car's gap at its last lap's line
     int event_gap_car_ = -1;       // the car that gap is to (its picture beside it: ✔ the original's chase race, the Beetle's)
     bool lap_word_ = false;        // the option race_display_config: the lap's line names the lap ("L1/3")
+    // The lists of the cars through each section's end by round (vf18 0x3578B0: the split points, then the line), for the Race
+    // Monitor's pace-up marks (0x3FA508); each car's last place along the lap and crossings.
+    race::SplitLists pace_lists_;
+    std::vector<std::pair<float, int>> pace_prev_;
+    void step_pace_lists() {
+        if (setup_.conductor != race::Conductor::Other || flow_.steps_since_start() < 0) return; // (vf18 is the race's and the battles')
+        const std::span<const race::CarState> cars = world_->cars();
+        pace_prev_.resize(cars.size(), {-1.0f, 0});
+        const s64 t = flow_.time_ms();
+        const int line = pace_lists_.sections() - 1;
+        for (size_t i = 0; i < cars.size(); ++i) {
+            const float v = cars[i].course_v;
+            const int counter = flow_.car(i).counter;
+            const auto [before, was] = pace_prev_[i];
+            pace_prev_[i] = {v, counter};
+            if (before < 0 || flow_.car(i).finished) continue;
+            if (counter > was && was >= 1) pace_lists_.pass(int(i), was, line, t);
+            if (counter < 1 || !(v > before)) continue;
+            for (size_t k = 0; k < splits_.size(); ++k)
+                if (before < splits_[k] && splits_[k] <= v) pace_lists_.pass(int(i), counter, int(k), t);
+        }
+    }
+public:
+    // Car a gaining on car b (0x3FA508): a's section now (F +0x4AE: the split points it is past on this lap).
+    bool pace_up(size_t a, size_t b) const {
+        if (a >= world_->car_count()) return false;
+        const float v = world_->cars()[a].course_v;
+        int section = 0;
+        for (const float s : splits_) section += s <= v;
+        return pace_lists_.pace_up(int(a), int(b), section, flow_.car(a).counter);
+    }
+private:
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
     std::map<std::pair<int, int>, std::pair<s64, size_t>> split_first_; // (crossings, split) -> the race clock when the first car passed, and that car
     int split_steps_ = -1, split_index_ = 0;
@@ -2957,7 +2993,8 @@ public:
                 if (m.pressed(PadButton::Right) && monitor_speed_ < 3) ++monitor_speed_, monitor_blink_ = 0;
             } else if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
-            if (m.pressed(PadButton::Cross)) race_->next_view();
+            // (Cross with the Race Monitor up: Show Map, 0x3D95F0 bits 0xC00 turning the monitor's +0x70 over)
+            if (m.pressed(PadButton::Cross)) monitor_ ? void(monitor_map_ = !monitor_map_) : race_->next_view();
             if (m.pressed(PadButton::R2)) race_->bspec_display();
             if (m.vertical()) race_->select_car(m.vertical());
             if (m.pressed(PadButton::Circle)) race_->bspec_pit();
@@ -3278,7 +3315,7 @@ private:
             return;
         }
         if (!load_monitor_movie(app)) return;
-        monitor_speed_ = 1; // (each opening at x1: 0x3D91C0)
+        monitor_speed_ = 1, monitor_map_ = true; // (each opening at x1 with the map: 0x3D91C0, 0x3D8614)
         monitor_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {
             return race::StrobePlayer::Value{};
         });
@@ -3380,8 +3417,25 @@ private:
             text(bar + ".DIFF", r == 1 || gap < 0 ? "" : race::format_lap_time(gap));
             m.call(bar + ".GRID", "gotoAndStop", {V::number(letter(car))});
             m.call(bar, "gotoAndStop", {V::number(car == me ? 2 : 1)}); // (the followed car's row lit: 0x3DAF60, the monitor's +0x64)
-            for (const char* part : {".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
+            // L, P, Best (0x3DA7C8; under the map, shown with Show Map): the lap (0x343B50: the crossings, at least 1, one less once
+            // finished), the pit stops (0x3FA498), the best lap; the best's mark when the lap last completed made a new best (when
+            // the lap changes: the best below the one kept then, unsigned, and kept).
+            if (monitor_race_ != &f) monitor_race_ = &f, monitor_lap_.clear(), monitor_best_.clear(), monitor_mark_.clear(); // (the race's own)
+            if (monitor_lap_.size() < f.car_count()) monitor_lap_.resize(f.car_count(), 0), monitor_best_.resize(f.car_count(), 0), monitor_mark_.resize(f.car_count(), 0);
+            const int counter = f.car(car).counter, lap = f.car(car).finished ? counter - 1 : std::max(1, counter);
+            if (monitor_lap_[car] != lap) {
+                monitor_lap_[car] = lap;
+                const u64 have = u64(best > 0 ? best : 0x157529FF);
+                monitor_mark_[car] = have < u64(monitor_best_[car]);
+                monitor_best_[car] = s64(have);
+            }
+            text(bar + ".LAP", std::to_string(lap));
+            text(bar + ".PIT", std::to_string(race_->pit_stops(car)));
+            text(bar + ".BEST", best > 0 ? race::format_lap_time(best) : "--'--.---");
+            for (const char* part : {".LAP", ".PIT", ".BEST"}) show(bar + part, !monitor_map_);
+            show(bar + ".BESTMARK", !monitor_map_ && monitor_mark_[car]);
         }
+        show("MAP_PANEL", monitor_map_);
         fill_gap_strip(order, me);
         // The pit panel (0x3DB7B8): the followed car's stops, up to three, the oldest first: the lap ("-" none) and the
         // tires fitted front and rear (TireShort_nn, "-" none). ❓ The tire wear diagram (TIRE_PANEL) it alternates with
@@ -3413,7 +3467,7 @@ private:
     // the gap to the car ahead (0x3DBE98: 20 canvas units + 38 x clamp((d - 20 m) x 0.0125, 0, 1)), the row centred at
     // (640 - the sum) / 2 + 20; between two letters the gap (0x3DBDF0: laps x the lap + the distance along, ahead less
     // behind) in the options' unit (0x3DBEE8: feet x 3.28084, else metres; a lap or more: "N LAP"), the followed car's
-    // letter lit (GRID frame 2 g + 2, else 2 g + 1). ❓ The pace-up marks (0x3FA508) are not worked out (hidden); the
+    // letter lit (GRID frame 2 g + 2, else 2 g + 1); the pace-up mark on a car gaining on the one ahead (0x3FA508). ❓ The
     // cars' pictures the program draws under the letters are not drawn.
     void fill_gap_strip(const std::vector<size_t>& order, size_t me) {
         using V = race::StrobePlayer::Value;
@@ -3438,7 +3492,8 @@ private:
             m.set(pos, "_x", V::number(x));
             m.set(pos, "_visible", V::boolean(true));
             m.call(pos + ".GRID", "gotoAndStop", {V::number(car == me ? 2 * g + 2 : 2 * g + 1)});
-            m.set(pos + ".PACEUP_MARK", "_visible", V::boolean(false));
+            // The pace-up mark (0x3DC2AC): the car gaining on the one ahead of it (0x3FA508).
+            m.set(pos + ".PACEUP_MARK", "_visible", V::boolean(k > 0 && race_->pace_up(car, order[k - 1])));
             if (k > 0) {
                 const std::string gap = "GAP" + std::to_string(k);
                 std::string t;
@@ -4825,6 +4880,10 @@ private:
     bool pit_open_ = false, pit_touched_ = false;
     std::unique_ptr<race::StrobePlayer> monitor_; // B-spec's Race Monitor, while it is up
     int monitor_speed_ = 1;                       // its view speed (the monitor's +0x74): the race's steps a frame while it is up
+    bool monitor_map_ = true;                     // the course map shown (the monitor's +0x70: MAP_PANEL), else the rows' L / P / Best
+    std::vector<s64> monitor_lap_, monitor_best_; // each car's lap and best as the rows last saw them (+0xE8, +0x100 by car)
+    std::vector<u8> monitor_mark_;                // its new-best mark (+0xE2)
+    const void* monitor_race_ = nullptr;
     bool monitor_l1_ = false;                     // L1 held over it (+0x5C): the speed's text blinks
     double monitor_blink_ = 0;                    // the blink's count (+0x90, 60ths of a second mod 32)
     std::unique_ptr<race::StrobePlayer> pause_;

@@ -8,6 +8,7 @@
 #include "gt4r/race/race_display.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/race_start.h"
+#include "gt4r/race/split_lists.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/program.h"
@@ -248,4 +249,26 @@ TEST(endurance_machine_test) {
         CHECK(z.goal == 400 && z.splits.empty());
     }
     if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
+}
+
+// The lists of the cars through each section's end (vf18 0x3578B0) and the Race Monitor's pace-up mark (0x3FA508).
+TEST(endurance_pace_up_mark) {
+    race::SplitLists l(3); // (two split points and the line)
+    // Round 1: car 1 leads; car 0 passes split 0 2.0 s behind, split 1 1.5 s behind: gaining.
+    l.pass(1, 1, 0, 10'000), l.pass(0, 1, 0, 12'000);
+    l.pass(1, 1, 1, 20'000), l.pass(0, 1, 1, 21'500);
+    CHECK(l.time(1, 0) == 21'500 && l.time(1, 1) == 20'000);
+    CHECK(l.pace_up(0, 1, 2, 1));      // (in section 2: the last end passed 1, the one before 0)
+    CHECK(!l.pace_up(1, 0, 2, 1));     // (the car ahead: not behind)
+    CHECK(!l.pace_up(0, 1, 2, 0));     // (no crossing yet)
+    CHECK(!l.pace_up(0, 1, 0, 1));     // (crossings 1 in section 0)
+    // Losing: at the line 3 s behind.
+    l.pass(1, 1, 2, 30'000), l.pass(0, 1, 2, 33'000);
+    CHECK(!l.pace_up(0, 1, 0, 2));
+    // A new round at split 0 starts the list afresh: car 1 alone there, car 0 not listed: no mark.
+    l.pass(1, 2, 0, 40'000);
+    CHECK(l.time(0, 0) < 0 && !l.pace_up(0, 1, 1, 2));
+    // In time order: a car through earlier than the one listed goes before it; an earlier round's car is not listed.
+    l.pass(2, 2, 0, 39'000), l.pass(3, 1, 0, 41'000);
+    CHECK(l.time(0, 2) == 39'000 && l.time(0, 3) < 0);
 }
