@@ -6,6 +6,10 @@
 #include "menu_run_flow.h"
 
 #include "gt4r/race/replay_file.h"
+#include "gt4r/save/best_lap_card.h"
+#include "gt4r/save/codec.h"
+#include "gt4r/save/replay_list.h"
+#include "gt4r/menu/game_internal.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -142,32 +146,28 @@ TEST(disc_menu_save_replay) {
     CHECK(f.clean());
 }
 
-// Load Best Lap Replay (the race's menus' LOAD_GHOST: labomode in MODE_LOAD_BESTLAP_REPLAY): the list holds the best lap replays of
-// the race's course and car alone (race::ReplayFile::best_lap), not full replays nor another course's.
+// Load Best Lap Replay (the race's menus' LOAD_GHOST: labomode in MODE_LOAD_BESTLAP_REPLAY): the list holds the best lap replays (a
+// card's folders <product>B..., save/best_lap_card.h) of the race's course and car alone, not full replays nor another course's.
 TEST(disc_menu_load_best_lap_list) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-bestlap";
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir / "replays");
-    auto best = [&](const std::string& name, const std::string& course, const std::string& car) {
-        race::ReplayFile f;
-        f.course = course, f.sequence = "time_trial", f.laps = 1, f.title = name, f.time_ms = 83'457;
-        f.cars.push_back({car, 0});
-        f.steps.assign(10, std::vector<race::CarState>(1));
-        f.other.emplace_back(race::ReplayFile::kBestLap, Bytes{0x01, 0x46, 0x01, 0x00});
-        const race::ReplayFile back = race::ReplayFile::decode(f.encode());
-        CHECK(back.best_lap() && back.time_ms == 83'457);
-        const Bytes b = f.encode();
-        std::ofstream out(dir / "replays" / (name + ".gt4rrep"), std::ios::binary);
-        out.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    std::filesystem::create_directories(dir / "memorycard");
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    menu::Database& db = menu::natives_of(*f.rt)->db();
+    auto best = [&](const std::string& title, const std::string& course, const std::string& car) {
+        save::ReplayParticulars p;
+        p.title = title, p.course_label = course, p.car = db.code(menu::kCarTable, car), p.course = db.code(menu::kCourseTable, course), p.time_ms = 83'457, p.mode = 2;
+        const Bytes data(0x2000, 0x5A); // (the list reads the particulars; the data file is not opened)
+        CHECK(save::write_best_lap((dir / "memorycard").string(), "BASCUS-97328", {}, data, p, "", "Best lap replay", "") == save::Result::Ok);
     };
     best("mine", "tsukuba", "ka_01");
     best("other course", "fuji_90s", "ka_01");
     best("other car", "tsukuba", "panda_super_ie_90");
     write_replay(dir / "replays" / "tsukuba-20261124-101500.gt4rrep", "tsukuba", "ka_01");
-    Flow f(*disc, "US", dir.string());
-    CHECK(f.boot_to_title());
     menu::GameState& g = f.rt->game();
     g.race.course = "tsukuba", g.race.car = "ka_01";
     g.next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
@@ -175,5 +175,99 @@ TEST(disc_menu_load_best_lap_list) {
     f.rt->settle();
     std::printf("  the load page: %s, first row %s\n", pages(f).c_str(), f.text_of("title").c_str());
     CHECK(f.page() == "LoadReplayRoot" && f.text_of("title") == "mine");
+    std::filesystem::remove_all(dir);
+}
+
+// The play list's file (FileGT4ReplayList): 400 u64 entries, the count at 0xC80, 0xCC0 bytes; an entry is a card folder's
+// letters as a number with the letter after the product on top.
+TEST(save_replay_list_layout) {
+    const std::vector<u64> entries = {0x52000000000123ull, 0x42000003FFFFFFFFull, 0x2Aull};
+    const Bytes b = save::encode_play_list(entries);
+    CHECK(b.size() == 0xCC0 && rd32(b, 0xC80) == 3 && rd32(b, 0) == 0x123 && rd32(b, 4) == 0x520000);
+    const std::optional<std::vector<u64>> back = save::decode_play_list(b);
+    CHECK(back && *back == entries);
+    Bytes bad = b;
+    bad[0xC80] = 0x91, bad[0xC81] = 0x01; // 401
+    CHECK(!save::decode_play_list(bad));
+    // "BASCUS-97328R" and seven letters: 'R' on top, the letters' number below (the first letter the lowest six bits).
+    const std::optional<u64> e = save::folder_entry("BASCUS-97328RzYYYYYY", "BASCUS-97328");
+    CHECK(e && *e == (u64('R') << 56 | 1));
+    CHECK(!save::folder_entry("BASCUS-97328R", "BASCUS-97328"));
+}
+
+// The Replay Theater's play list: ToListMov puts the chosen replay on the card's list (asked first to make the list), the
+// PlayList folder lists it, its Play plays the list one replay after another from the demonstration's count until the player
+// ends one; shuffled, in the order the program draws from the seed.
+TEST(disc_menu_replay_play_list) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-playlist";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "replays");
+    std::filesystem::create_directories(dir / "memorycard");
+    const std::filesystem::path a = dir / "replays" / "tsukuba-20261124-101500.gt4rrep", b = dir / "replays" / "fuji_90s-20261124-101600.gt4rrep";
+    write_replay(a, "tsukuba", "panda_super_ie_90");
+    write_replay(b, "fuji_90s", "panda_super_ie_90");
+    std::filesystem::last_write_time(a, std::filesystem::last_write_time(b) - std::chrono::seconds(60)); // (b the newest: first)
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    f.press({menu::Key::Down, menu::Key::Down, menu::Key::Accept});
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "ReplayTheaterRoot");
+    // The first replay chosen, ToListMov: no list yet, the page asks to make one (and how much room it takes).
+    f.press({menu::Key::Right, menu::Key::Accept});
+    CHECK(f.focus_on("ToListMov"));
+    std::printf("  %s\n", pages(f).c_str());
+    f.press({menu::Key::Accept});
+    for (int i = 0; i < 4 && !save::ReplayList((dir / "memorycard").string(), {}).exists(); ++i) {
+        std::printf("  asked: %s\n", pages(f).c_str());
+        f.press({menu::Key::Accept});
+        f.rt->settle();
+    }
+    std::vector<u64> on_card;
+    CHECK(save::ReplayList((dir / "memorycard").string(), {}).load(on_card) == save::Result::Ok && on_card.size() == 1);
+    // The second too: the list is there, it is written at once.
+    f.press({menu::Key::Accept}); // (save_done)
+    f.press({menu::Key::Left});
+    std::printf("  back: %s\n", pages(f).c_str());
+    f.press({menu::Key::Down, menu::Key::Accept});
+    std::printf("  then: %s\n", pages(f).c_str());
+    CHECK(f.focus_on("ToListMov"));
+    f.press({menu::Key::Accept});
+    f.rt->settle();
+    CHECK(save::ReplayList((dir / "memorycard").string(), {}).load(on_card) == save::Result::Ok && on_card.size() == 2);
+    std::printf("  on the card: %zu, %s\n", on_card.size(), pages(f).c_str());
+    // The PlayList folder: its two rows, the newest added on top (addPlayList's rotate).
+    CHECK(f.focus_on("PlayList"));
+    f.press({menu::Key::Accept});
+    f.rt->settle();
+    std::printf("  the list: %s, first row %s\n", pages(f).c_str(), f.text_of("title").c_str());
+    CHECK(f.text_of("title") == "tsukuba-20261124-101500");
+    // Play: the list from the demonstration's count, the next after each replay, until the player ends one.
+    menu::GameState& g = f.rt->game();
+    g.demonstration.card_at = 0;
+    CHECK(f.focus_on("Play"));
+    f.press({menu::Key::Accept});
+    std::optional<menu::RaceRequest> replay = f.rt->race_request();
+    CHECK(f.rt->finished() && replay && replay->sequence == "replay" && replay->replay_file == a.string());
+    CHECK(menu::play_list_next(*f.rt, false) && g.replay_file == b.string());
+    CHECK(menu::play_list_next(*f.rt, false) && g.replay_file == a.string()); // (past the end, the first again)
+    CHECK(!menu::play_list_next(*f.rt, false, true) && !g.replay_list);
+    // A replay gone from the card is passed over.
+    std::filesystem::remove(b);
+    CHECK(menu::play_list_next(*f.rt, true) && g.replay_file == a.string());
+    CHECK(!menu::play_list_next(*f.rt, false)); // (missed as many times as the list is long: over)
+    // Shuffled: 0x6012C0's order from the seed (here 5489, the generator's usual one): for two, the second swapped with the first when the draw x 2 is 0.
+    write_replay(b, "fuji_90s", "panda_super_ie_90");
+    g.options["replay_play_mode"] = std::string("SHUFFLE");
+    g.demonstration.card_seed = 5489, g.demonstration.card_at = 0;
+    save::Mt19937 mt(5489);
+    const bool swapped = mt.below(2) == 0;
+    const bool played = menu::play_list_next(*f.rt, true);
+    std::printf("  shuffled (%s, %s): %d %s\n", swapped ? "swapped" : "in order", g.option_text("replay_play_mode").c_str(), played, g.replay_file.c_str());
+    CHECK(played && g.replay_file == (swapped ? b : a).string());
+    CHECK(menu::play_list_next(*f.rt, false) && g.replay_file == (swapped ? a : b).string());
+    CHECK(f.clean());
     std::filesystem::remove_all(dir);
 }

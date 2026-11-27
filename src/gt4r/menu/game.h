@@ -55,6 +55,11 @@ struct RaceRequest {
     // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
     std::vector<std::string> entries;
     std::vector<int> entry_paints;
+    // An entry the scripts set to an ENEMY_CARS row's label (Arcade's dirt and snow versions, MCarData.ShiftCarCode):
+    // that label ("" none); its car's GENERIC_CAR label is in `entries` (and `car` for entry 0), and the race takes the
+    // row's parts and settings for it (the program's entry holds the row's code, 0x4307D0 through 0x447BB8).
+    std::vector<std::string> entry_enemies;
+    std::string car_enemy;
     // The "replay" sequence (the Replay Theater's Play): the saved replay to show, a file of the
     // data folder's replays/ (race/replay_file.h).
     std::string replay_file;
@@ -89,6 +94,7 @@ struct RaceResult {
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
     u32 best_lap_ms = 0;   // the player's car's best lap (0x35E3F0; 0: none)
+    std::optional<sim::Equipment> equipment; // the player's car as it ran (a ranking entry's pass code: power, weight, tires)
     float max_speed = 0;   // a machine test's: the car's top speed (car +0x6CC, m/s; 0: none)
     std::string pass_code; // a ranking entry's (up to 32 characters)
     std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
@@ -326,6 +332,7 @@ struct GameState {
         s32 skip_at = 0;       // +0x5C
         s32 restart = 0;       // +0x60 restart_from_beginning
         s32 card_at = 0;       // +0x64 the card's replays' next
+        u32 card_seed = 0;     // +0x68 their shuffled order's seed (0x434950)
         s32 movie_left = 0;    // +0x6C demonstrations until the movie
         bool more = false;     // the time-out's sequence goes on after the project it ran
     } demonstration;
@@ -386,6 +393,9 @@ struct GameState {
     // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
     int card_action = 0;
     std::string replay_file;
+    // The play list under way (the load_replay sequence's "list"), and the replays of it not found so far (0x10CA50's count).
+    bool replay_list = false;
+    int replay_list_missed = 0;
     // The run the race's menus save (labomode with MODE_SAVE_FULL_REPLAY: the card manager's new file), and what writes it.
     struct PendingReplay {
         std::string course, car; // labels
@@ -400,11 +410,17 @@ struct GameState {
         std::function<bool(const std::string& title, const std::string& path)> save;
     };
     std::shared_ptr<PendingReplay> pending_replay;
+    // The race's course and car (labels) for Load Best Lap Replay's list (0x11CF30 hands the card manager their codes).
+    std::string ghost_course, ghost_car;
     // The pictures the scripts hold as texture chunks (a card file's getIconTexture): an image face's `image_chunk` is the
     // picture's name here.
     std::map<std::string, gt3r::Tex1::Image> chunk_pictures;
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
+    // The Analyzer's laps, handed by the race (logger.h), and its display switches (the save's block 0x39F1C: Track A,
+    // Track B, speed, accel, brake).
+    std::shared_ptr<struct LoggerSource> logger;
+    std::array<u8, 5> logger_display{1, 1, 1, 1, 1};
 };
 
 // A unit by the option's name ("MPH", "HP", "FTLB", ...): what a value in the game's own unit
@@ -419,8 +435,22 @@ GameState::Unit torque_unit_of(const std::string& option);
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
 // And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
 std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
+// The first of a parts type's owned bits in a car record (0x43F270: -1 for a type without; Japan's program numbers them
+// without the suspension and turbine kit it lacks: game_car.cpp).
+int parts_owned_from(int type, bool japan);
 // The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
-// run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
+// run and its argument (the movie), or a recorded race of the disc to play (`replay`: its file, "replay/Rdemo0/Rdemo0"); none
+// when the sequence is over. `first` at the time-out, then after each one played; a played one left with a key sets the
+// game's menu_result "terminate", which ends the sequence (0x10BBB0's end code 2).
+struct DemoStep {
+    std::string project, arg;
+    std::string replay;
+};
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first);
+// The Replay Theater's play list played (the load_replay sequence's loop, 0x10CA50, game_replays.cpp): the next replay of
+// the card's list as its sequence picks it (0x4349A8: in order or shuffled, the missing passed over) set to be shown
+// (`replay_file`, `next_sequence` "replay"). `start`: the theater's Play of its PlayList folder; else after a replay of the
+// list (`quit`: the player ended it, which ends the list). False when nothing more plays.
+bool play_list_next(Runtime& rt, bool start, bool quit = false);
 
 } // namespace gt4r::menu

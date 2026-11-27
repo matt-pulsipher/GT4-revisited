@@ -197,6 +197,7 @@ constexpr Sites kSites[] = {
     {0x6A6188, {{{0xfdcaf8d971050728ull, 46, 10, 0x0u}, {0xf894bcfbd6b8152dull, 122, 6, 0x0u}}}},
     {0x6A6910, {{{0x157af9341b107e38ull, 49, 9, 0x7Cu}, {0x8fab90df3dc002b3ull, 92, 41, 0x0u}}}},
     {0x6A6EF0, {{{0x94a37a4e94c1c969ull, 4, 3, 0x0u}}}},
+    {0x6A7C88, {{{0x6a95a99a900dd7d9ull, 8, 2, 0x0u}}}},
 };
 
 } // namespace

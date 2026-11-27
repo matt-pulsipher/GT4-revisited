@@ -65,6 +65,7 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "                      \"click:<x>:<y>\", \"move:\", \"back:\" (the right button),\n"
                         "                      \"wheel:<turns>:<x>:<y>\", \"drag:<x>:<y>:<x>:<y>\": the mouse,\n"
                         "                      in the page's 640 x 360 units; \"drop:<file>\"; \"f12\";\n"
+                        "                      \"type:<text>\": text typed on a keyboard;\n"
                         "                      \"@<file>\": the keys from a file, '#' comments)\n"
                         "  --stats <file>      a line a second: frame, seconds, mean and longest\n"
                         "                      frame work (ms), resident memory (MB)\n"

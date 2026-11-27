@@ -4,6 +4,8 @@
 
 #include "gt4r/menu/game_internal.h"
 
+#include <chrono>
+
 namespace gt4r::menu {
 
 using script::Args;
@@ -15,23 +17,32 @@ namespace {
 // The kinds by name (0x622D90; the setter 0x434690 compares the text, any other value is kind 0).
 constexpr const char* kDemoKinds[5] = {"none", "autodemo", "menu", "replay", "skip_replay"};
 
+// 0x579358: the console's timer (0x5B8450: T0's count with its wraps) plus a draw of the program's small generator; here the
+// app's clock in microseconds.
+u32 timer_draw(GameNatives& n) {
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return u32(us) + n.random.step();
+}
+
 } // namespace
 
 void install_demonstration(GameNatives& n, Object& game) {
     GameState* s = &n.state();
+    GameNatives* np = &n;
     auto demo = std::make_shared<Object>("MDemonstration");
     GameState::Demonstration* d = &s->demonstration;
     // initialize(count, replay_time, repeat_time) (0x15DB40 -> 0x4345D8): the list's length, the recorded runs' time, the
     // tries a time-out makes; the list from its start, the card's replays reset (0x434950), the movie's count from the
     // option `demo_movie_interval` less 1.
-    demo->method("initialize", [s, d](Vm&, const Value&, Args a) {
+    demo->method("initialize", [s, d, np](Vm&, const Value&, Args a) {
         d->count = arg_int(a, 0), d->replay_time = arg_int(a, 1), d->repeat = d->left = arg_int(a, 2);
-        d->skip_time = 3, d->index = 0, d->skip_at = 0, d->card_at = 0;
+        d->skip_time = 3, d->index = 0, d->skip_at = 0, d->card_at = 0, d->card_seed = timer_draw(*np);
         d->movie_left = s->option_int("demo_movie_interval", 3) - 1;
         return Value{};
     });
-    demo->method("resetPlayListCounter", [d](Vm&, const Value&, Args) { // (0x15E488 -> 0x434950)
-        d->card_at = 0;
+    // resetPlayListCounter (0x15E488 -> 0x434950): the card's replays from the first of the list, a new shuffled order.
+    demo->method("resetPlayListCounter", [d, np](Vm&, const Value&, Args) {
+        d->card_at = 0, d->card_seed = timer_draw(*np);
         return Value{};
     });
     demo->method("resetMovieCount", [d](Vm&, const Value&, Args) { // (0x15E4C0 -> 0x434768: the movie at the next time-out)
@@ -84,22 +95,33 @@ bool next_demonstration(Runtime& rt) {
 
 // 0x10BE20: a time-out's demonstrations, one at a time. `first`: the sequence starts (0x434638: the tries anew; with
 // restart_from_beginning, the list and the movie's count from their start). The menu project to run and its argument
-// (the movie), or none when the sequence is over (the menus go back to the last project, 0x42FC50). Kinds 1, 3 and 4
-// (the card's replays, a recorded race, an Arcade demo race: 0x4349A8, 0x10BBB0, 0x10BA28) are not set by the disc's
-// scripts (their list gives the number 2, which names no kind) and play nothing here.
-std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first) {
+// (the movie), the disc's recorded race (kind 3, replay: the jump table 0x68D000 sends it to 0x10BEF0, the card's replays
+// first by 0x4349A8, else the recording by the entry's name through 0x10BBB0), or none when the sequence is over (the menus
+// go back to the last project, 0x42FC50). Every disc's list is kind replay (setNextDemo: Demo(2, "RdemoN").getType() names 2
+// "replay"); kinds 1 (an Arcade demo race, 0x10BA28) and 4 are never set. ❓ The card's replays before the disc's are not
+// played here.
+std::optional<DemoStep> autodemo_step(Runtime& rt, bool first) {
     GameState& s = rt.game();
     GameState::Demonstration& d = s.demonstration;
     if (first) {
         d.left = d.repeat;
-        if (d.restart) d.index = 0, d.card_at = 0, d.movie_left = s.option_int("demo_movie_interval", 3) - 1;
+        if (d.restart) {
+            d.index = 0, d.card_at = 0, d.movie_left = s.option_int("demo_movie_interval", 3) - 1;
+            if (const auto n = natives_of(rt)) d.card_seed = timer_draw(*n); // (0x434950)
+        }
         d.more = true;
     } else if (s.menu_result == "terminate") {
-        d.more = false; // (the movie skipped: 0x10C008)
+        d.more = false; // (the movie skipped: 0x10C008; a recorded race left with a key: 0x10BBB0's end code 2)
     }
     while (d.more) {
         d.more = next_demonstration(rt);
-        if (d.type == 2) return std::make_pair(d.name, d.arg);
+        if (d.type == 2) return DemoStep{d.name, d.arg, {}};
+        if (d.type == 3 && !d.name.empty()) {
+            const std::string file = "replay/" + d.name + "/" + d.name;
+            if (rt.reader()(file)) return DemoStep{{}, {}, file};
+            rt.note("the demonstration's recording " + file + " is not on the disc");
+            continue;
+        }
         if (d.type != 0) rt.note("the demonstration's kind " + std::to_string(d.type) + " (" + d.name + ") plays nothing here");
     }
     return std::nullopt;

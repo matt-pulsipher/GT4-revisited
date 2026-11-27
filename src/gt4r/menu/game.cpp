@@ -21,7 +21,9 @@ struct Default {
 // MOption's attributes (the names are the program's registration table at 0x189E38) with the
 // values a new game starts from. The numbers are the program's constructors' (the option
 // block of a new game's saved data, checked against the running game after a new game:
-// volumes 115, the title's demo after 20 and the top menu after 600, ...). Several are names,
+// volumes 115, the title's demo after 20 and the top menu after 600, ...; and value by value
+// against the constructor's stores, Option 0x4363A0 at the offsets of save/game_data.cpp, the
+// LAN block 0x438C20, the event block 0x439840). Several are names,
 // the ones the option pages' scripts list ("NONE", "STEREO", "MPH", ...), saved by their numbers
 // in the program's tables of names (save/game_data.cpp); a new game's are the constructors'.
 const Default kDefaults[] = {

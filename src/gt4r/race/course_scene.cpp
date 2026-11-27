@@ -15,6 +15,15 @@ namespace gt4r::race {
 namespace scene = gt3r::scene;
 
 namespace {
+
+// The backdrop's depth (docs/formats/course.md "The race view's frame" step 3): only the projection's depth term is
+// multiplied by 100, so its sheen's viewer and its reflections' camera stay at the camera. A shared engine with an item depth
+// scale (DrawItem::depth_scale) draws it so; an older one takes Gran Turismo 3's 0.01 modelview scale, whose viewer and camera
+// collapse towards the model's origin.
+template <class Item> void backdrop_depth(Item& it) {
+    if constexpr (requires { it.depth_scale; }) it.depth_scale = 0.01f;
+    else it.modelview_scale = 0.01f;
+}
 float rd_float(ByteSpan d, size_t o) {
     const u32 v = gt3r::rd32(d, o);
     float f;
@@ -268,7 +277,7 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
         it.sphere_map = true;
         // Its depth is that of a point a hundred times nearer, so its far plane lies a hundred
         // times as far as the scenery's; the depth is cleared after it.
-        it.modelview_scale = 0.01f;
+        backdrop_depth(it);
         it.frame_alpha = true;
         it.guard_band = true;
         it.in_order = true;

@@ -348,7 +348,8 @@ std::shared_ptr<Object> GameNatives::make_music(const std::string& object) {
             r->sound(object, name, a);
             return Value{};
         });
-    m->method("isPlaying", [](Vm&, const Value&, Args) { return number(0); });
+    // isPlaying (0x2C3700): the stream object's, whether its stream plays (Runtime::stream_playing); the sequences' (midi) 0.
+    m->method("isPlaying", [r, object](Vm&, const Value&, Args) { return number(object == "sound.stream" && r->stream_playing && r->stream_playing()); });
     m->set("volume", Value::number(1)), m->set("repeat", number(0)), m->set("number", number(0));
     return m;
 }
@@ -363,7 +364,9 @@ Value GameNatives::make_sound() {
             r->sound("sound", name, a);
             return Value{};
         });
-    sound->method("isPlayingStream", [](Vm&, const Value&, Args) { return number(0); });
+    // isPlayingStream (0x23EA18): the stream object's isPlaying (the slide show's and Photo Lab's music player waits on it
+    // to start the next track).
+    sound->method("isPlayingStream", [r](Vm&, const Value&, Args) { return number(r->stream_playing && r->stream_playing()); });
     sound->set("midi", object_value(make_music("sound.midi")));
     sound->set("stream", object_value(make_music("sound.stream")));
     return object_value(sound);
@@ -748,7 +751,13 @@ Value GameNatives::make_game() {
     field(g, "max_entry", &q->max_entry), field(g, "laps", &q->laps), field(g, "difficulty", &q->difficulty);
     // ❓ "NORMAL" to begin with: the scripts expect one of their three names.
     field(g, "enemy_level", &q->enemy_level), field(g, "overwrite_enemy_num", &q->overwrite_enemy_num);
-    field(g, "car_code", &q->car), field(g, "car_color", &q->paint), field(g, "assist_type", &q->assist_type);
+    // (car_code: the player's car, entry 0 of the entry table, 0x1605F0 / 0x161A50 at +0xD8; set by its label, which clears a
+    // shifted entry's row)
+    g.property("car_code", [q] { return Value::string(q->car); }, [q](const Value& v) {
+        q->car = v.is_nil() ? std::string() : v.to_string(), q->car_enemy.clear();
+        if (!q->entry_enemies.empty()) q->entry_enemies[0].clear();
+    });
+    field(g, "car_color", &q->paint), field(g, "assist_type", &q->assist_type);
     field(g, "assist_asm", &q->assist_asm), field(g, "assist_tcs", &q->assist_tcs), field(g, "manual", &q->manual);
     field(g, "vibration", &q->vibration), field(g, "tire_idx", &q->tire);
     field(g, "car_code_2p", &q->car_2p), field(g, "car_color_2p", &q->paint_2p), field(g, "assist_type_2p", &q->assist_type_2p);
@@ -760,23 +769,38 @@ Value GameNatives::make_game() {
     g.set("selected_course", Value{}), g.set("selected_car", Value{});
     g.set("car_garage", Value{}), g.set("car_garage_2p", Value{});
     g.set("last_record", Value{}), g.set("labo_folder", number(-1)), g.set("labo_list_index", number(-1)); // ❓ none (what the theater's exit leaves)
-    // The race's entry table (MGame getEntryCarCode / setEntryCarCode): [car, paint] by the
-    // entry's number; entry 0 is the player's car (car_code, car_color), the opponents the scripts
-    // chose from 1 (arcade's doGame reads and writes 0 .. overwrite_enemy_num alike).
+    // The race's entry table (MGame getEntryCarCode 0x161810 / setEntryCarCode 0x161A50): [car, paint] by the entry's number,
+    // 0x68 bytes each from +0xD8 (the code at +0, the paint at +0x48); entry 0 is the player's car (car_code, car_color), the
+    // opponents the scripts chose from 1 (arcade's doGame reads and writes 0 .. overwrite_enemy_num alike). A label is a
+    // GENERIC_CAR row's or an ENEMY_CARS row's (0x447BB8: the first, else the second); an ENEMY_CARS row's entry is kept as
+    // its car with the row beside it (RaceRequest::entry_enemies) and answered by the row's label.
+    Database* base = &db();
+    const RuntimeConfig* cfg = &config;
     g.method("getEntryCarCode", [q](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
-        if (i == 0) return Value::array({text(q->car), number(q->paint)});
+        const std::string* enemy = i >= 0 && size_t(i) < q->entry_enemies.size() && !q->entry_enemies[size_t(i)].empty() ? &q->entry_enemies[size_t(i)] : nullptr;
+        if (i == 0) return Value::array({text(enemy ? *enemy : q->car), number(q->paint)});
         if (i < 0 || size_t(i) >= q->entries.size() || q->entries[size_t(i)].empty()) return Value::array({Value{}, number(0)});
-        return Value::array({text(q->entries[size_t(i)]), number(size_t(i) < q->entry_paints.size() ? q->entry_paints[size_t(i)] : 0)});
+        return Value::array({text(enemy ? *enemy : q->entries[size_t(i)]), number(size_t(i) < q->entry_paints.size() ? q->entry_paints[size_t(i)] : 0)});
     });
-    g.method("setEntryCarCode", [q](Vm&, const Value&, Args a) {
+    g.method("setEntryCarCode", [q, base, cfg](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
         if (i < 0 || i > 64) return Value{};
         if (q->entries.size() <= size_t(i)) q->entries.resize(size_t(i) + 1);
         if (q->entry_paints.size() <= size_t(i)) q->entry_paints.resize(size_t(i) + 1);
-        const std::string car = a.size() > 1 && !a[1].is_nil() ? a[1].to_string() : std::string();
-        q->entries[size_t(i)] = car, q->entry_paints[size_t(i)] = arg_int(a, 2);
-        if (i == 0 && !car.empty()) q->car = car, q->paint = arg_int(a, 2);
+        if (q->entry_enemies.size() <= size_t(i)) q->entry_enemies.resize(size_t(i) + 1);
+        std::string car = a.size() > 1 && !a[1].is_nil() ? a[1].to_string() : std::string(), enemy;
+        if (db::SpecDb* sdb = car.empty() ? nullptr : base->get(*cfg)) {
+            const db::Labels* cars = sdb->labels("GENERIC_CAR");
+            const db::Labels* enemies = sdb->labels("ENEMY_CARS");
+            const db::Table* rows = sdb->table("ENEMY_CARS");
+            const std::optional<u32> row = (!cars || !cars->id(car)) && enemies ? enemies->id(car) : std::nullopt;
+            const ByteSpan r = row && rows ? rows->row(*row) : ByteSpan{};
+            const std::string* of = r.size() >= 4 && cars ? cars->label(r32(r, 0)) : nullptr;
+            if (of) enemy = car, car = *of;
+        }
+        q->entries[size_t(i)] = car, q->entry_paints[size_t(i)] = arg_int(a, 2), q->entry_enemies[size_t(i)] = enemy;
+        if (i == 0 && !car.empty()) q->car = car, q->paint = arg_int(a, 2), q->car_enemy = enemy;
         return Value{};
     });
     // The pages the menus came through: a stack of names (the title page pushes the mode).
@@ -1286,7 +1310,8 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
     // The Replay Theater's replays (game_replays.cpp).
-    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY")
+    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY" || mode == "MODE_LOAD_BESTLAP_REPLAY" ||
+        mode == "MODE_REPLAY_PLAYLIST")
         install_replay_list(*this, *m, mode);
     if (mode == "MODE_DEMONSTRATION") install_demo_list(*this, *m, false);
     if (mode == "MODE_DEMONSTRATION_SUB") install_demo_list(*this, *m, true);
@@ -1599,15 +1624,22 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     }
     {
         // MRandom (0x2CB888): GetValue(lo, hi) from the program's generator (its state starts at
-        // 0x12345678); GetValue(lo, hi, seed) one draw of a generator seeded so.
+        // 0x12345678): a draw x (float)(hi - lo) (0x579398) + (float)lo, truncated; GetValue(lo, hi,
+        // seed) one draw of a generator seeded so: ((float)hi - (float)lo) x the draw + (float)lo
+        // (0x5792E8, 0x5792F0). In the EE's arithmetic.
         auto cls = make_class(menu, "MRandom");
         GameNatives* global = n.get();
         auto roll = [global](Vm&, const Value&, Args a) {
             if (a.size() < 2) return Value{};
+            using gt3r::ee::int_to_f;
             const s32 lo = arg_int(a, 0), hi = arg_int(a, 1);
-            ProgramRandom own{u32(arg_int(a, 2))};
-            ProgramRandom& g = a.size() > 2 ? own : global->random;
-            return number(s32(g.next01() * float(hi - lo) + float(lo)));
+            if (a.size() > 2) {
+                ProgramRandom own{u32(arg_int(a, 2))};
+                const sim::F d(own.next01());
+                return number(gt3r::ee::to_int((int_to_f(hi) - int_to_f(lo)) * d + int_to_f(lo)));
+            }
+            const sim::F d(global->random.next01());
+            return number(gt3r::ee::to_int(d * int_to_f(hi - lo) + int_to_f(lo)));
         };
         static_fn(*cls, "GetValue", roll);
         cls->construct = [roll](Vm&, Args) {
@@ -1707,19 +1739,19 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "NotForSell", flag(0));
         static_fn(*cls, "RaceForbidden", flag(2));
         static_fn(*cls, "IsTestCar", flag(5));
-        // ❓ Not read from the program yet: what the tires and the surface checks answer
-        // (0x448AD0 reads the car's tire rows), the dirt and snow versions of a car, the
-        // selling price and the opponents picked for a car.
-        // The car's row of ARCADEINFO_NORMAL: eight entries of {u32 row of RACE, u32 table}
-        // and a byte. The program's GetRaceCode (0x12E150) takes entry `difficulty` (0 to 2)
-        // on a dry course and entry 3 + `difficulty` on any other. ❓ Its tire and dirt checks
-        // read a rearranged copy of the row: the last byte is taken as "road tires" and entry 6
-        // as the dirt race.
+        // The car's row of ARCADEINFO_NORMAL: eight entries of {u32 row, u32 table} and a byte. The three
+        // natives read it through 0x448AD0 (the car's label as a GENERIC_CAR or ENEMY_CARS row, 0x447BB8, its
+        // row copied with the byte +0x40 moved ahead of entries 6 and 7, 0x448B48); a car without a row answers
+        // 0 (IsTireNormal, IsDirtRunnable) or nothing (GetRaceCode).
+        // GetRaceCode(car, kind, level) (0x12E150): entry `level` on a dry course (kind 0), 3 + `level` on any
+        // other; the level 0 when not given, 2 when 3 or more; a race through RACE's label (0x4470E8, 0x447280).
+        // IsTireNormal (0x12E388): the byte +0x40 not 0. IsDirtRunnable (0x12E498): entry 6 (the dirt race's
+        // ENEMY_CARS row) not all 0xFF.
         auto arcade = [d, n](Args a) -> ByteSpan {
             db::SpecDb* db = d->get(n->config);
             const db::Labels* labels = db ? db->labels("ARCADEINFO_NORMAL") : nullptr;
             const db::Table* table = db ? db->table("ARCADEINFO_NORMAL") : nullptr;
-            const std::optional<u32> id = labels ? labels->id(arg_text(a, 0)) : std::nullopt;
+            const std::optional<u32> id = labels && !a.empty() ? labels->id(arg_text(a, 0)) : std::nullopt;
             return table && id ? table->row(*id) : ByteSpan{};
         };
         auto entry = [](ByteSpan r, size_t i) -> s32 {
@@ -1727,15 +1759,18 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         };
         static_fn(*cls, "IsTireNormal", [arcade](Vm&, const Value&, Args a) {
             const ByteSpan r = arcade(a);
-            return number(r.size() > 0x40 ? r[0x40] != 0 : 1);
+            return number(r.size() > 0x40 && r[0x40] != 0);
         });
         static_fn(*cls, "IsDirtRunnable", [arcade, entry](Vm&, const Value&, Args a) {
             const ByteSpan r = arcade(a);
-            return number(r.empty() ? 0 : entry(r, 6) != -1);
+            return number(r.size() >= 0x38 && !std::all_of(r.begin() + 0x30, r.begin() + 0x38, [](u8 b) { return b == 0xFF; }));
         });
         static_fn(*cls, "GetRaceCode", [arcade, entry, d](Vm&, const Value&, Args a) {
+            if (a.size() < 2) return Value{};
             const ByteSpan r = arcade(a);
-            const s32 type = arg_int(a, 1), level = std::clamp(a.size() > 2 && a[2].kind == Kind::String ? s32(std::strtol(a[2].as_string().c_str(), nullptr, 0)) : arg_int(a, 2), 0, 2);
+            const s32 type = arg_int(a, 1);
+            s32 level = a.size() > 2 ? (a[2].kind == Kind::String ? s32(std::strtol(a[2].as_string().c_str(), nullptr, 0)) : arg_int(a, 2)) : 0;
+            level = std::clamp(level, 0, 2); // ❓ below 0 the program reads before the row's entries; no script passes one
             const s32 id = entry(r, size_t(type == 0 ? level : 3 + level));
             const db::Labels* races = d->db && id != -1 ? d->db->labels("RACE") : nullptr;
             const std::string* label = races ? races->label(u32(id)) : nullptr;
@@ -1757,8 +1792,33 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             const ByteSpan r = row(a);
             return number(r.size() >= 0x0C ? s32((u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24) / 4) : 0);
         });
-        for (const char* same : {"ShiftCarCode", "GetDirtCarCode", "GetSnowCarCode"})
-            static_fn(*cls, same, [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
+        // The car's dirt and snow versions: the label of its ARCADEINFO_NORMAL row's entry 6 (GetDirtCarCode 0x12F8B8) or 7
+        // (GetSnowCarCode 0x12FBB0), ENEMY_CARS rows (0x447CA0); the car itself without a row or a label. ShiftCarCode(car,
+        // course) (0x12F3E0): on a course of surface 2 (dirt) the first, 3 (snow) the second, else the car (COURSE +0x10,
+        // 0x447F48; a course without a row as 0). On the US disc the rows differ from the cars' own parts in the tires (all
+        // 1,112), the race's own (sim/race_tires.h) on those courses, and three cars in one more part each (mtr_gmv_04 the
+        // steering, trd_celica_sportm_00 the muffler, pikespeak_quattro_03 the TCS); none names settings.
+        auto version = [arcade, d](Args a, size_t which) -> Value {
+            if (a.empty()) return Value{};
+            const std::string car = a[0].to_string();
+            const ByteSpan r = arcade(a);
+            const db::Labels* enemies = d->db ? d->db->labels("ENEMY_CARS") : nullptr;
+            const u32 id = r.size() >= which * 8 + 4 ? r32(r, which * 8) : 0xFFFFFFFFu;
+            const std::string* label = enemies && id != 0xFFFFFFFFu ? enemies->label(id) : nullptr;
+            return text(label ? *label : car);
+        };
+        static_fn(*cls, "GetDirtCarCode", [version](Vm&, const Value&, Args a) { return version(a, 6); });
+        static_fn(*cls, "GetSnowCarCode", [version](Vm&, const Value&, Args a) { return version(a, 7); });
+        static_fn(*cls, "ShiftCarCode", [version, d, n](Vm&, const Value&, Args a) {
+            if (a.size() < 2) return Value{};
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("COURSE") : nullptr;
+            const db::Table* table = db ? db->table("COURSE") : nullptr;
+            const std::optional<u32> id = labels ? labels->id(arg_text(a, 1)) : std::nullopt;
+            const ByteSpan row = table && id ? table->row(*id) : ByteSpan{};
+            const u8 surface = row.size() > 0x10 ? row[0x10] : 0;
+            return surface == 2 || surface == 3 ? version(a, surface == 2 ? 6 : 7) : text(a[0].to_string());
+        });
         static_fn(*cls, "GetDescriptionID", [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
         // PickUpEnemyCars(car, list, offset, range, count, dirt) (0x1308C8; game_opponents.h): [[car, paint], ...].
         GameNatives* np = n.get();

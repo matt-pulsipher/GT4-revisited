@@ -126,6 +126,34 @@ too (every one on the 110 courses reads as a whole number, every one of an unpac
 
 Scales seen: 0.002 (courses), 2 / 32767 (wheels), 5 / 32767 and 6 / 32767 (car bodies).
 
+## Lighting
+
+How the renderer lights a shape (the cars, the courses, the menus' faces alike): its state object at scratchpad 0x70002000,
+the per-vertex programs of VU1 (0x3FF0 bytes uploaded once from 0x624DD0 by 0x4A03C0; read from a saved state's VU1 program
+memory). It is the shared engine's renderer state machine (presentation.md §M of the engine) rewritten, with the same rules:
+
+- **Set-up by kind** (chunk flags bits 0-4; tables 0x6AF750 and 0x6AF770): kind 2 0x49F1F8, kind 3 0x49F4C8 / 0x49F448,
+  kind 5 0x49F0F0, kind 6 0x49CFE8; the lit kinds 1 (0x49EA80) and 4 (0x49EB90) when the lights or the material changed.
+- **Lights**: eight records of 0xD0 at +0x3E0 (Light 0x4A5BF8, ids 0x65..0x6C). Slots (0x49ECF8): the enabled directional
+  lights with a diffuse or specular colour, in light order, at most four; point lights add ambient only. In object space
+  (0x49EE00, the modelview's rigid inverse): L, and H = normalize(L + the view's back axis). Material x lights (0x49F038):
+  A = Me + Ma (Ga + sum of every light's La); per slot Md Ld and Ms Ls. LightModel (0x4A5CC0): pname 0 the global ambient
+  Ga (+0xAE0), 1 a local viewer, 3 the viewer, 4 H from the view axis alone; every caller (the race's lights, the menus'
+  `MModel`, the photo mode) passes only 0.
+- **Kind 1**: colour = clamp(s A + sum s D_k max(N.L_k, 0) + sum s S_k max(N.H_k, 0)^p, 0, (255, 255, 255, t)), truncated;
+  s, t = 255 or 128 by the chunk's byte 9 (bits 0, 1). Program 0x169 without specular (no light with one, or Ms = 0); with
+  specular, 0x23 / 0x52 / 0x83 for up to two slots and 0xB6 / 0xF1 / 0x12C for three or four, p = 4 / 8 / 16 for a
+  shininess below 6 / below 12 / else. Program 0x52 starts each vertex's sum by adding to the last one's partial dot product
+  (at most a level or two). The engine's kind 1 is this rule.
+- **Kind 4** (the sheen, 0x49EB90): specular alone from the first slot against a viewer in object space (x 1 / the shape's
+  scale for packed shapes), RGB = s Ls Ms max(L.R / |D|, 0)^p, alpha 127, not clamped. **p = 8 for a shininess below 12, 16
+  from 12** (programs 0x195 and 0x1D4; Gran Turismo 3's renderer and Prologue's, 0x44F960, pick 4 / 8 / 16 at 6 / 12). The
+  conversion to GTM1 lifts a material only kind-4 shapes use to a shininess of 6, so the engine picks this game's exponent
+  (174 course and 217 car sheen primitives; `gt4tool looks <disc> materials`, test `disc_sheen_exponent_is_this_games`).
+- **Fog** (constants 0x4A40B0; the transform loops): F = trunc(b' + 0.1 + (255 - b') min(W, A) / W), b' = clamp(255 b, 0,
+  255), A = max(A, 0), W the clip w, written with 4 fractional bits; the constant is 0.099999994 (Gran Turismo 3's 0.1). There
+  is no distance factor: the backdrop's fog is at its true distance (course.md "The race view's frame"). The engine's rule.
+
 ## Texture sets
 
 A draw program selects a set of the current list with 0x2B / 0x2C, or draws with one of 16

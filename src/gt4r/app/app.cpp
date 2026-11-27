@@ -262,17 +262,7 @@ bool App::init(int argc, char** argv) {
     if (const char* t = SDL_getenv("GT4R_TOUCH"); mobile || (t && *t == '1')) {
         touch_ui_ = true;
         touch_.load(config_);
-        // Over the game's menus Select and Start go under L1 and R1, at the screen's sides, not over the middle of the page's
-        // top (the shared engine's place for them); a place the player gave them in [touch] stays theirs.
-        gt3r::TouchConfig tc = touch_.controls().config();
-        for (const auto& [key, side] : {std::pair{"menu.select", gt3r::TouchPlacement::AnchorX::Left}, std::pair{"menu.start", gt3r::TouchPlacement::AnchorX::Right}})
-            if (!config_.get("touch", key)) {
-                gt3r::TouchPlacement p = tc.placement(key);
-                p.ax = side, p.ay = gt3r::TouchPlacement::AnchorY::Top;
-                p.x = 20 * tc.size, p.y = 36 * tc.size; // (L1 and R1 are 40 x 20 at the corners)
-                tc.set_placement(key, p);
-            }
-        touch_.controls().configure(tc);
+        place_touch_top(false);
         if (!mobile) touch_.controls().note_touch();
     }
 #if GT3R_XR
@@ -354,7 +344,7 @@ std::vector<std::string> App::parse_key_script(std::string_view text) {
     for (std::string_view line : gt3r::split(text, '\n')) {
         if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
         for (std::string_view k : gt3r::split(line, ','))
-            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" || t.substr(0, 5) == "type:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
     }
     return keys;
 }
@@ -506,6 +496,15 @@ gt3r::PadState App::scripted_keys() {
             event(e);
             return pad;
         }
+        if (k.compare(0, 5, "type:") == 0) { // text typed on a keyboard
+            SDL_Event e{};
+            std::string text = k.substr(5);
+            for (size_t at; (at = text.find("\\n")) != std::string::npos;) text.replace(at, 2, "\n"); // ("\n": Enter)
+            ++key_, key_frames_ = 0;
+            e.type = SDL_EVENT_TEXT_INPUT, e.text.text = text.c_str();
+            event(e);
+            return pad;
+        }
         if (k.compare(0, 5, "shot:") == 0) { // a picture of this frame, then the next key
             key_shot_ = k.substr(5), ++key_, key_frames_ = 0;
             return pad;
@@ -588,6 +587,7 @@ SDL_AppResult App::iterate() {
     const bool modal = updates().modal(); // the update dialog takes the menu input
     if (touch_ui_) { // (player 1's pad from the on-screen controls, under what a script presses)
         const Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        if (const bool row = top && !modal && top->touch_top_row(); row != touch_top_row_) place_touch_top(row);
         touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), false, *input_);
     }
     gt3r::PadState scripted = scripted_keys();
@@ -742,6 +742,35 @@ SDL_AppResult App::iterate() {
     if (double(end_ticks_ - before_present) / 1e6 > 250) LOG_WARN("Frame %d: presenting took %.0f ms", frame_, double(end_ticks_ - before_present) / 1e6);
     if (double(before_present - now) / 1e6 > 250) LOG_WARN("Frame %d: its work took %.0f ms", frame_, double(before_present - now) / 1e6);
     return quit_ ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
+}
+
+void App::place_touch_top(bool row) {
+    // Over the game's menus Select and Start go under L1 and R1, at the screen's sides, not over the middle of the page's top
+    // (the shared engine's place for them). Over a race's display all four make one row at the top's middle (the display's
+    // place and lap at the left corner, the best and last laps at the right). A place the player gave one in [touch] stays theirs.
+    touch_top_row_ = row;
+    gt3r::TouchConfig tc = touch_.controls().config();
+    struct Top {
+        const char* key;
+        float row_x; // the row's: from the middle, in the button's 40 x 20 units
+    };
+    for (const Top& t : {Top{"menu.l1", -66}, Top{"menu.select", -22}, Top{"menu.start", 22}, Top{"menu.r1", 66}}) {
+        if (config_.get("touch", t.key)) continue;
+        const bool side = std::string_view(t.key) == "menu.select" || std::string_view(t.key) == "menu.start";
+        gt3r::TouchPlacement p = tc.placement(t.key);
+        if (row) {
+            p.ax = gt3r::TouchPlacement::AnchorX::Centre, p.ay = gt3r::TouchPlacement::AnchorY::Top;
+            p.x = t.row_x * tc.size, p.y = 10 * tc.size;
+        } else if (side) {
+            p.ax = std::string_view(t.key) == "menu.select" ? gt3r::TouchPlacement::AnchorX::Left : gt3r::TouchPlacement::AnchorX::Right;
+            p.ay = gt3r::TouchPlacement::AnchorY::Top;
+            p.x = 20 * tc.size, p.y = 36 * tc.size; // (L1 and R1 are 40 x 20 at the corners)
+        } else {
+            p = gt3r::TouchPlacement{}; // (L1 and R1: the engine's corners)
+        }
+        tc.set_placement(t.key, p);
+    }
+    touch_.controls().configure(tc);
 }
 
 SDL_AppResult App::event(const SDL_Event& e) {

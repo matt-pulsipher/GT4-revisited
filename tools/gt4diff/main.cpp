@@ -11,6 +11,7 @@
 #include "prologue_race.h"
 #include "save_check.h"
 #include "showroom_check.h"
+#include "natives_check.h"
 #include "states.h"
 
 namespace gt4r::diff {
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
         if (test == "prologue-near") // gt4r_diff <prologue disc> prologue-near [course] [car,car,...] [steps]
             return gt4r::diff::prologue::run_near(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_r_98,impreza_wrc_03,civic_r_98", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "save" && argc > 3) return gt4r::diff::run_save_check(*disc, argv[3]); // gt4r_diff <disc> save <folder or card image> (save_check.cpp)
+        if (test == "passcode") return gt4r::diff::run_passcode(*disc, argc > 3 ? std::atoi(argv[3]) : 200) ? 0 : 1; // gt4r_diff <disc> passcode [n] (passcode.cpp)
         if (test == "prologue-passcode") return gt4r::diff::prologue::run_passcode(*disc, argc > 3 ? std::atoi(argv[3]) : 200) ? 0 : 1;
         if (test == "prologue-save") return gt4r::diff::prologue::run_save_layout(*disc) ? 0 : 1; // gt4r_diff <prologue disc> prologue-save
         if (test == "prologue-start") { // gt4r_diff <prologue disc> prologue-start (prologue_start_tables.cpp)
@@ -62,6 +64,7 @@ int main(int argc, char** argv) {
             return gt4r::diff::prologue::run(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_typer_97", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "showroom") ok = gt4r::diff::run_showroom(*disc, true, argc > 3 ? size_t(std::atoi(argv[3])) : 0).ran && ok;
         if (test == "showroom" || test == "picker") ok = gt4r::diff::run_picker(*disc, true).ran && ok;
+        if (test == "natives") ok = gt4r::diff::run_natives(*disc, true).ran && ok; // the calendar's natives (natives.cpp)
         if (test == "showroom" || test == "charts") ok = gt4r::diff::run_charts(*disc, true).ran && ok;
         if (test == "showroom" || test == "book") ok = gt4r::diff::run_bspec_book(*disc, true).ran && ok;
         if (test == "ai") { // gt4r_diff <disc> ai [course] [car,car,...] [laps]

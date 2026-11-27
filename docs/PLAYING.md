@@ -59,8 +59,9 @@ Triangle and Square go back). In races, unless you change it:
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter (or W) is Cross, Escape and Backspace Triangle, Space Circle, S Square,
-Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. The name entry's letters are chosen on its own keyboard
-with the arrows and Enter. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
+Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. On the name entry a keyboard types: each letter presses the
+page's own key (the game's capital and small letters as its keyboard gives them), Backspace deletes, Enter is the page's
+Enter; its keys can also be chosen with the arrows, or tapped on a phone (whose own keyboard stays closed). F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
 mouse's arrow goes after two seconds without it.
 
 **The game's own Options** work as the console's, but for the controller pages: the button configurations (every pad's and
@@ -109,7 +110,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   rate counter; gamma over the whole picture; anti-aliasing; anisotropic filtering; the 3D views' resolution, and
   whether it is lowered while the GPU is too slow; the menus' cars and prizes at the screen's resolution or the
   console's 640x448; the 3D renderer.
-- *Audio*: the output device; the music's and the effects' volume, on top of the game's own options; whether sounds behind you
+- *Audio*: the output device; the music's and the effects' volume, on top of the game's own options (both at 100% to start, so the
+  game's own option levels are what plays); whether sounds behind you
   are sent as the console sends them (one side turned over, for a surround decoder) or plain.
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
@@ -151,8 +153,8 @@ race_views = original    ; original | all
 in_car_shake = on        ; on | off
 [audio]
 device =                 ; an output device's name; empty: the system's
-music_volume = 0.80
-effects_volume = 0.80
+music_volume = 1.00
+effects_volume = 1.00
 rear_cue = on            ; on | off
 [saves]
 folder =                 ; empty: the data folder
@@ -277,7 +279,6 @@ The ones a player meets first:
   Turismo 4 Prologue (Japan, SCPS-15055) are the tested releases. Another release opens with "not a tested release" on
   the home screen, and parts of it may not work. The Japanese release races on the US release's driving, computer-driver
   and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
-- Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.
 - Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
@@ -372,7 +373,7 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   the texture packs. The race display's place on a 4:3 picture is the program's, and its 16:9 push of the parts tied to a
   side (96 units) too; on a picture wider than 16:9 those parts go out with the picture's edge, and on one narrower
   than 4:3 (fill on a screen squarer than 4:3, down to 1:1) the display fits the width with its top and bottom parts at
-  the picture's edges (ours: `race/game_area.h`, `RaceHud`'s EdgeScope; Prologue's display fits the width in the middle).
+  the picture's edges (ours: `race/game_area.h`, `RaceHud`'s EdgeScope; Prologue's display likewise: its own EdgeScope in `race_hud_prologue.cpp`, the middle's messages staying).
   The 3D view of a race or replay shows more at the sides on a picture wider than 4:3 and keeps 4:3's width of the scene,
   showing more above and below, on a narrower one (ours: `ViewPose::fovy(aspect)`). With touch controls up, the chase
   panel's side groups move clear of them; where that would bring a group onto the sideways G meter it is drawn smaller about its
@@ -383,7 +384,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   submodule; the app is ours (`GT4Activity`, the manifest, `org.gt4revisited.gt4r`). The on-screen touch controls are the
   shared engine's (`input/touch_controls`, `app/screen_touch_overlay`): its D-pad and buttons over the game's menus and pauses,
   its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Ours: Select and
-  Start under L1 and R1 at the screen's sides over the menus; the race display's lower corner parts (meters, signs, fuel) moved
+  Start under L1 and R1 at the screen's sides over the menus, the four in one row at the top's middle over a race's display
+  (`Screen::touch_top_row`: its pause, replays; clear of the place and the lap times at the corners); the race display's lower corner parts (meters, signs, fuel) moved
   sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); the race's pause, PIT STOP menu and
   split-screen pause take a tap on a row (the first focuses it, the second chooses it; a mouse's hover focuses); their settings in Settings › Controls
   (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),

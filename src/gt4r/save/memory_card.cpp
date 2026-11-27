@@ -62,6 +62,12 @@ const char* result_name(Result r) {
     return "UNKOWN RESULT";
 }
 
+bool is_prologue_product(const std::string& product) {
+    const bool region = product.size() > 2 && product[0] == 'B' && product[1] >= 'A' && product[1] <= 'Z' && product[2] == 'S';
+    const std::string p = region ? product.substr(2) : product;
+    return p == "SCPS-15055" || p == "SCES-52438" || p == "SCKA-20022";
+}
+
 GameSave::GameSave(std::string card, Codes codes, Reader disc, std::string product)
     : card_(std::move(card)), codes_(std::move(codes)), disc_(std::move(disc)) {
     // The folder: "BA" + the product + "GAMEDATA" (0x1CC958, 0x1CDA48); its data file has the
@@ -69,7 +75,8 @@ GameSave::GameSave(std::string card, Codes codes, Reader disc, std::string produ
     // (A product with its region's letters already, "BISCPS-15055" (Prologue's 0x19BCB0), keeps them.)
     const bool region = product.size() > 2 && product[0] == 'B' && (product[1] == 'A' || product[1] == 'I' || product[1] == 'E');
     name_ = (region ? product : "BA" + product) + "GAMEDATA";
-    prologue_ = region && product[1] == 'I';
+    prologue_ = is_prologue_product(product);
+    layout_ = layout_of_product(product);
     if (!card_.empty()) folder_ = (fs::path(card_) / name_).string() + "/";
 }
 
@@ -223,7 +230,7 @@ Result GameSave::save(GameState& s) {
     if (!serial) serial = 1;
     if (const Result r = update_header(s, serial, true); r != Result::Ok) return r;
     const Bytes payload = write_game(s, codes_);
-    if (!write(name_, scramble(payload, 0, clock_word()))) return Result::DeviceError;
+    if (!write(name_, scramble(to_layout(payload, layout_), 0, clock_word()))) return Result::DeviceError;
     s.garage_serial = serial;
     s.saved_image = payload;
     return Result::Ok;
@@ -234,7 +241,8 @@ Result GameSave::load_instance(GameState& into) const {
     const std::optional<Bytes> file = read(name_);
     if (!file) return Result::FileNotFound;
     if (prologue_) return read_prologue(*file, into) ? Result::Ok : Result::InvalidFile;
-    const std::optional<Bytes> payload = unscramble(*file, 0);
+    const std::optional<Bytes> file_payload = unscramble(*file, 0);
+    const std::optional<Bytes> payload = file_payload ? from_layout(*file_payload, layout_) : std::nullopt;
     if (!payload || !read_game(*payload, into, codes_)) return Result::InvalidFile;
     return Result::Ok;
 }
@@ -249,7 +257,8 @@ Result GameSave::load(GameState& s) {
         s.saved_image = std::move(loaded.saved_image), s.username = loaded.username, s.prologue_license = std::move(loaded.prologue_license);
         return Result::Ok;
     }
-    const std::optional<Bytes> payload = unscramble(*file, 0);
+    const std::optional<Bytes> file_payload = unscramble(*file, 0);
+    const std::optional<Bytes> payload = file_payload ? from_layout(*file_payload, layout_) : std::nullopt;
     if (!payload || !valid_game(*payload)) return Result::InvalidFile;
     // The garage file first, so a game whose garage does not match leaves the state as it was.
     std::optional<Bytes> garage = read("garage");
@@ -286,7 +295,7 @@ Result GameSave::load(GameState& s) {
     return Result::Ok;
 }
 
-Bytes GameSave::payload(const GameState& s) const { return prologue_ ? write_prologue(s) : write_game(s, codes_); }
+Bytes GameSave::payload(const GameState& s) const { return prologue_ ? write_prologue(s) : to_layout(write_game(s, codes_), layout_); }
 
 Result GameSave::remove() {
     if (!connected()) return Result::NoCard;

@@ -86,6 +86,9 @@ struct Tables {
     // is 0), spring +0xBD + k (x 10) and damping +0xBF + k; the surfaces whose offset aims at 0 (0x504AC0 + surface). No
     // compliance steer.
     rules::SteerTables steer;
+    // The in-line layout's (kind 1) steered wheel's lean term (0x3B5998): the special table's row (0x5040F8 + 0x78 r, by the
+    // parameter block's +0x33, 0 past 2) +0x30.
+    std::array<F, 3> lean_gain{};
     // The pad's pedals (0x3DE270): with the controller settings' byte +0x11 (0x504961) set, an analog throttle (while
     // pressed) and brake move toward the pad's value by at most a step a frame (0x504AA8 / 0x504AAC the throttle's up and
     // down, 0x504AB0 / 0x504AB4 the brake's), except on a steering wheel (controller kinds 4 and 6).
@@ -189,6 +192,7 @@ struct CarPart {
     F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
+    F in_line_lean;               // F +0x3AC: the in-line layout's lean term (the suspension's, 0x375F58; the attitude reads it)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
     // The parameter block's engine (+0x138) and driveline (+0x1F8) and the tires' radii (+0x274 ..) in Gran Turismo 4's form,
@@ -207,10 +211,13 @@ int gear_for_speed(const ex::Car& c, F v);
 void moving_start(ex::Car& c, F v);
 // 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
 u16 mileage(F fuel, F distance);
-// 0x3DC1C8's part for the drivers (phase 14), into the records' c.ai: the zone cells of the cars around (0x4281E8: at least 2
-// beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
-// on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
-void near_drivers(std::span<ex::Car> cars);
+// 0x3DC1C8 (phase 14): which cars are near which: for each pair that sees the other (0x3DBD10: neither a ghost, both on or
+// both off a pit lane, within 100 m and the other's height + 5 m) the drivers' zone cells of the cars around (0x4281E8: at
+// least 2 beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners), the position codes (0x3DC0B0, the
+// conductor + 0xDCF4 + 8 i + j), within 20 m the contact with a car closed on (0x3DBEE8, 0x428530: 1 over 5 km/h, 0.5 within 5 s,
+// else 0.05 under half a meter and 0.1 under 4 m) and the slipstream behind the other (0x3DC038, the conductor + 0xDBF4 +
+// 4 (8 i + j)); then each car's slipstream target (F +0x52C) the sum, at most 1.
+void proximity(std::span<ex::Car> cars, ex::Proximity& k);
 // The parameter block's engine and driveline (Gran Turismo 3's layout, Prologue's converter's) in Gran Turismo 4's form: the
 // torque curve, limits, turbo stages, the driveline's layout, gears (at most 7 of the block's 8 ratios), differentials, the
 // shift speeds, inertias, and each axle's tire radius and width.
@@ -263,11 +270,15 @@ void class_grip(ex::Car& c, const rules::WheelLayout& l, const ex::ClassGrip& gr
 // the drive block's +0x1C, the mean slip angle the record's F +0x420) and forward step (0x3BAC98), and its lateral forces.
 void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettings& g, const ex::ClassGrip& grip, const Tables& t);
 
-// 0x3B5A20 (phase 7): each wheel's steer angle as the engine's (equal at every call; it also leaves the angle's sine and
-// cosine in the drive block for the engine's routines that read them, where Prologue keeps the offset's rate and the offset),
-// then with the steering mode on each wheel's steering offset: Gran Turismo 4's (0x3F7EA8's offset, its spring, damping,
-// scale and limits) but for a wheel without the slip's fade, whose offset aims at 0 (mode 1). No follower of the steering
-// command, no compliance steer.
+// 0x3B5898: wheel w's steer angle (the layout's kinds but 1): a wheel ahead of the center of gravity the command times the
+// steering ratio of its side (P +0x110: the left's for a left wheel turning right, the other's turning left), a middle one's
+// the command itself; plus its axle's toe (P +0xE38) on the right, minus it on the left. 0x3B5998 (kind 1, in line): the
+// steered wheel's the command times cos(the row's lean term) x (3 - 2 cos(the body's roll against the ground's)).
+F wheel_angle(const ex::Car& c, const CarPart& x, const Tables& t, int w);
+// 0x3B5A20 (phase 7): each wheel's steer angle over the wheel layout (wheel_angle), then with the steering mode on each
+// wheel's steering offset: Gran Turismo 4's (0x3F7EA8's offset, its spring, damping, scale and limits) but for a wheel without
+// the slip's fade, whose offset aims at 0 (mode 1), the offset's rate and the offset kept in the drive block's +0x18 / +0x1C.
+// No follower of the steering command, no compliance steer.
 void wheel_steer(ex::Car& c, CarPart& x, const Tables& t);
 
 // 0x3DDA10 (Gran Turismo 4's 0x3485D0): the steering follower, the command F +0x420 (the engine's steer_cmd) and its rate

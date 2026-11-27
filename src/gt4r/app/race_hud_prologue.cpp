@@ -12,11 +12,13 @@
 #include "gt4r/menu/kanji_font.h"
 #include "gt4r/menu/text_layout.h"
 #include "gt4r/menu/text_table.h"
+#include "gt4r/race/display_mode_prologue.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "vfs/vfs.h"
 
 #include <algorithm>
+#include <optional>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -38,6 +40,14 @@ float wide_side() { return game_area::side(); }
 float scale_x() { return game_area::scale(); }
 float scale_y() { return game_area::scale() * (480.0f / 448.0f); }
 float frame_top() { return game_area::top() * game_area::scale(); } // UI units above the frame
+// Ours: how far (UI units) the parts drawn now move down: on a picture narrower than 4:3 the top's up and the bottom's down by what
+// the picture has above and below the frame, to its edges (EdgeScope); the middle's messages stay.
+float edge_ui = 0;
+struct EdgeScope {
+    explicit EdgeScope(float dir) : was(edge_ui) { edge_ui = dir * frame_top(); }
+    ~EdgeScope() { edge_ui = was; }
+    float was;
+};
 
 // The display's colors (its program's constants; the GS order, alpha 0x80 opaque).
 constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGreen = 0x809CB246, kEvent = 0x802BCC49;
@@ -45,7 +55,7 @@ constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGree
 struct Box {
     float x = 0, y = 0, w = 0, h = 0;
 };
-SDL_FRect to_ui(const Box& b) { return {(b.x + wide_side()) * scale_x(), b.y * scale_y() + frame_top(), b.w * scale_x(), b.h * scale_y()}; }
+SDL_FRect to_ui(const Box& b) { return {(b.x + wide_side()) * scale_x(), b.y * scale_y() + frame_top() + edge_ui, b.w * scale_x(), b.h * scale_y()}; }
 // 0x3956A0 / 0x395638: a box's left edge by the alignment: 0 left, 1 right, 2 centered, + 4 to the wide picture's edge.
 float left_of(float x, float w, int align) {
     const float wide = (align & 4) ? wide_side() : 0;
@@ -129,6 +139,7 @@ struct PrologueHud::Impl {
     std::array<float, 2> pedals{}; // the replay monitor's last brake and throttle
     float sign = 0;                // the wrong-way sign's fade
     float rank_shown = 0; // the rank's rolling digit (+0x2C)
+    float lap_step = -1;  // the lap counter's step past its lap (+0x70): the first lap's width, kept
     double clock = 0, step = 0;
     Uint64 last_ns = 0;
 
@@ -236,7 +247,7 @@ struct PrologueHud::Impl {
     void triangles(const std::vector<SDL_Vertex>& v) { SDL_RenderGeometry(r, nullptr, v.data(), int(v.size()), nullptr, 0); }
     static SDL_Vertex vertex(float x, float y, const Rgba8& c) {
         SDL_Vertex v{};
-        v.position = {(x + wide_side()) * scale_x(), y * scale_y() + frame_top()};
+        v.position = {(x + wide_side()) * scale_x(), y * scale_y() + frame_top() + edge_ui};
         v.color = {float(c.r) / 255, float(c.g) / 255, float(c.b) / 255, float(c.a) / 255};
         return v;
     }
@@ -410,7 +421,7 @@ void PrologueHud::Impl::draw_rank(const hr::HudRow& row, int place_now, float op
     if (place_now >= 1 && place_now <= 9) text(f, x + float(int(width(f, "0") * 0.9f)), y, kGray, opacity, kEnds[place_now]);
 }
 
-// 0x394448: "Lap" in DC_12, the lap in FC_26, the slash and the laps at 0.77.
+// 0x394448 (RaceRichCountDisplay::vf5): "Lap" in DC_12, the lap in FC_26, the slash and the laps at 0.77.
 void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float opacity) {
     float x = left_of(row.x, 0, row.align);
     const float y = row.y;
@@ -423,11 +434,14 @@ void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float
     const float down = (line_height(big) - line_height(label)) * 0.3f;
     text(big, x, y + down, kOrange, opacity, now);
     if (laps <= 0) return;
-    x += float(int(width(big, now)));
+    // The slash at the pen the lap's digits left; the laps at the first lap's width (measured once and kept, +0x70) and then
+    // 15 divided by the slash's scale (int(15 / 0.77) = 19, +0x74).
+    const float pen = width(big, now);
+    if (lap_step < 0) lap_step = float(int(pen));
     FontSpec small = big;
     small.sx = small.sy = 0.77f;
-    text(small, x, y + down, kGray, opacity, "/");
-    x += 15;
+    text(small, x + pen, y + down, kGray, opacity, "/");
+    x += lap_step + float(int(15 / small.sx));
     text(small, x, y + (line_height(big) * 0.77f - line_height(label)) * 0.3f, kOrange, opacity, std::to_string(laps));
 }
 
@@ -766,6 +780,7 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     m.step = m.last_ns ? std::min(0.1, double(now - m.last_ns) / 1e9) : 0;
     m.clock += m.step;
     m.last_ns = now;
+    std::optional<EdgeScope> bottom(std::in_place, 1.0f); // (the logos at the bottom right: the game's mark, the course's)
     if (!e.live && !e.guide) { // (a replay: the display hidden by default; the mark of the game fades in and out over a minute)
         const double t = std::fmod(m.clock + 54, 60.0);
         const float a = t < 30 ? float(std::clamp(t / 3, 0.0, 1.0)) : float(std::clamp((33 - t) / 3, 0.0, 1.0));
@@ -773,9 +788,8 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
         m.draw_picture(p, {left_of(604, p.w, 5), 423 - p.h, p.w, p.h}, 0x80808080, 0.5f * a);
         if (!s.replay_display) return;
     }
-    hr::HudModeSelect select;
-    select.run = e.run, select.event_laps = s.laps, select.play = e.live ? hr::HudPlay::Live : hr::HudPlay::Replay;
-    const hr::HudMode mode = hr::hud_mode(select);
+    // Prologue's own choice (race/display_mode_prologue.h): no endurance mode for a run of 10 laps or more (lesson 35).
+    const hr::HudMode mode = race::prologue_display_mode(e.run, e.live ? hr::HudPlay::Live : hr::HudPlay::Replay);
     // The opening (0x389D30): the course's logo for 5 s from half a second (fading in over half a second and out over one), the display
     // fading in over half a second from 4.5 s before the start.
     float opacity = std::clamp(s.opacity, 0.0f, 1.0f);
@@ -792,11 +806,16 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     // routine not read).
     const float target_opacity = opacity;
     if (e.over_t >= 0) opacity *= std::clamp(1 - e.over_t / 0.25f, 0.0f, 1.0f);
+    bottom.reset();
     const int view = e.onboard ? 0 : 1;
     for (const hr::HudRow& row : hr::hud_layout(mode)) {
         if (row.view != hr::kAnyView && int(row.view) != view) continue;
         // (a lesson's guide film: the pedals, the clock and the simple panel; ✔ the original's lesson 1)
         if (e.guide && row.part != hr::HudPart::AccelBrake && row.part != hr::HudPart::TimeLine && row.part != hr::HudPart::Meters) continue;
+        // The parts at the top or the bottom to the picture's edges; the messages, events and title in the middle stay.
+        const bool middle = row.part == hr::HudPart::Messages || row.part == hr::HudPart::Events || row.part == hr::HudPart::Title;
+        const bool low = row.part == hr::HudPart::Meters || row.part == hr::HudPart::AccelBrake || row.part == hr::HudPart::CarName || row.y > 224;
+        const EdgeScope edge(middle ? 0.0f : low ? 1.0f : -1.0f);
         switch (row.part) {
         case hr::HudPart::Rank:
             if (s.show_position && mode != hr::HudMode::License) m.draw_rank(row, s.place, opacity);

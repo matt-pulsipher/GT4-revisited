@@ -700,7 +700,9 @@ change done), +0x4BA the hold counter, +0x5C2 a tire past its wear, +0x5C3 the p
   1; cond + 0xDA20 + 8 i: the tires, −1, then at the stop's 645th step from its end the tires fitted: the car's own kind
   (cond + 0xFB20 + 2 i) for a choice of 0xFE, the kind chosen); and the race display's event 1 (0x35E000); out of the lane
   (0x35ADF0) its event 6 (not for a car whose +0x56A is 1 or 2 ❓). `PitStops::stops`, `stop_record`, `PitHooks::display_event`.
-- **The race state** (0x343C20): 0 when the car's result is in (F +0x4B0); 1 once the race's time limit (cond + 0xF850,
+- **The race state** (0x343C20): 0 while the car has backward crossings of the line still to take back (F +0x4B0, counted by
+  the lap step 0x358608: +1 over the line backwards, at most 250, a forward crossing taking one back instead of a lap; here
+  `Session::back_crossings` from the race flow); 1 once the race's time limit (cond + 0xF850,
   minutes) has run (cond + 0xF898 / 3 ms); 0 with no laps (the race information's +0, the conductor's virtual 37) or before
   the car's laps (F +0x4AC) reach them; then 1 past half the lap, 2 before it.
 - **The messages** (0x35ACD8): a code with a time in the table at 0x6207E4 (6 .. 9 and 12: 120 steps, 13, 14: 255)

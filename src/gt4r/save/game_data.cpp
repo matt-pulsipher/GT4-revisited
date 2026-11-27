@@ -327,6 +327,7 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     }
     // The menus' place.
     put_text(b, kContext, 0x20, s.major_menu_project), put_text(b, kContext + 0x20, 0x20, s.major_menu_page);
+    std::memcpy(b.data() + kLogger, s.logger_display.data(), 5); // (the Analyzer's switches)
     put32(b, kContext + 0x40, u32(s.saved_menu_depth));
     if (s.saved_menu_stack.size() == 0x100) std::memcpy(b.data() + kContext + 0x44, s.saved_menu_stack.data(), 0x100);
     // The header: magic, minus the body's length, the body's CRC.
@@ -339,6 +340,60 @@ bool valid_game(ByteSpan p) {
     if (p.size() < kPayloadSize) return false;
     return get32(p, 0) == kPayloadMagic && get32(p, 4) == u32(-s32(kPayloadSize - 0x10)) &&
            get32(p, 8) == crc32(ByteSpan(p.data() + 0x10, kPayloadSize - 0x10));
+}
+
+namespace {
+
+// Japan's options block: its size word, its own fields moved, the blocks after it.
+constexpr u32 kJapanOptionBlock = 0x11D8;
+constexpr size_t kJapanShift = 0x20, kJapanPayloadSize = kPayloadSize + kJapanShift;
+// [ours, Japan's, bytes] of the Option fields that sit elsewhere in Japan's block (0x188EA0, 0x189158, 0x186070 and the
+// option's reset 0x4363A0 in each program).
+constexpr size_t kJapanMoved[][3] = {{0x1184, 0x1180, 0x10}, {0x1194, 0x1190, 0x10}, {0x1180, 0x11A0, 4}};
+
+void fill_header(Bytes& b) {
+    put32(b, 0, kPayloadMagic), put32(b, 4, u32(-s32(b.size() - 0x10))), put32(b, 12, 0);
+    put32(b, 8, crc32(ByteSpan(b.data() + 0x10, b.size() - 0x10)));
+}
+
+} // namespace
+
+Layout layout_of_product(const std::string& product) {
+    const std::string p = product.size() > 2 && product[0] == 'B' ? product.substr(2) : product;
+    return p == "SCPS-17001" ? Layout::Japan : Layout::Us;
+}
+
+size_t payload_size(Layout l) { return l == Layout::Japan ? kJapanPayloadSize : kPayloadSize; }
+
+Bytes to_layout(ByteSpan p, Layout l) {
+    if (l == Layout::Us || p.size() < kPayloadSize) return Bytes(p.begin(), p.end());
+    Bytes b(kJapanPayloadSize, 0);
+    std::memcpy(b.data(), p.data(), kGameZone);
+    std::memcpy(b.data() + kGameZone + kJapanShift, p.data() + kGameZone, kPayloadSize - kGameZone);
+    // ❓ Japan's block from +0x11A4 to its end is left as zeros (its reset sets none of it; no accessor of it was found).
+    std::memset(b.data() + option(0x1180), 0, kGameZone + kJapanShift - option(0x1180));
+    for (const auto& m : kJapanMoved) std::memcpy(b.data() + option(m[1]), p.data() + option(m[0]), m[2]);
+    put32(b, kOptionHead, kJapanOptionBlock);
+    fill_header(b);
+    return b;
+}
+
+std::optional<Bytes> from_layout(ByteSpan p, Layout l) {
+    if (l == Layout::Us) {
+        if (!valid_game(p)) return std::nullopt;
+        return Bytes(p.begin(), p.begin() + kPayloadSize);
+    }
+    if (p.size() < kJapanPayloadSize || get32(p, 0) != kPayloadMagic || get32(p, 4) != u32(-s32(kJapanPayloadSize - 0x10)) ||
+        get32(p, 8) != crc32(ByteSpan(p.data() + 0x10, kJapanPayloadSize - 0x10)))
+        return std::nullopt;
+    Bytes b(kPayloadSize, 0);
+    std::memcpy(b.data(), p.data(), kGameZone);
+    std::memcpy(b.data() + kGameZone, p.data() + kGameZone + kJapanShift, kPayloadSize - kGameZone);
+    std::memset(b.data() + option(0x1180), 0, kGameZone - option(0x1180));
+    for (const auto& m : kJapanMoved) std::memcpy(b.data() + option(m[0]), p.data() + option(m[1]), m[2]);
+    put32(b, kOptionHead, 0x11C0);
+    fill_header(b);
+    return b;
 }
 
 bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* records_wanted) {
@@ -446,6 +501,7 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
         if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);
     }
     s.major_menu_project = get_text(p, kContext, 0x20), s.major_menu_page = get_text(p, kContext + 0x20, 0x20);
+    std::memcpy(s.logger_display.data(), p.data() + kLogger, 5);
     s.saved_menu_depth = s32(get32(p, kContext + 0x40));
     s.saved_menu_stack.assign(p.begin() + kContext + 0x44, p.begin() + kContext + 0x144);
     return true;

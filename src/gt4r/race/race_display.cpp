@@ -97,6 +97,9 @@ void note_lower(int side, const DisplayRect& r) {
 }
 } // namespace
 void set_wide_push(float units) { g_wide_push = units; }
+// Ours: a half of two side by side wider than 16:9's 426.667 by `g_half_extra`: its parts by where they stand in the half at 16:9.
+float g_half_extra = 0;
+void set_half_extra(float units) { g_half_extra = std::max(0.0f, units); }
 void set_touch_shift(float right, float left) { g_touch_shift[1] = -right, g_touch_shift[0] = left; }
 DisplayRect take_lower_box(bool right_side) {
     const int side = right_side ? 1 : 0;
@@ -108,6 +111,12 @@ DisplayRect take_lower_box(bool right_side) {
 float place_x(const DisplayPlace& p, bool wide) {
     float x = float(p.x);
     if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? g_wide_push : -g_wide_push;
+    if (g_half_extra > 0) {
+        // (x + 106.667: the place in the half at 16:9; the left third keeps to the half's left edge, the right third to its right
+        // edge, the middle third to its middle)
+        const float h = x + 320.0f / 3.0f;
+        x -= h < 426.667f / 3 ? g_half_extra : h < 426.667f * 2 / 3 ? g_half_extra / 2 : 0.0f;
+    }
     if (const int side = lower_side(p); side >= 0) {
         note_lower(side, {x, float(p.y), 0, 0});
         x += g_touch_shift[side];

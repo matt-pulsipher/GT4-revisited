@@ -118,7 +118,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // nothing, but for the engine's rules asked for, GT4R_SIM_RULES=engine, for comparison)
     if (const char* e = std::getenv("GT4R_SIM_RULES"); !program.known() && !(e && std::string(e) == "engine") && !PrologueProgram::locate(program).recognized())
         throw std::runtime_error("session: " + program.issue() + "; this release is not supported yet");
-    if (!program.known()) notes_.push_back(program.issue() + ": the shared engine's tables serve");
+    if (!program.known()) notes_.push_back(program.issue()); // (Prologue's: none of the shared engine's, exact_bridge.h core_program)
     data_ = std::make_shared<ex::ProgramData>(core_program(program));
     japan_ = program.known() && program.release() == Release::Japan;
 
@@ -161,7 +161,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw), course_query_ = std::make_unique<ex::CourseQuery>(*road_->gtrw);
         // (the rule block's class grips and wear: a single race's wear on; a lesson's conductor has it off, and no row of the disc has any)
         if (prologue_) prologue::race_inputs(race_, *prologue_), prologue::race_rules(race_, *prologue_, options ? options->rules.data() : nullptr, true),
-                       prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
+                       prologue_aids_ = prologue::aid_tables(program), prologue_step_ = prologue::step_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
                        prologue_slide_ = prologue::slide_tables(program), prologue_force_ = prologue::force_tables(program, prologue_->controls);
     }
     // What the aids read of the race: the course's category (0x34C998: dirt 1, snow 2), no speed caps, the lap.
@@ -651,8 +651,10 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     ex::standing_start(c);
     if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
         for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
+    else if (prologue_) prologue::tyres_start(c, prologue_cars_[i], race_.prep.wear); // (0x3C8878)
     else ex::tyres_start(c, race_.prep.wear);
-    ex::step_length(c);
+    if (prologue_) rules::step_length(c); // (0x3C9F00)
+    else ex::step_length(c);
     c.best_lap = 0x157529FF;
     c.rank = gt3r::s8(i + 1);
     c.x16d1 = 1;
@@ -752,9 +754,10 @@ void Session::chassis(size_t i) {
     } else {
         if (prologue_) prologue::terrain(c, prologue_cars_[i]); // (Prologue's 0x375D00)
         else ex::terrain_factor(c);
-        ex::suspension(c, prologue_ ? &prologue_->ride : nullptr); // (the special kind 7's ride)
+        if (prologue_) prologue::suspension(c, prologue_cars_[i], *prologue_); // (Prologue's 0x375F58)
+        else ex::suspension(c, nullptr);
         if (prologue_) { // (Prologue's 0x3765F8 and 0x376EC8)
-            prologue::attitude(c, prologue_cars_[i].layout, *prologue_);
+            prologue::attitude(c, prologue_cars_[i].layout, *prologue_, prologue_cars_[i].in_line_lean);
             prologue::bump_nudge(c, prologue_cars_[i]);
         } else {
             ex::attitude(c, k0);
@@ -949,10 +952,13 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
                 c.hold = hold;
             }
         } else {
-            if (prologue_) rules::save_previous(c, prologue_cars_[i].layout); // phase 1 (0x3B2480: Gran Turismo 4's 0x343ED0)
-            else ex::save_previous(c);
-            ex::prep(c, race_.prep);
-            if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
+            if (prologue_) { // phases 1 and 4 (0x3B2480: Gran Turismo 4's 0x343ED0; 0x3BF608: Prologue's)
+                rules::save_previous(c, prologue_cars_[i].layout);
+                prologue::prep(c, prologue_cars_[i], prologue_feel_[i], prologue_step_, race_.prep.start_count, race_.prep.wear);
+            } else {
+                ex::save_previous(c);
+                ex::prep(c, race_.prep);
+            }
         }
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
@@ -1123,8 +1129,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             if (!posed(i)) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
     } else if (prologue_)
     {
-        ex::proximity(cars_, prologue_near_); // phase 14 (Prologue's 0x3DC1C8: Gran Turismo 3's 0x1EC098 in another layout)
-        prologue::near_drivers(cars_);
+        prologue::proximity(cars_, prologue_near_); // phase 14 (0x3DC1C8)
         for (size_t i = 0; i < cars_.size(); ++i) prologue::part_step(cars_[i], prologue_cars_[i], prologue_feel_[i]); // phase 15 (0x3B1C58)
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
@@ -1139,6 +1144,10 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
             rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
+        } else if (prologue_) { // phases 20 .. 22 (0x3BBBB8, 0x3BBD80 with the single race's conductor, 0x3C26F0)
+            prologue::tire_wear(c, prologue_cars_[i], race_.prep.wear);
+            prologue::wear_flags(c, prologue_cars_[i], race_.prep.wear, {});
+            prologue::flaps(c, prologue_cars_[i], prologue_step_, rng_);
         } else {
             ex::tire_wear(c, race_.prep.wear);
             ex::wear_flags(c, race_.prep.wear, {});
@@ -1389,6 +1398,7 @@ std::unique_ptr<Session> Session::solo(size_t car) const {
     s->states_ = {states_[car]};
     s->rng_ = rng_, s->random_state_ = random_state_;
     s->crossings_set_ = crossings_set_;
+    if (car < back_.size()) s->back_ = {back_[car]};
     s->loose_ = loose_, s->course_kind_ = course_kind_, s->course_road_ = course_road_;
     s->steps_ = steps_;
     return s;

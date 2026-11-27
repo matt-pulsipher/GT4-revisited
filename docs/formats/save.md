@@ -244,13 +244,30 @@ MODE_SAVE_BESTLAP_REPLAY list the replays the race saved in the data folder's `r
 (`menu/game_replays.cpp`): a save's folder of `replays/` or of the memory card's folder (the data file named like it beside its
 `thumbnail`, `icon0.ico`, `icon.sys`), or the data file alone in `replays/`.
 **Best lap replays** (Save Best Lap Replay on the time trial's, free run's and license test's pages, `COMMAND_SAVE_GHOST`, offered once a
-run made a best lap: canSaveGhost / CanLogger, 0x1128E0, 0x117110, 0x11CE1C): ours are replay files of the player's car alone over the
-ghost's lap with a section `BLAP` (the lap's ms), shown with labomode's best-lap icon (objectName neither FileReplayFull nor
-FileReplayLicense: `bg_best`). MODE_SAVE_BESTLAP_REPLAY lists the best lap replays; MODE_LOAD_BESTLAP_REPLAY those of the race's course and
-car (the sequence gives the manager the car's and course's codes, 0x11CF30; ❓ the manager's own filter not read), and the one loaded is
-the race's ghost from the next start (`screen_race.cpp` load_ghost). ❓ The program's own FileGT4ReplayBest (GhostData: a recorder's
-moment and its records) is not written or read; the original's best lap file is 23 KB, ours keeps every step's states (about 0.9 MB a
-Tsukuba lap).
+run made a best lap: canSaveGhost / CanLogger, 0x1128E0, 0x117110, 0x11CE1C; FileGT4ReplayBest, `GhostData`): a card folder
+`<product>B` and seven letters (`save/best_lap_card.*`; ✔ the reference card's `BASCUS-97328BemU5YYY` a B-1 best lap) holding the data file
+named like the folder, `thumbnail` (the particulars above), `icon0.ico` (the disc's `icon/GT4_Rep_to_license.ico` for a license test,
+`_tt1` the time trial, `_to_race` else: FileGT4ReplayBest::vf17 chooses among them; ❓ which for which not read) and `icon.sys`. The data
+(Serialize::GhostData, 0x3DE768: the race's virtuals 60 .. 64) is a replay's layout (replay.md) with the race's header of one entry
+(RaceSolitaire::vf61 sets +0x958 to 1; the class RaceFreeRun or RaceLicense) and the best lap's recorder alone (u32 1, its header of 0x14F4
+bytes: the moment the lap starts from, the lap's time at +0x10, the car's record at +0x54, then its stream), scrambled as a replay. Loading
+one (RaceBase::vf63 0x3894C0, RaceSolitaire::vf64 0x3EAE40) makes it the race's ghost. ✔ A B-1 bronze run saved (12 KB of data, 28 KB with
+its other files, the original's card shows 23 KB) and loaded again: its ghost stops on the run's place to the millimetre. MODE_SAVE_BESTLAP_REPLAY
+lists the best lap folders; MODE_LOAD_BESTLAP_REPLAY those of the race's course and car (the sequence gives the manager the car's and
+course's codes, 0x11CF30; ❓ the manager's own filter not read). The original's default title `"B" License1` is the page's own (✔ ours
+the same). ❓ A best lap the original made on a console has not been loaded here (PCSX2's files do not decipher, replay.md).
+
+### The Replay Theater's play list
+
+The folder `<product>LSTRPLAY` (FileGT4ReplayList: its name 0x1D1228, the icon `icon/GT4_Playlist_replay.ico` 0x1D1270)
+holds the data file named like it, icon0.ico and icon.sys. The data is FileGT4PlayList's (vf3 0x1D0F38, the slide show's
+`LSTSLIDE` the same): 400 entries of u64, the count (u32) at 0xC80, zeros to 0xCC0 bytes, not scrambled; the scripts are told
+76 KB. An entry is a card folder: the seven letters after the product's letter as a number (0x1CBEB0: from the name's 14th
+character, the first letter the lowest six bits) with that letter in the top byte, 0 for a name without the product
+(0x1CD860, 0x1D1478): `R` a full replay, `B` a best lap's. The list's natives (MMemoryCardPlayList 0x17DDF8) keep entries:
+`append` adds at the end below 400 (0x1D1280), `search` compares entries (0x1D13A0), `remove` closes the gap (0x1D12D8),
+`order` takes the table's places (0x17DC78), `rotate(n)` turns the first n to the end (0x17DD78). A replay of the list is
+found again by its folder's name made from the entry (0x1D1340 -> 0x1CD8A0). `save/replay_list.*`, `game_replays.cpp`.
 
 ### A replay's particulars
 
@@ -309,8 +326,10 @@ A payload of N bytes is stored in `S = (N + 0x47) & ~0x3F` bytes:
 - Then two 4-byte swaps (0x1D4CA8; back 0x1D4C68 in the other order): the word at 4 with the
   word at `4 + trunc(0.135790... x (S - 8))`, then the word at 0 with the word at
   `trunc(0.654860... x (S - 4))`. The two factors are the single-precision constants
-  0x3E0B0C88 and 0x3F27A4E7; the products are whole numbers of the exact product (the
-  console's toward-zero rounding gives the same).
+  0x3E0B0C88 and 0x3F27A4E7; each product is the EE's `mul.s` (the constant first), whole
+  (`cvt.w.s`). Ours makes every such product (these, and the shuffles' below) on the EE's
+  multiplier when writing; reading tries that and then the exact product chopped (what an emulator
+  without the EE's multiplier writes) when the file's check, or the garage header's key, fails.
 
 Reading undoes the swaps, deciphers, and refuses a CRC that does not match (`INVALID_FILE`).
 
@@ -346,8 +365,10 @@ draw; the stamp XOR the generator's first draw (seeded with the key); then the 5
 shuffled by MT seeded with the generator's second draw. Back (0x1CB9B8) in the other order.
 
 **The bit shuffle** (0x5D2818, back 0x5D2900): for `i = n - 1` down to 1, `j = trunc(u x (i +
-1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero), and
-bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
+1))` with `u` the draw's top 24 significant bits over 2^32 (single precision, toward zero: 0x579548),
+the product the EE's `mul.s` (u first; its multiplier gives the chopped product or, now and then, one
+below it, so a product just above a whole number can give one less: about one garage slot in 200
+has such a draw), and bits `i` and `j` swap (bit k is byte k / 8, mask `1 << (k % 8)`). Back: the same `j` list,
 swapped from `i = 1` up.
 
 **A slot** (0x1CEAA8, read 0x1CEEC0): slot i at `0x40 + i x 0x500`: u32 T (a clock word), u32
@@ -399,7 +420,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x39BC0 | 0xAC | the LAN settings (Option +0x1348): the machine's name char[0x40] ("Player1"), the watched one's at +0x44, then u32s from +0x84: monitors, the monitor's place x (1) and y (1), a delay (2), host, the network's load, players (1), automatic connection, its machines (1), this one's index | `options` "LAN_..." |
 | 0x39C6C | 0x258 | the network settings (not decoded) | kept |
 | 0x39ECC | 0x50 | event settings: char name[0x40], u16 Arcade's time limit | kept |
-| 0x39F1C | 5 | the logger's (1 each) | kept |
+| 0x39F1C | 5 | the Analyzer's display switches: Track A, Track B, speed, accel, brake (1 each; [logger.md](logger.md)) | `logger_display` |
 | 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], the kept menu stack: i32 its length in bytes (-1: none kept), the names each ended by a 0 (0x100; 0x42FE88) | `major_menu_*`, `saved_menu_*` |
 
 What the state does not name is kept as it was loaded (`GameState::saved_image`); a new game
@@ -409,6 +430,22 @@ ones). Not saved: the race being set up, `isNeedSave`, and the credits (the gara
 
 Codes are 64-bit `{u32 row, u32 table}` of the car database: cars table 0, courses 0x22, races
 0x23, wheels 29, wings 30.
+
+### Japan's game data (SCPS-17001 v1.05; N = 0x3A0A0) ✔
+
+The European program's Status has the US sizes (Option's block 0x11C0). The Japanese program's
+Option block is 0x11D8 bytes (Option::vf2 0x42FE68, its other parts 0x18 further on in memory), so
+its payload is 0x20 longer: the same up to the options' block (UserProfile 0x38920, the context
+0x150, as in the US program); in the block the screen settings at Option +0x1180 (race) and +0x1190
+(replays) and the slide show's transition time at +0x11A0 (the accessors 0x1870A0, 0x187360,
+0x184848; the US program's +0x1184, +0x1194, +0x1180), the size word 0x11D8; everything after the
+block (the game zone on) 0x20 later. ❓ The block's +0x11A4 to its end: the option's reset (0x42EEF0)
+sets none of it and no accessor of it was found; written as zeros. The data file is 0x3A0C0 bytes
+in both. `save::Layout` (game_data.h): the state is read and written in the US layout and turned
+into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
+the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The
+card folder BISCPS-17001GAMEDATA is Gran Turismo 4's, not Prologue's (whose products are
+SCPS-15055, SCES-52438, SCKA-20022).
 
 ### The B-spec driver's book (payload 0xA4, 0x180 bytes; menu/game_bspec.h)
 

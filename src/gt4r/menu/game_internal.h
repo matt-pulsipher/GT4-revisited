@@ -170,6 +170,11 @@ bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
 // (0x433260 by time, 0x433348 by top speed: the place by the value, the real clock's date, the car's code, the pass code;
 // false past the tenth). `base` the unit's offset in `block` (the course record's or the machine test's).
 int course_record_unit(Database& d, GameState& s, const std::string& course, bool make);
+// A ranking entry's pass code for a run (game_race.cpp; kind 0 the time trial, 1 the free run, 2 a license test, 3 / 4 / 5 the machine tests: 400 m, 1000 m, top speed).
+std::string ranking_pass_code(Database& d, const RaceResult& r, int kind, u32 time);
+// A machine test's unit by its name (0x433C98, the names 0x6A57C0, compared exactly): "0_400" 0, "0_1000" 1, "MAXSPEED" 2,
+// "LASVEGAS" 3; -1 any other.
+int machine_test_unit(const std::string& name);
 bool ranking_insert(Database& d, Bytes& block, size_t base, bool by_speed, u32 value, const std::string& car, const std::string& pass_code);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
@@ -182,6 +187,23 @@ struct GameNatives;
 // The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
 void install_replay_list(GameNatives& n, Object& manager, const std::string& mode);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
+
+// A card file a play list holds (MMemoryCardPlayList: the slide show's photos, the Replay Theater's replays). The program's
+// list keeps each as its entry: the card folder's seven letters as a number with the letter after the product in the top byte
+// (0x1D1478; save/replay_list.h); search compares entries (0x1D13A0).
+struct ListedFile : Object {
+    using Object::Object;
+    u64 entry = 0;
+    bool missing = false; // an entry whose file is not on the card
+};
+struct PlayListObject : Object {
+    PlayListObject() : Object("MMemoryCardPlayList") {}
+    std::vector<std::shared_ptr<ListedFile>> files;
+    bool changed = false;
+    int find(u64 entry) const;
+};
+// A new list with the natives' members (0x17DDF8: size, append, remove, search, isChanged, clear, order, rotate, getFile).
+std::shared_ptr<PlayListObject> make_play_list();
 
 // ---- game_photos.cpp
 // The card manager's photo modes (MODE_LOAD_PHOTO_PICTURE, MODE_SAVE_PHOTO_PICTURE, ..._FILM, MODE_PHOTO_PLAYLIST,

@@ -37,6 +37,8 @@ constexpr u32 kCondCars = 0x10000 - 0x760, kCondCourse = 0x10000 - 0x3428;
 constexpr u32 kCondTimeScale = 0x10000 - 0x3408;
 
 db::SpecDb open_db(Disc& disc);
+// The program's pass code (0x44B258) against ours on made-up fields (passcode.cpp).
+bool run_passcode(Disc& disc, int count);
 // The program loaded, with the database's tables opened from the disc's files as the game's loader leaves them.
 void boot(Ee& ee, Disc& disc, db::SpecDb& sdb);
 
