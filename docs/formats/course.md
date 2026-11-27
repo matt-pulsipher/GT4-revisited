@@ -271,7 +271,7 @@ to the race's play modes but 0 (race +0xCC8: 1 a B-spec race, 2 / 3 a replay, 4 
 
 | Pass | When | What |
 |---|---|---|
-| Depth of field (0x33E520 -> 0x399998; `RacePS2Base::vf140` 0x3431B8) | the play mode is not 0 and the camera's flags have 0x4000 (a replay record's +0x10 over 0); **no flag of `Env0`** | Gran Turismo 3's pass, step for step: near blurs of 4, 2, 1 lines at the levels 2, 1, 0 of the pyramid, the sharp picture, far ones 2^(k/2) up to 8; the blur unit film / the picture's lines. The lens: 24 mm x the screen's aspect (`CameraManager::vf13` 0x371CA8: 1 in a race) on the film 1.333 times as wide as high, the camera's f-number (its +0x150 / 100), its focus no nearer than `Env0` +0x938 |
+| Depth of field (0x33E520 -> 0x399998; `RacePS2Base::vf140` 0x3431B8) | the play mode is not 0 and the camera's flags have 0x4000 (a replay record's +0x10 over 0); **no flag of `Env0`** | Gran Turismo 3's pass, step for step (rechecked: 0x399998 with the lens 0x3993D0 / 0x399490 / 0x3994C0: near steps 1, far 2, near blur up to 4, far 8, f/2 and 35 mm as made; the composite multiplied by `Env0` +0x38, the picture's scale): near blurs of 4, 2, 1 lines at the levels 2, 1, 0 of the pyramid, the sharp picture, far ones 2^(k/2) up to 8; the blur unit film / the picture's lines. The lens: 24 mm x the screen's aspect (`CameraManager::vf13` 0x371CA8: 1 in a race) on the film 1.333 times as wide as high, the camera's f-number (its +0x150 / 100), its focus no nearer than `Env0` +0x938 |
 | Heat haze (0x496638, the lenses' step 0x4965D8 every picture) | `Env0` bit 5 and the camera's flag 0x2000 (a record's +0x0C); any play mode | Gran Turismo 3's lenses; the vertex order differs, the arithmetic does not |
 | Grade | the screen settings of the replays (`replay_color_correction`) unless the camera manager has its own (Dive's, its +0xBFD) or `Env0` bit 7 | [race_display.md](race_display.md) |
 | Vignette (0x3BBBC0) | the play mode is not 0, `Env0` bit 6 and the race's `vf24` 0 (all but the linked races) | a ring of 32 steps over the 640 x 448 frame |
@@ -532,9 +532,14 @@ vertices: the last a ray shape 1.17 long); the other 96 courses, every one a rac
 have two (a disc of 62 vertices, 0.40 x 0.44, edge alpha 0, and a smaller one of 40 vertices,
 0.16).
 
-🔎 The draw rules (screen test, attenuation, the 100-lamp limit, the halo) are the shared
-engine's by the function map (the routines match Gran Turismo 3's with small edits); they were
-not re-derived for this game, and see "The picture's scale" for their strength.
+The draw rules are the shared engine's (read in this program, 0x3B88C8 with 0x498198 and 0x498398; the record of a car lamp
+0x3B8530): the screen test, attenuation 1 / (c + l d + q d^2) at the lamp's depth d, the 100-lamp limit; a round lamp's glow
+(|a - b| < 0.01) in its colour x attenuation x D x I (D the directional factor, I the list's strength); every lamp's halo,
+when its gain and size are over 0 and it is further than 1 m, in its colour x attenuation x the halo gain x 0.5 (**not** D
+or I), depth-tested; a bar lamp only the halo, drawn through the 2 x 2 matrix with columns H (x, y) and H b / |x| (-y, x) of
+its projected axis x (scaled (a - b) + b / |x|), as Gran Turismo 3's. The glows are depth-tested at full visibility in the
+several-view draw (race +0xA30) and weighed by the occlusion queries otherwise. ❓ The engine draws the bar halo as an ellipse
+along the screen's axes (its own note), not turned with the lamp's axis. See "The picture's scale" for their strength.
 
 ## Cones and boards: `GDGT` (slot 47) and the road's gadget records
 
