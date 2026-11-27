@@ -192,6 +192,7 @@ struct CarPart {
     F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
+    F in_line_lean;               // F +0x3AC: the in-line layout's lean term (the suspension's, 0x375F58; the attitude reads it)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
     // The parameter block's engine (+0x138) and driveline (+0x1F8) and the tires' radii (+0x274 ..) in Gran Turismo 4's form,

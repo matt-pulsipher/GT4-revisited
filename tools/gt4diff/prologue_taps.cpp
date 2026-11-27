@@ -465,8 +465,10 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                           ex::speed_ramp(k);
                           sim::prologue::ground_contact(k, x, *ground, t.bumps, true);
                           sim::prologue::terrain(k, x);
-                          ex::suspension(k, nullptr);
-                          sim::prologue::attitude(k, x.layout, t);
+                          sim::prologue::CarPart y = x;
+                          y.tires = extra(c);
+                          sim::prologue::suspension(k, y, t);
+                          sim::prologue::attitude(k, x.layout, t, y.in_line_lean);
                           sim::prologue::bump_nudge(k, x);
                           ex::hub_offsets(k);
                           sim::rules::body_axes(k);
@@ -656,6 +658,18 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       const sim::prologue::CarPart x = part(c);
                       sim::prologue::peak_force(c.car, x, sim::prologue::wear_grip(c.car, x, wear(c)));
                   }});
+        { // Phase 19's suspension (its in-line lean term F +0x3AC beside the mirror)
+            static std::map<int, gt3r::ee::F> lean;
+            taps.add({0x375F58, "Prologue's suspension", [=](PTapCall& c) {
+                          sim::prologue::CarPart x = part(c);
+                          static const sim::prologue::Tables k = sim::prologue::tables(sim::Program::load(*g_disc));
+                          sim::prologue::suspension(c.car, x, k);
+                          lean[c.car_index] = x.in_line_lean;
+                      },
+                      {}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                          field("in-line lean (F +0x3AC)", ee.r32(car + 0xD8 + 0x3AC), lean[index].bits);
+                      }});
+        }
         // Phases 20 .. 22: the tire wear, the wear flags (the single race's conductor: pits, mode 0), the flaps.
         taps.add({0x3BBBB8, "Prologue's tire wear", [=](PTapCall& c) { sim::prologue::tire_wear(c.car, part(c), wear(c)); }});
         taps.add({0x3BBD80, "Prologue's wear flags", [=](PTapCall& c) { sim::prologue::wear_flags(c.car, part(c), wear(c), {}); }});

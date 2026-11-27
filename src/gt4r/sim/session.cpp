@@ -752,9 +752,10 @@ void Session::chassis(size_t i) {
     } else {
         if (prologue_) prologue::terrain(c, prologue_cars_[i]); // (Prologue's 0x375D00)
         else ex::terrain_factor(c);
-        ex::suspension(c, prologue_ ? &prologue_->ride : nullptr); // (the special kind 7's ride)
+        if (prologue_) prologue::suspension(c, prologue_cars_[i], *prologue_); // (Prologue's 0x375F58)
+        else ex::suspension(c, nullptr);
         if (prologue_) { // (Prologue's 0x3765F8 and 0x376EC8)
-            prologue::attitude(c, prologue_cars_[i].layout, *prologue_);
+            prologue::attitude(c, prologue_cars_[i].layout, *prologue_, prologue_cars_[i].in_line_lean);
             prologue::bump_nudge(c, prologue_cars_[i]);
         } else {
             ex::attitude(c, k0);

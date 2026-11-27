@@ -8,6 +8,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/rules_phases.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_tires.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/tick.h"
@@ -231,6 +232,122 @@ void flaps(ex::Car& c, const CarPart& x, const StepTables& t, gt3r::Vu0Random& r
         else if (p < F::raw(0xBF800000)) v = F(), p = F::raw(0xBF800000);
         w.flap_v = v;
         w.flap = p;
+    }
+}
+
+namespace {
+
+// 0x3757C8: the damper's force at a speed (within +-1 m/s): compressing bump_o + bump_g sqrt(-v - bump_t), extending
+// -reb_o - reb_g sqrt(v - reb_t).
+F damper(const ex::Suspension& s, F v) {
+    if (v < F()) {
+        if (v < F::raw(0xBF800000)) v = F::raw(0xBF800000);
+        return s.bump_o + s.bump_g * gt3r::ee::sqrt(-v - s.bump_t);
+    }
+    if (kOne < v) v = kOne;
+    return -s.reb_o - s.reb_g * gt3r::ee::sqrt(v - s.reb_t);
+}
+
+// 0x3B15E8: the ride of wheel w (its axle w / 2) at travel x: the drop reached between the two speeds taken off the travel,
+// a lift below the static travel by the axle's share of its static load, less the spring at the drop.
+F ride_force(const ex::Car& c, int w, F x, const ex::Kind7Ride& r) {
+    const size_t a = size_t(w >> 1);
+    const ex::Suspension& s = c.p.susp[a];
+    const F v = c.speed;
+    F d = x - s.x_static, drop = F();
+    if (!(r.v1 <= v)) {
+        if (r.v0 < v) drop = (r.drop * (v - r.v0)) / (r.v1 - r.v0);
+    } else drop = r.drop;
+    d = d + drop;
+    F f = F();
+    if (d < F()) {
+        const F lo = -r.travel;
+        F g = r.lift / r.share[a];
+        if (lo < d) g = (g * d) / lo;
+        f = (g * (a ? c.p.xe58 : c.p.xe54)) * F::raw(0x3F000000);
+    }
+    return f - s.k * drop;
+}
+
+// 0x375848: wheel w's spring and damper at its travel x and spring rate k.
+void wheel_spring(ex::Car& c, int i, const ex::Suspension& s, F x, F k, const Tables& t) {
+    ex::Wheel& w = c.w[size_t(i)];
+    if (s.droop < x) {
+        w.susp = s.droop, w.load = F(), w.damper_v = F(), w.damper_f = F(), w.spring_f = -s.preload;
+        return;
+    }
+    const F xc = x < s.bump_limit ? s.bump_limit : x;
+    const F e = xc - s.knee;
+    F fs = -xc * k;
+    if (e < F()) fs = fs + (e * e) * s.k2;
+    F v = c.inv_dt * (x - w.susp);
+    w.damper_v = v;
+    F fd = damper(s, v);
+    if (v < F() && e < F()) {
+        if (v < F::raw(0xBF800000)) v = F::raw(0xBF800000);
+        fd = fd - s.bump_damping * v;
+    }
+    if ((c.p.special == 7 || c.p.special == 8) && t.ride.on) fd = fd + ride_force(c, i, xc, t.ride);
+    w.susp = xc, w.spring_f = fs, w.damper_f = fd;
+    const F load = (fs + fd) + s.preload;
+    w.load = load < F() ? F() : load;
+}
+
+} // namespace
+
+void suspension(ex::Car& c, CarPart& x, const Tables& t) {
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        const size_t a = l.axle[size_t(w)] & 1u;
+        const ex::Suspension& s = c.p.susp[a];
+        // (0x3C4478: a sitting pod's rate by its counter, car + 0x5DC; no car of the disc is one)
+        wheel_spring(c, w, s, c.susp_x[size_t(w)], rules::spring_rate(c, l, w, c.p.special == 1 ? 1 : 0, 0), t);
+        ex::Wheel& wh = c.w[size_t(w)];
+        const F travel = wh.susp - s.x_static;
+        wh.half_track = rules::wheel_half_track(c, l, w, travel);
+        if (l.kind == 1) wh.camber = c.steer_cmd * (c.p.steer_camber * gt3r::ee::cos(c.roll - c.ground_roll));
+        else wh.camber = rules::wheel_camber(c, l, w, c.steer_cmd, travel);
+    }
+    std::array<F, 4> bar{};
+    for (int k = 0; k < l.groups && k < 4; ++k) {
+        bar[size_t(k)] = F();
+        const u8 first = l.group_first[size_t(k)];
+        const u8 other = l.partner[first & 7];
+        if (other == 0x7F) continue;
+        const F d = c.w[first & 3].susp - c.w[other & 3].susp;
+        const F g = c.p.susp[l.group_axle[size_t(k)] & 1u].anti_roll;
+        bar[size_t(k)] = F() <= d ? (g * d) * d : (-g * d) * d;
+    }
+    const F lat = c.p.lat_transfer * -c.a_y;
+    x.in_line_lean = F();
+    if (l.kind == 1) x.in_line_lean = (c.a_y * c.p.mass) * c.up.z;
+    const F along = c.p.long_transfer * c.drive_sum;
+    const F two = F::raw(0x40000000);
+    for (int w = 0; w < n; ++w) {
+        const size_t i = size_t(w);
+        F f = c.w[i].spring_f;
+        const u8 side = l.side[i];
+        const bool paired = l.partner[i] != 0x7F;
+        if (paired) {
+            const F r = bar[l.geometry[i] & 3];
+            if (side == 0) f = f - r;
+            else if (side == 1) f = f + r;
+        }
+        const gt3r::s8 fa = gt3r::s8(l.fore_aft[i]);
+        if (fa != 0) {
+            const u8 m = fa > 0 ? l.axle_wheels[0] : l.axle_wheels[1];
+            const F wheels = gt3r::ee::int_to_f(s32(m));
+            f = f - (fa > 0 ? c.downforce[0] : c.downforce[1]) / wheels;
+            F share = along;
+            if (m != 2) share = along * (two / wheels);
+            f = fa > 0 ? f + share : f - share;
+        }
+        if (paired) {
+            if (side == 0) f = f + lat;
+            else if (side == 1) f = f - lat;
+        }
+        c.body_force[i] = f;
     }
 }
 

@@ -78,4 +78,15 @@ void wear_flags(ex::Car& c, const CarPart& x, const ex::WearParams& k, const Pit
 // constants, its draws on the VU0's random register (0x4482D8).
 void flaps(ex::Car& c, const CarPart& x, const StepTables& t, gt3r::Vu0Random& rng);
 
+// 0x375F58 (phase 19): each wheel of the layout's spring and damper (0x375848: the engine's 0x1E8E58 on the spring rate of
+// 0x3C4478, Gran Turismo 4's 0x35D248; the special kinds 7 and 8's ride 0x3B15E8 with Prologue's table on, 0x503CB0), half
+// track (0x375E90 = Gran Turismo 4's 0x36A690) and camber (0x375D78 = 0x36A578; the in-line layout's the command x the
+// steering camber x cos(the roll against the ground's)); the anti-roll bars by wheel group (0x375A00 = 0x36A048); the in-line
+// layout's lean term (F +0x3AC: the lateral acceleration x the mass x the body's up z); each wheel's body force: its spring,
+// its group's bar by its side, its axle's downforce over the axle's wheels and the longitudinal transfer (P +0x38 x the force
+// sum; x 2 / the axle's wheels when not 2) by its place, the lateral transfer (P +0x34 x -the lateral acceleration) by its
+// side for a wheel with a partner. Gran Turismo 4's 0x36A758 without the wheels' normal speeds, contact states, the lateral
+// geometry, the part that changes with speed and the wheel's own mass.
+void suspension(ex::Car& c, CarPart& x, const Tables& t);
+
 } // namespace gt4r::sim::prologue
