@@ -172,6 +172,88 @@ Bytes gadgets_payload(std::span<const GadgetSlot> slots) {
 
 Bytes no_particles() { return Bytes{0, 0}; }
 
+namespace {
+
+namespace rp = race::posture;
+struct Q {
+    float x, y, z, w;
+};
+Q qmul(const Q& a, const Q& b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+// The turn whose matrix has the columns c0, c1, c2 (the figure's x, y, z in course space).
+Q quat_of(const Vec3& c0, const Vec3& c1, const Vec3& c2) {
+    const float t = c0.x + c1.y + c2.z;
+    Q q;
+    if (t > 0) {
+        const float s = std::sqrt(t + 1) * 2;
+        q = {(c1.z - c2.y) / s, (c2.x - c0.z) / s, (c0.y - c1.x) / s, s / 4};
+    } else if (c0.x > c1.y && c0.x > c2.z) {
+        const float s = std::sqrt(1 + c0.x - c1.y - c2.z) * 2;
+        q = {s / 4, (c1.x + c0.y) / s, (c2.x + c0.z) / s, (c1.z - c2.y) / s};
+    } else if (c1.y > c2.z) {
+        const float s = std::sqrt(1 + c1.y - c0.x - c2.z) * 2;
+        q = {(c1.x + c0.y) / s, s / 4, (c2.y + c1.z) / s, (c2.x - c0.z) / s};
+    } else {
+        const float s = std::sqrt(1 + c2.z - c0.x - c1.y) * 2;
+        q = {(c2.x + c0.z) / s, (c2.y + c1.z) / s, s / 4, (c0.y - c1.x) / s};
+    }
+    return q;
+}
+bool plate(int n) { return n == rp::kPelvis || n == rp::kScapula; }
+Vec3 host(const rp::V3& v) { return {v.x.host(), v.y.host(), v.z.host()}; }
+rp::V3 ee(const Vec3& v) { return {rp::f(v.x), rp::f(v.y), rp::f(v.z)}; }
+
+} // namespace
+
+Bytes figure_payload(const rp::Skeleton& s, const Vec3& at, const Vec3& right, const Vec3& up, const Vec3& forward) {
+    // The figure's frame: x right, y up, z back.
+    const Vec3 back = mul(forward, -1);
+    const Q turn = quat_of(right, up, back);
+    Writer w;
+    w.u8_(1);
+    for (int n = 0; n < rp::kNodes; ++n) {
+        const rp::Bone& b = s[n];
+        const Vec3 p = host(b.pos);
+        w.vec(add(add(add(at, mul(right, p.x)), mul(up, p.y)), mul(back, p.z)));
+        const Q q = qmul(turn, {b.q.x.host(), b.q.y.host(), b.q.z.host(), b.q.w.host()});
+        w.f32_(q.x), w.f32_(q.y), w.f32_(q.z), w.f32_(q.w);
+        w.vec(host(b.vec));
+        if (plate(n)) w.vec(host(b.left)), w.vec(host(b.right));
+    }
+    // ❓ The figure's four floats (+0x680) and the posture caller's fields, as the original's film holds them (1, 1, 0, 0.5; a
+    // bool 1, a word that changes from frame to frame, 1, 0, 0, the identity, 0, 0).
+    for (float v : {1.0f, 1.0f, 0.0f, 0.5f}) w.f32_(v);
+    w.u8_(1), w.u32_(0), w.u8_(1), w.f32_(0), w.f32_(0);
+    for (int i = 0; i < 16; ++i) w.f32_(i % 5 == 0 ? 1.0f : 0.0f);
+    w.u8_(0);
+    for (int i = 0; i < 8; ++i) w.u8_(0);
+    return w.data();
+}
+
+std::optional<rp::Skeleton> figure_of(ByteSpan payload, const Vec3& at, const Vec3& right, const Vec3& up, const Vec3& forward, const rp::Skeleton& base) {
+    if (payload.size() < kFigureBytes) return std::nullopt;
+    Reader r(payload);
+    if (r.u8_() != 1) return std::nullopt;
+    const Vec3 back = mul(forward, -1);
+    const Q turn = quat_of(right, up, back), undo{-turn.x, -turn.y, -turn.z, turn.w};
+    rp::Skeleton s = base;
+    for (int n = 0; n < rp::kNodes; ++n) {
+        rp::Bone& b = s[n];
+        const Vec3 d = sub(r.vec(), at);
+        b.pos = ee({dot(d, right), dot(d, up), dot(d, back)});
+        Q q;
+        q.x = r.f32_(), q.y = r.f32_(), q.z = r.f32_(), q.w = r.f32_();
+        q = qmul(undo, q);
+        b.q = {rp::f(q.x), rp::f(q.y), rp::f(q.z), rp::f(q.w)};
+        b.vec = ee(r.vec());
+        if (plate(n)) b.left = ee(r.vec()), b.right = ee(r.vec());
+    }
+    if (!r.ok()) return std::nullopt;
+    return s;
+}
+
 Bytes Film::encode() const {
     Writer w;
     // PMDI and FILM (0x334FC8).
@@ -329,7 +411,8 @@ void axes_of(const Vec3& angles, Vec3& right, Vec3& up, Vec3& forward) {
 Params params_of(const race::CarState& s, const race::CarState* before) {
     Params p;
     p.turn = p.ground_turn = angles_of(s.right, s.up, s.forward);
-    p.at = p.ground_at = s.position;
+    p.ground_at = s.position;
+    p.at = sub(s.position, mul(s.up, s.ground_drop));
     p.velocity = s.velocity;
     p.v18 = s.brake_lamps;
     p.rpm = std::round(s.engine_rpm);
@@ -338,7 +421,7 @@ Params params_of(const race::CarState& s, const race::CarState* before) {
         Params::Wheel& h = p.wheels[w];
         // Its angle as the program counts it (the spin less: virtual 9), its steering; its place in the body's frame.
         h.turn = {-std::fmod(o.spin, 6.2831855f) * kDeg, -o.steer * kDeg, 0};
-        const Vec3 d = sub(o.center, s.position);
+        const Vec3 d = sub(o.center, p.at);
         h.at = {dot(d, s.right), dot(d, s.up), -dot(d, s.forward)};
         const float last = before ? -std::fmod(before->wheels[w].spin, 6.2831855f) * kDeg : h.turn.x + o.spin_rate / 60 * kDeg;
         h.spun = std::remainder(h.turn.x - last, 360.0f);
@@ -350,7 +433,8 @@ Params params_of(const race::CarState& s, const race::CarState* before) {
 race::CarState state_of(const Params& p) {
     race::CarState s;
     axes_of(p.turn, s.right, s.up, s.forward);
-    s.position = p.at;
+    s.position = p.ground_at;
+    s.ground_drop = dot(sub(p.ground_at, p.at), s.up);
     s.velocity = p.velocity;
     s.speed = dot(p.velocity, s.forward);
     s.engine_rpm = p.rpm;

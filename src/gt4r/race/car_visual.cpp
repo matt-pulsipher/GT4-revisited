@@ -796,6 +796,9 @@ void CarVisual::set_shadow(const Shadow& s) {
 }
 
 Mat4 CarVisual::body_matrix(const CarState& s) const { return race::body_matrix(s, spec_); }
+void CarVisual::set_still_skeleton(size_t seat, const posture::Skeleton& s) {
+    if (seat < still_.size()) still_[seat]->set_skeleton(s);
+}
 
 int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* view) const {
     const Mat4 body = body_matrix(s);

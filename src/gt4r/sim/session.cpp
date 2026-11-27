@@ -1059,6 +1059,12 @@ void Session::publish(size_t i) {
     const Vec3 cog = to_course(c.pos);
     const float back = c.p.x54.host(), lift = (c.p.ride_height[0].host() + c.p.ride_height[1].host()) * 0.5f - c.p.cog_height.host();
     s.position = {cog.x - s.forward.x * back + s.up.x * lift, cog.y - s.forward.y * back + s.up.y * lift, cog.z - s.forward.z * back + s.up.z * lift};
+    // (A film's CPRM virtual 8: the lower of the program's two drawn points (car + 0x894 against + 0x888, ex::Car draw_ground /
+    // draw_pos, kept as x, z, -y), this far below.)
+    {
+        const F dx = c.draw_pos.x - c.draw_ground.x, dy = -(c.draw_pos.z - c.draw_ground.z), dz = c.draw_pos.y - c.draw_ground.y;
+        s.ground_drop = (dx * c.up.x + dy * c.up.y + dz * c.up.z).host();
+    }
     s.velocity = to_course(c.vel);
     s.speed = c.speed.host();
     s.engine_rpm = c.omega.host() * 9.549297f;

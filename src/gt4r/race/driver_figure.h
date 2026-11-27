@@ -79,6 +79,8 @@ public:
     explicit DriverFigure(const DriverModels& models) : models_(models), skeleton_(models.skeleton()) {}
     // Solves the figure in the car's own frame and (for a skinned set) moves its vertices.
     void pose(const posture::PostureInput& in);
+    // A skeleton given (a film's figure) in place of a solve; a skinned set's vertices moved by it.
+    void set_skeleton(const posture::Skeleton& s);
     // The figure's items with the car's body matrix.
     void add_items(std::vector<render::DrawItem>& items, const render::Mat4& body) const;
     const posture::Skeleton& skeleton() const { return skeleton_; }
@@ -86,6 +88,7 @@ public:
 private:
     const DriverModels& models_;
     posture::Skeleton skeleton_;
+    void skin(); // the skinned parts by the skeleton
     std::vector<std::unique_ptr<render::GpuModel>> posed_; // per part
 };
 

@@ -129,6 +129,7 @@ struct RaceWorld::Impl {
         race::posture::DriverState state;
         std::unique_ptr<race::DriverFigure> figure;
         bool posed = false;
+        std::optional<race::posture::Skeleton> given; // a film's figure, in place of the posture
         race::posture::F follow, follow_rate; // the steering command's follower (0x40CC58), here of the front wheels' angle
         // The gear change's: the lever's layout (from the car's GEAR part, at the first step), the engine speed as the race
         // shows it (car +0x738, 0x350ED0: kept here beside the driver, the race display's own is not this).
@@ -1255,11 +1256,35 @@ void RaceWorld::Impl::add_drivers(std::vector<render::DrawItem>& out, size_t car
         if (d.car != car || !d.visual->driver_shows(s, eye, lod)) continue;
         if (!d.posed) {
             namespace rp = race::posture;
-            d.figure->pose(rp::driving_posture(d.cockpit, d.state.after, {}, {}, d.co_driver));
+            if (d.given) d.figure->set_skeleton(*d.given);
+            else d.figure->pose(rp::driving_posture(d.cockpit, d.state.after, {}, {}, d.co_driver));
             d.posed = true;
         }
         d.figure->add_items(out, d.visual->body_matrix(s));
     }
+}
+
+std::optional<race::posture::Skeleton> RaceWorld::driver_skeleton(size_t car, size_t seat) const {
+    if (car >= car_visuals_.size()) return std::nullopt;
+    for (const Impl::MovingDriver& d : impl_->drivers)
+        if (d.car == car && size_t(d.co_driver) == seat) {
+            if (d.given) return d.given;
+            if (d.posed) return d.figure->skeleton();
+            namespace rp = race::posture;
+            rp::PostureInput in = rp::driving_posture(d.cockpit, d.state.after, {}, {}, d.co_driver);
+            rp::Skeleton sk = car_visuals_[car]->moving_driver()->skeleton();
+            rp::solve(in.controls, sk, in.places, in.has_gaze ? &in.gaze : nullptr);
+            return sk;
+        }
+    if (const race::posture::Skeleton* s = car_visuals_[car]->still_skeleton(seat)) return *s;
+    return std::nullopt;
+}
+
+void RaceWorld::set_driver_skeleton(size_t car, size_t seat, const race::posture::Skeleton& s) {
+    if (car >= car_visuals_.size()) return;
+    for (Impl::MovingDriver& d : impl_->drivers)
+        if (d.car == car && size_t(d.co_driver) == seat) d.given = s, d.posed = false;
+    car_visuals_[car]->set_still_skeleton(seat, s);
 }
 
 // The car's pit crew and the wheels they have.
