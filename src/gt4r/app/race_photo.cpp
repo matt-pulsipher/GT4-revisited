@@ -75,6 +75,7 @@ void RacePhotoPause::open_movie() {
         if (n == "ISPORTRAIT") return V::number(camera_.portrait() ? 1 : 0);
         if (n == "ISFOCUSTRIGGER") {
             if (!focus_told_) return V::number(0);
+            focus_told_ = false; // (the sound once for the press)
             play("zoom");
             return V::number(1);
         }

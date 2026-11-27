@@ -213,8 +213,18 @@ race screen's `open_photo` / `update_photo`.
 - **Saving** (`photo_save`'s `SaveDialog`): the method film, film and photo, or photo; the USB memory as slot 2. A **film**
   (`MODE_SAVE_PHOTO_FILM`, the folder `F%04d`, `icon/GT4_film_*.ico`) holds the photo's settings (0x334FC8: the lens, focus,
   filters and the car's frame) and one or two frames of the race's replay (0x33A2A0).
+  The film's data (0x334E38 -> 0x334FC8) is chunks (0x45B4D8 opens one: a tag, then u32 sizes written at its close, 0x45B548):
+  `PMDI` (u8 the photo's +0x124), `FILM` (u8 2, u16 width, u16 height, u8 tiles across, u8 down, f32 aspect, u8 upright, u8
+  pictures, u8 +0x124, f32 the shutter in 60ths, then 4 bytes each of +0x128 .. +0x13C and 32 of +0x144: the lens and focus,
+  the filter, saturation, exposure, white balance and the car's frame), then the race (0x33A2A0): `RHDR` (u8 2, the course's
+  and another label as text, u8 cars, each car's label, its paint's text and a u8, a u32, the `ENVP` block of 0x17F4 bytes of the
+  race's display state when asked, a `CDTL` a car: its two driver texts, two more, u8 +0x345C), and one or two `SFRM` frames
+  (0x33A018: the camera 0x339FE0 at a time 1 or 0, a `CARD` each car: its model's state 0x459E30, 0x339C08, the skid marks
+  0x3E91E0; the race's +0x35E8 and +0x3238 when asked).
 - **Developing** (Photo Lab's Film folder, "Development"): the film is read, `photo_labo` returns `develop`, and 0x1C7BF8 runs
-  `RacePhotoDevelop` with a `DevelopCamera`: the course and cars of the frame drawn again at the film's settings into a photo.
+  `RacePhotoDevelop` (0x335248 reads the film into a race of its course and cars, steps it until loaded, 0x3C8AA8 draws the
+  photo at the film's settings), then `photo_save` without an argument (the photo saved as a photo). ❓ The cars' frame records
+  (0x459E30, 0x339C08) are not read: neither saving nor developing is built; the save dialog answers the photo.
 
 ## Checked against the original
 
