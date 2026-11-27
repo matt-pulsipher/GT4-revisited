@@ -5,6 +5,7 @@
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/menu/photo_natives.h"
+#include "gt4r/photo/picture.h"
 #include "gt4r/save/photo_file.h"
 
 #include <filesystem>
@@ -170,11 +171,13 @@ TEST(disc_photo_shoot_pages) {
         const script::Value list = vm.call(vm.attribute(vm.lookup("menu"), "MMemoryCardPlayList"), {});
         const script::Value slides = vm.attribute(manager, "autoloadPlayList");
         if (const auto r = vm.member(slides, "list")) r->set(vm, list);
-        CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "OK"); // (no list yet: an empty one, nothing to ask)
+        CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "FILE_NOT_FOUND"); // (no list yet: the scripts ask to make one)
         CHECK(vm.attribute(manager, "isConnect").p && vm.attribute(manager, "free").as_float() == 7999);
         call(list, "append", {file});
         CHECK(call(slides, "saveNew", {manager, script::Value::string("Slides")}).to_string() == "OK");
         CHECK(menu::slide_folders(*f.rt).size() == 1);
+        if (const auto r = vm.member(slides, "list")) r->set(vm, list); // (read again: the list there)
+        CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "OK");
         CHECK(call(file, "remove", {manager}).as_float() != 0 && card.list('P').empty());
     }
     std::filesystem::remove_all(dir);
@@ -193,4 +196,45 @@ TEST(disc_photo_music_list) {
         const std::vector<script::Value>* first = (*rows)[0].items();
         CHECK(first && first->size() == 4 && !(*first)[0].to_string().empty() && (*first)[3].as_float() == 0);
     }
+}
+
+// Photo Lab's ToSlide with no slide show list on the card: the list's autoload answers FILE_NOT_FOUND as the replay list's
+// (the manager's one autoload file, 0x17C97C; its read 0x1D2E18), so the page asks to make the list (and how much room it
+// takes) before it writes it.
+TEST(disc_photo_slide_list_asked) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-photo-test-slides";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "memorycard");
+    save::PhotoCard card((dir / "memorycard").string(), {});
+    save::PhotoInfo info;
+    info.course_file = "ss_times", info.name = "P0000", info.car_name = "Ford GT";
+    const std::vector<u8> rgb(64 * 48 * 3, 0x80);
+    CHECK(card.save(info, photo::encode_jpeg(rgb, 64, 48, 80, std::nullopt), std::vector<u16>(64 * 64), "Photo data") == save::Result::Ok);
+    Flow f(*disc, "US", dir.string());
+    f.rt->boot();
+    f.rt->game().card.connected = true;
+    f.rt->game().major_menu_project = "gtmode", f.rt->game().major_menu_page = "HomeRoot";
+    if (const auto game = f.rt->vm().lookup("game").as<menu::Object>()) game->set("labo_folder", script::Value::integer(1));
+    f.rt->game().next_sequence = "photo_labo";
+    f.rt->start_project("labomode");
+    f.rt->settle();
+    for (int i = 0; i < 120; ++i) f.rt->update();
+    CHECK(f.page() == "PhotoRoot");
+    f.press({menu::Key::Right, menu::Key::Accept}); // (the photo chosen in the list)
+    CHECK(f.focus_on("ToSlide"));
+    f.press({menu::Key::Accept});
+    f.rt->settle();
+    const std::string asked = f.text_of("message");
+    std::printf("  %s: %s\n", f.page().c_str(), asked.c_str());
+    CHECK(f.page() == "ConfirmDialog" && !card.has_slides());
+    for (int i = 0; i < 4 && !card.has_slides(); ++i) {
+        f.press({menu::Key::Accept});
+        f.rt->settle();
+        for (int j = 0; j < 30; ++j) f.rt->update();
+    }
+    std::vector<save::PhotoCard::Listed> ids;
+    CHECK(card.load_slides(ids) == save::Result::Ok && ids.size() == 1);
+    std::filesystem::remove_all(dir);
 }

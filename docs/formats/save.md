@@ -439,8 +439,15 @@ its payload is 0x20 longer: the same up to the options' block (UserProfile 0x389
 0x150, as in the US program); in the block the screen settings at Option +0x1180 (race) and +0x1190
 (replays) and the slide show's transition time at +0x11A0 (the accessors 0x1870A0, 0x187360,
 0x184848; the US program's +0x1184, +0x1194, +0x1180), the size word 0x11D8; everything after the
-block (the game zone on) 0x20 later. ❓ The block's +0x11A4 to its end: the option's reset (0x42EEF0)
-sets none of it and no accessor of it was found; written as zeros. The data file is 0x3A0C0 bytes
+block (the game zone on) 0x20 later. The block's +0x11A4 to its end is never a field: the option's reset
+(0x42EEC0) clears the whole block (0x11D8 bytes from +8) and sets nothing there, the copy (0x42FEE8) and the
+card's read and write move the block whole, and no load or store of the program at those offsets is the
+Option's (all 50 are other objects' or globals', none in the Option's code or through its pointer: the JPEG decoders, race objects, tables); so the program
+always writes zeros there, as ours does. Japan's Option +0x10 is a u32, `language_for_unit` (the language
+whose units the game shows: the reset sets it to the console's language, MOption's accessor 0x17E6F0 by
+name through 0x4870B8 / 0x487128, the option's apply 0x42F0E8 sets the units from it with 0x46A868 and
+Japan's own unit cases 0x46A760; US and Europe keep three unit bytes there, 0x4361D0); ❓ ours writes the
+three unit bytes there too: equal for the default (0 = JP and km/h, PS, kgf.m), not after a change of units. The data file is 0x3A0C0 bytes
 in both. `save::Layout` (game_data.h): the state is read and written in the US layout and turned
 into the release's at the file (✔ test `disc_save_layout_each_release`: a new game of ours through
 the Japanese program's decoder, check, read and write, the same bytes back, its garage header). The

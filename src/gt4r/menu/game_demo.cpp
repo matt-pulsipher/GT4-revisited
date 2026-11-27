@@ -95,11 +95,13 @@ bool next_demonstration(Runtime& rt) {
 
 // 0x10BE20: a time-out's demonstrations, one at a time. `first`: the sequence starts (0x434638: the tries anew; with
 // restart_from_beginning, the list and the movie's count from their start). The menu project to run and its argument
-// (the movie), the disc's recorded race (kind 3, replay: the jump table 0x68D000 sends it to 0x10BEF0, the card's replays
-// first by 0x4349A8, else the recording by the entry's name through 0x10BBB0), or none when the sequence is over (the menus
-// go back to the last project, 0x42FC50). Every disc's list is kind replay (setNextDemo: Demo(2, "RdemoN").getType() names 2
-// "replay"); kinds 1 (an Arcade demo race, 0x10BA28) and 4 are never set. ❓ The card's replays before the disc's are not
-// played here.
+// (the movie), a recorded race to play, or none when the sequence is over (the menus go back to the last project, 0x42FC50).
+// Every disc's list is kind replay (setNextDemo: Demo(2, "RdemoN").getType() names 2 "replay"; the jump table 0x68D000 sends
+// kinds 1 and 3 to 0x10BEF0): the card's play list's next replay first (0x4349A8, card_replay_pick), played as the theater
+// loads it (0x10BBB0 from the card, 0x1D14E0; one not on the card plays nothing and the sequence goes on); with fewer replays
+// on the list than the time-out's tries (+0x50, repeat_time) that replay ends the sequence. No list (or an empty one): the
+// disc's recording by the entry's name (0x10BBB0 from the disc). Kinds 1 (with no list, an Arcade demo race, 0x10BA28) and 4
+// are never set.
 std::optional<DemoStep> autodemo_step(Runtime& rt, bool first) {
     GameState& s = rt.game();
     GameState::Demonstration& d = s.demonstration;
@@ -116,6 +118,15 @@ std::optional<DemoStep> autodemo_step(Runtime& rt, bool first) {
     while (d.more) {
         d.more = next_demonstration(rt);
         if (d.type == 2) return DemoStep{d.name, d.arg, {}};
+        if (d.type == 1 || d.type == 3) {
+            std::string card;
+            if (const s32 listed = card_replay_pick(rt, card)) {
+                if (listed < d.repeat) d.more = false;
+                if (!card.empty()) return DemoStep{{}, {}, card};
+                rt.note("the play list's replay is not on the card");
+                continue;
+            }
+        }
         if (d.type == 3 && !d.name.empty()) {
             const std::string file = "replay/" + d.name + "/" + d.name;
             if (rt.reader()(file)) return DemoStep{{}, {}, file};
