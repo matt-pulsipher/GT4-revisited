@@ -226,4 +226,8 @@ in every part (the corners' darkening included), the car lit the same. The car's
 37.1, its bonnet 52.2 / 49.8, its roof 31.6 / 27.3 (`~/gt4re-out/looks/bin/cmp.py`, the pictures blurred).
 🔎 Left: the darkest parts are 2 to 5 levels lighter than the original's (the night sky 31.8 / 26.8). The live
 view in the finder is too, by as much (its top 37.4 / 31.2, against `times_square_photo_page.png`, the page's grey
-the same), so it is the scene's drawing, not the photo's steps: the correction's black level is 0 (0x3EFC10, +0x0C).
+the same), so it is the scene's drawing, not the photo's steps: the correction's black level is 0 (0x3EFC10, +0x0C). It is
+the course's fog: Times Square's (Env0 35 / 0.80) lifts the dark distance by our curve (visibility b + (1 - b) min(1, A / z))
+more than the original's. The darks of the photo (red, the 2, 10, 25, 50, 75, 90 % levels of the top 200 of 240 rows): ours
+7 12 19 27 45 84, the original's 4 10 14 22 41 79, ours without the fog 0 1 7 22 44 85 (`~/gt4re-out/photo2/pct.py`). 🔎 The
+program's fog curve is to be read (the fog formula, beside the cars' lighting).
