@@ -10,6 +10,7 @@
 #include "gt4r/formats/db/specdb.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,14 @@ bool aids_from_env();
 bool run_save_layout(Disc& disc);
 // The pass codes (prologue_passcode.cpp): the program's 0x1A31A0 against ours on `count` sets of fields; true when all equal.
 bool run_passcode(Disc& disc, int count);
+// The computer drivers (prologue_ai.cpp): the program's own race of `cars`, each of its driver routines against ours at every
+// call; 0 when every call and every prepared line point is equal.
+int run_ai(Disc& disc, const std::string& course, const std::string& cars, int steps);
+// The same check on a race already set up (prologue-demo's with GT4R_DEMO_AI=1): the lines compared and printed now, the taps
+// installed; null with `err` when ours cannot be made. ai_check_print prints the calls; true when all are equal.
+struct AiCheck;
+std::shared_ptr<AiCheck> ai_check(Ee& ee, Race& r, Disc& disc, const std::string& course, std::string& err);
+bool ai_check_print(const AiCheck& c);
 // Phase 14 (prologue_near.cpp) in a race of `cars` (labels, comma-separated) against the engine's pairs pass.
 int run_near(Disc& disc, const std::string& course, const std::string& cars, int steps);
 struct NearStats {
