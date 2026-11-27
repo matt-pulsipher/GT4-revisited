@@ -27,7 +27,9 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
    memory card image*.
 4. GT4 Revisited's own menu, the home screen, is underneath the game: press **Select** on the title (on a keyboard Tab),
-   or click or tap the **GT4R menu** button beside it. (On Prologue's board, Select stays the board's while a sign has the
+   or click or tap the **GT4R menu** button beside it. The button is beside Gran Turismo mode's map too (there Select is
+   the map's own: a pad reaches the home screen through the title). Leaving saves the game first, as it saves itself
+   (Options, Miscellaneous, Autosave). (On Prologue's board, Select stays the board's while a sign has the
    focus: Triangle first goes back to its menu.) The home screen: *Play* (the game from the start: the opening movie, then
    the title), *Saved games*, *Settings*, *Controls*, *Mods*, the *Save editor*, *Discs...* (the disc library: switch to
    another disc, or add one), *Developer tools* (viewers of the disc's cars, courses, menu pages and files, and *Drive*, a
@@ -356,9 +358,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
-  title's GT4R menu button and the Controller Settings button in place of the Options' controller pages
-  (`screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what they set: `app/game_options.*` into the game's
-  own options)
+  GT4R menu button beside the title and Gran Turismo mode's map and the Controller Settings button in place of the Options'
+  controller pages (which pages: `menu/app_button.h`; `screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`; what
+  they set: `app/game_options.*` into the game's own options)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
 - The data folder's place (GT4R_DATA_DIR, a `portable.ini` beside the program or, on macOS, beside gt4r.app: the engine's
