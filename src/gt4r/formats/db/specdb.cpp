@@ -1,6 +1,9 @@
 #include "gt4r/formats/db/specdb.h"
 
+#include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/formats/db/specdb_prologue.h"
+
+#include "base/log.h"
 
 #include <algorithm>
 #include <cstring>
@@ -130,6 +133,16 @@ ByteSpan Table::row(u32 id) const {
     return row_at(size_t(it - ids_.begin()));
 }
 
+void Table::add_rows(std::vector<std::pair<u32, Bytes>> rows) {
+    std::stable_sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (auto& [id, bytes] : rows) {
+        bytes.resize(row_size_);
+        const size_t at = size_t(std::upper_bound(ids_.begin(), ids_.end(), id) - ids_.begin());
+        ids_.insert(ids_.begin() + std::ptrdiff_t(at), id);
+        data_.insert(data_.begin() + std::ptrdiff_t(at * row_size_), bytes.begin(), bytes.end());
+    }
+}
+
 size_t Table::rows(u32 id, size_t& first) const {
     const auto range = std::equal_range(ids_.begin(), ids_.end(), id);
     first = size_t(range.first - ids_.begin());
@@ -195,34 +208,85 @@ SpecDb::SpecDb(Reader read, const Lister& list, std::string language) : read_(st
         if (name.size() > 4 && name.compare(name.size() - 4, 4, ".dbt") == 0) names_.push_back(name.substr(0, name.size() - 4));
 }
 
+SpecDb::~SpecDb() = default;
+SpecDb::SpecDb(SpecDb&&) noexcept = default;
+SpecDb& SpecDb::operator=(SpecDb&&) noexcept = default;
+
+// The mods' cars are worked out from the tables as the disc has them; then what they add goes into every table, label list
+// and pool read so far, and into the others as they are read.
+void SpecDb::prepare_mods() {
+    if (mods_state_ != 0) return;
+    mods_state_ = 1;
+    ModCars m;
+    if (!prologue_)
+        if (const std::optional<Bytes> list = read_("mods/.cars"); list && !list->empty()) try {
+                m = ModCars::build(*this, std::string_view(reinterpret_cast<const char*>(list->data()), list->size()), makers_);
+                for (const ModCarStatus& s : m.statuses())
+                    if (!s.loaded()) LOG_WARN("Mod car %s (%s): %s", s.label.c_str(), s.mod.c_str(), s.error.c_str());
+            } catch (const std::exception& e) {
+                LOG_WARN("Mod cars: %s", e.what());
+                m = ModCars();
+            }
+    mods_ = std::make_unique<ModCars>(std::move(m));
+    for (auto& [name, t] : tables_)
+        if (t) mods_->extend(name, *t);
+    for (auto& [name, l] : labels_)
+        if (l) mods_->extend(name, *l);
+    for (auto& [name, s] : strings_)
+        if (s) mods_->extend(name, *s);
+    mods_state_ = 2;
+}
+
+const ModCars& SpecDb::mod_cars() {
+    prepare_mods();
+    return *mods_;
+}
+
+std::optional<Bytes> SpecDb::mod_car_file(u64 code) const { return mods_ ? mods_->car_file(code) : std::nullopt; }
+
+std::optional<Bytes> SpecDb::car_file(u64 code) {
+    prepare_mods();
+    if (mods_)
+        if (std::optional<Bytes> f = mods_->car_file(code)) return f;
+    char name[40];
+    std::snprintf(name, sizeof name, "CARS/%016llX", static_cast<unsigned long long>(code));
+    return read_(folder_ + name);
+}
+
 const Table* SpecDb::table(const std::string& name) {
+    prepare_mods();
     auto it = tables_.find(name);
     if (it == tables_.end()) {
         std::optional<Table> t;
         const std::string file_name = prologue_ ? prologue::file_name(name) : name;
         if (const std::optional<Bytes> file = read_(folder_ + file_name + ".dbt")) t = Table::parse(*file);
         if (t && prologue_) t = prologue::to_gt4(name, *t, *this);
+        if (t && mods_) mods_->extend(name, *t);
         it = tables_.emplace(name, std::move(t)).first;
     }
     return it->second ? &*it->second : nullptr;
 }
 
 const Labels* SpecDb::labels(const std::string& name) {
+    prepare_mods();
     auto it = labels_.find(name);
     if (it == labels_.end()) {
         std::optional<Labels> l;
         if (const std::optional<Bytes> file = read_(folder_ + (prologue_ ? prologue::file_name(name) : name) + ".idi")) l = Labels::parse(*file);
         if (l && prologue_) l = prologue::to_gt4(std::move(*l));
+        if (l && mods_) mods_->extend(name, *l);
         it = labels_.emplace(name, std::move(l)).first;
     }
     return it->second ? &*it->second : nullptr;
 }
 
 const Strings* SpecDb::strings(const std::string& name) {
+    prepare_mods();
     auto it = strings_.find(name);
     if (it == strings_.end()) {
         std::optional<Strings> s;
         if (const std::optional<Bytes> file = read_(folder_ + name + ".sdb")) s = Strings::parse(*file);
+        if (s && mods_) mods_->extend(name, *s);
         it = strings_.emplace(name, std::move(s)).first;
     }
     return it->second ? &*it->second : nullptr;

@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,6 +34,8 @@ public:
     // How many rows have the id (a car's paint rows share their id), from index `first`.
     size_t rows(u32 id, size_t& first) const;
     ByteSpan row_at(size_t index) const { return ByteSpan(data_).subspan(index * row_size_, row_size_); }
+    // Rows added (a mod car's, mod_cars.h): each its id and row_size() bytes; the ids stay in order.
+    void add_rows(std::vector<std::pair<u32, Bytes>> rows);
 
 private:
     u32 flags_ = 0;
@@ -77,6 +80,8 @@ struct CourseEntry {
 };
 
 // The database of a disc: its tables, labels and string pools, read as they are asked for.
+class ModCars;
+
 class SpecDb {
 public:
     using Reader = std::function<std::optional<Bytes>(const std::string& path)>;
@@ -106,7 +111,22 @@ public:
     bool car_wheels(const std::string& car_label, WheelLayout& out);
     std::vector<CourseEntry> courses();
 
+    // The mods' cars (mod_cars.h): the cars of the files the reader lists (gt3r::Vfs::kModCarsList), worked out when the first
+    // table, label list or pool is read and added to each as it is. `makers` (menu::ProgramTables::makers) match a car's
+    // maker; set them before anything is read.
+    void set_makers(std::map<int, std::string> makers) { makers_ = std::move(makers); }
+    const ModCars& mod_cars();
+    // The parts that fit a car (specdb/<set>/CARS/<the car's code, 16 hex digits>), a mod car's included; none when it has none.
+    std::optional<Bytes> car_file(u64 code);
+    // A mod car's alone, once the mods' cars are worked out (any table read); none for a disc car.
+    std::optional<Bytes> mod_car_file(u64 code) const;
+
+    ~SpecDb();
+    SpecDb(SpecDb&&) noexcept;
+    SpecDb& operator=(SpecDb&&) noexcept;
+
 private:
+    void prepare_mods();
     Reader read_;
     std::string folder_, language_;
     bool prologue_ = false;
@@ -114,6 +134,9 @@ private:
     std::map<std::string, std::optional<Table>> tables_;
     std::map<std::string, std::optional<Labels>> labels_;
     std::map<std::string, std::optional<Strings>> strings_;
+    std::map<int, std::string> makers_;
+    std::unique_ptr<ModCars> mods_;
+    int mods_state_ = 0; // 0 not worked out, 1 being worked out (the tables read as the disc has them), 2 done
 };
 
 } // namespace gt4r::db
