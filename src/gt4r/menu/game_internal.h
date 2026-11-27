@@ -202,7 +202,7 @@ std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::st
 
 // ---- game_controllers.cpp
 // MOption's controller settings, and their part of the options' reset (`before`: both ports' text as it was).
-void install_controllers(GameState& s, Object& option);
+void install_controllers(const std::shared_ptr<GameState>& s, Object& option);
 void reset_controllers(GameState& s, const std::array<std::string, 2>& before);
 
 // The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).

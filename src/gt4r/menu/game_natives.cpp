@@ -403,7 +403,8 @@ void GameNatives::commit_option(const Value& from) {
 std::shared_ptr<Object> GameNatives::build_option(GameState& held, std::shared_ptr<GameState> copy) {
     auto option = std::make_shared<OptionObject>("MOption");
     option->copy = copy;
-    GameState* s = &held;
+    // (Every accessor holds a copy's options: a member read from `getOption().name` outlives the object.)
+    const std::shared_ptr<GameState> s = copy ? copy : std::shared_ptr<GameState>(std::shared_ptr<void>(), &held);
     for (const auto& [name, value] : s->options) {
         const std::string n = name;
         option->property(n, [s, n] { return option_value(s->options[n]); }, [s, n](const Value& v) {
@@ -474,7 +475,7 @@ option->method("setGameZoneDefault", [s, r](Vm&, const Value&, Args) {
 });
 for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    install_controllers(*s, *option);
+    install_controllers(s, *option);
     // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
     // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
     // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
@@ -486,7 +487,7 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         auto p = std::make_shared<Object>("MPlayList");
         GameState::PlayList* l = list;
         Runtime* r = &rt;
-        auto rows = [l, r]() -> u32 {
+        auto rows = [s, l, r]() -> u32 {
             if (!l->rows) {
                 for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
                     const std::optional<Bytes> inf = r->reader()(path);
@@ -498,14 +499,14 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
             }
             return std::min<u32>(l->rows, 128);
         };
-        p->property("play_data", [l, rows] {
+        p->property("play_data", [s, l, rows] {
             std::vector<Value> out;
             for (u32 i = 0; i < rows(); ++i) {
                 const GameState::PlayList::Row& row = l->row[i];
                 out.push_back(Value::array({number(row.order), number(row.played), number(row.enabled), number(row.order2)}));
             }
             return Value::array(std::move(out));
-        }, [l, rows](const Value& v) {
+        }, [s, l, rows](const Value& v) {
             const std::vector<Value>* items = v.items();
             if (!items) return;
             const u32 n = std::min<u32>(rows(), u32(items->size()));
@@ -520,13 +521,13 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
             for (u32 i = 0; i < rows(); ++i)
                 if (l->row[i].enabled) l->none = 0;
         });
-        p->method("initShuffle", [l, rows](Vm&, const Value&, Args) {
+        p->method("initShuffle", [s, l, rows](Vm&, const Value&, Args) {
             bool any = false;
             for (u32 i = 0; i < rows(); ++i) l->row[i].played = !l->row[i].enabled, any |= l->row[i].enabled != 0;
             l->none = !any, l->position = 0;
             return Value{};
         });
-        p->property("shuffle", [l] { return number(l->shuffle); }, [l](const Value& v) { l->shuffle = v.truthy(); });
+        p->property("shuffle", [s, l] { return number(l->shuffle); }, [s, l](const Value& v) { l->shuffle = v.truthy(); });
         option->set(list_name, object_value(p));
     }
     return option;

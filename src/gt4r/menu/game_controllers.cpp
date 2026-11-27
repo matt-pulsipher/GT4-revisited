@@ -37,8 +37,8 @@ Target named_target(Args a, int skip_numbers) {
 
 } // namespace
 
-void install_controllers(GameState& held, Object& option) {
-    GameState* s = &held;
+void install_controllers(const std::shared_ptr<GameState>& held, Object& option) {
+    const std::shared_ptr<GameState> s = held; // (held by every accessor: a copy's options outlive the object)
     for (int port = 0; port < 2; ++port) {
         const std::string who = port == 0 ? "_1p" : "_2p";
         for (const auto& [name, key] : {std::pair<const char*, const char*>{"vibration", "VIBRATION"}, {"steering_forcefeedback", "WHEEL FEEDBACK"}})
