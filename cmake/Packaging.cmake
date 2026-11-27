@@ -10,7 +10,7 @@
 # What a package holds: gt4r (gt4r.app on macOS), gt4tool (PLAYING.md: texture names, saves for
 # checks), README.md, docs/PLAYING.md and docs/SAVE_EDITOR.md, LICENSE, THIRD-PARTY-NOTICES.md and
 # the font licenses; on Windows SDL3.dll
-# and ANGLE's DLLs; on Linux the .desktop file and the icon. Never the tests or gt4r_diff.
+# and ANGLE's DLLs (the PC VR package also openxr_loader.dll); on Linux the .desktop file and the icon. Never the tests or gt4r_diff.
 
 set(GT4R_PACKAGING_DIR ${CMAKE_SOURCE_DIR}/packaging)
 
@@ -107,6 +107,10 @@ elseif(WIN32)
   install(FILES $<TARGET_RUNTIME_DLLS:gt4r> DESTINATION .)
   if(GT3R_ANGLE_DIR)
     install(FILES ${GT4R_ANGLE_FILES} ${GT3R_ANGLE_DIR}/LICENSE-ANGLE.txt DESTINATION .)
+  endif()
+  # The PC VR package (GT3R_XR): the Khronos OpenXR loader, which SDL opens at start (without it, no headset: the window).
+  if(GT3R_OPENXR_LOADER)
+    install(FILES ${GT3R_OPENXR_LOADER} DESTINATION .)
   endif()
   install(FILES ${_docs} DESTINATION .)
   install(FILES ${_player_docs} DESTINATION docs)

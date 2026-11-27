@@ -104,7 +104,8 @@ cd android && ./gradlew assembleDebug -Pquest
 for another checkout), arm64 only, `-DGT3R_XR=ON`, the Khronos OpenXR loader package
 (`org.khronos.openxr:openxr_loader_for_android`) and the headset's manifest (`app/src/quest/AndroidManifest.xml`: the VR
 launcher categories, head tracking, the OpenXR broker, optional hand tracking so a Bluetooth controller can start it). The APK
-is `app/build/outputs/apk/debug/app-quest-debug.apk`, with the phone app's application id. It is tested the way the phone app
+is `app/build/outputs/apk/debug/app-quest-debug.apk`, with the phone app's application id (`assembleRelease -Pquest`:
+`app-quest-release.apk`, signed as the phone APK is; a release carries it as `gt4r-quest.apk`). It is tested the way the phone app
 is (`files/args.txt`, above); the engine's docs/dev/VR.md "Testing" has the headset's own steps (keeping it awake without
 wearing it, its screenshots, its frame rate in logcat).
 
