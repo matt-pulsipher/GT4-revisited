@@ -270,6 +270,8 @@ private:
         rows_.choice("Dynamic resolution", {"Never lowered", lowered}, v.dynamic_resolution, [set](size_t i) { set([&](auto& n) { n.dynamic_resolution = i == 1; }); }).enabled = app.gpu() != nullptr;
         rows_.choice("Cars and prizes in menus", {"640x448, as the console's", "The screen's resolution"}, v.sharp_menu_models, [set](size_t i) { set([&](auto& n) { n.sharp_menu_models = i == 1; }); }).enabled = app.gpu() != nullptr;
 
+        rows_.choice("Loading pages", {"Quick", "Original"}, !v.quick_loading, [set](size_t i) { set([&](auto& n) { n.quick_loading = i == 0; }); });
+
         std::vector<std::pair<std::string, std::string>> gpus{{"0", "Automatic"}};
 #if GT3R_GLES
 #ifdef SDL_PLATFORM_WINDOWS

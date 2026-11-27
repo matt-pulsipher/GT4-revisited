@@ -7,6 +7,7 @@
 #include "base/file.h"
 #include "formats/png_writer.h"
 #include "formats/texture_pack.h"
+#include "gt4r/app/loading_timing.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/input/player_controls.h"
@@ -42,7 +43,7 @@ TEST(settings_video_round_trip) {
     v.save(ini);
     CHECK(ini.serialize().find("video") == std::string::npos);
     // Every field changed comes back, and only the changed ones are written.
-    v.fullscreen = true, v.vsync = false, v.limit_60fps = true, v.show_fps = true, v.dynamic_resolution = true, v.sharp_menu_models = false, v.texture_packs = false;
+    v.fullscreen = true, v.vsync = false, v.limit_60fps = true, v.show_fps = true, v.dynamic_resolution = true, v.sharp_menu_models = false, v.texture_packs = false, v.quick_loading = false;
     v.msaa = 8, v.anisotropy = 16, v.render_scale = 1.25f, v.gamma = 1.15f, v.aspect = gt3r::platform::Aspect::Classic, v.gpu = Gpu::Gles;
     v.save(ini);
     CHECK(Video::load(ini) == v);
@@ -298,4 +299,30 @@ TEST(disc_texture_pack_car) {
     const gt3r::scene::Model again = car::build_car(file, pat, nullptr, o, "car");
     for (size_t i = 0; i < again.textures.size(); ++i) CHECK(again.textures[i].rgba == plain.textures[i].rgba);
     std::filesystem::remove_all(dir);
+}
+
+TEST(settings_loading_page_timing) {
+    using gt4r::loading::Timing;
+    // Quick is the default and "original" the other word.
+    CHECK(Video{}.quick_loading);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\nloading_page = original\n")).quick_loading == false);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\nloading_page = Quick\n")).quick_loading);
+    const Timing q{true}, o{false};
+    // Between projects: the original's page is 2.75 s at the least (covered at 1 s, held to 2.5 s, out in 0.25 s).
+    CHECK_EQ(o.cover(), 1.0f);
+    CHECK_EQ(o.ends_at(1.0f), 2.5f);
+    CHECK_EQ(o.ends_at(3.0f), 3.5f);
+    CHECK(o.picture(2.0f) == 1.0f && o.picture(1.0f) == 0.0f);
+    // Quick: covered in 0.25 s, no picture, no hold, 0.5 s in all.
+    CHECK_EQ(q.cover(), 0.25f);
+    CHECK_EQ(q.ends_at(0.25f), 0.25f);
+    CHECK_EQ(q.picture(5.0f), 0.0f);
+    CHECK_EQ(q.black(0.125f), 0.5f);
+    CHECK(!Timing::gone(0.4f, 0.25f) && Timing::gone(0.5f, 0.25f));
+    CHECK_EQ(Timing::out(0.375f, 0.25f), 0.5f);
+    // Before a race: the original waits 1.2 s; quick shows the held page once and reads the race.
+    CHECK(!o.capture_ready(1.0f, 60) && o.capture_ready(1.2f, 72));
+    CHECK(!q.capture_ready(0.0f, 0) && q.capture_ready(0.0f, 1));
+    CHECK_EQ(q.capture_tacho(0.2f), 0.0f);
+    CHECK_EQ(q.capture_tacho(0.5f), 1.0f);
 }
