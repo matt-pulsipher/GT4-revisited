@@ -72,6 +72,7 @@
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/menu/logger.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/net/net_race.h"
@@ -1529,11 +1530,18 @@ public:
     // the ghost's car put at its recorder's moment (as RaceWorld::resume puts a recorded free run's), its records the lap.
     // ❓ The program makes the file's entry the ghost's (its own car): here the lap of the player's own car alone is taken.
     bool load_ghost(const replay::Demonstration& d) {
-        if (d.streams.size() != 1 || d.time_ms <= 0 || !world_->session()) return false;
+        std::shared_ptr<GhostLap> lap = ghost_from(d);
+        if (!lap) return false;
+        ghost_best_ = std::move(lap);
+        return true;
+    }
+    // A GhostData file's lap: the race's car put at the recorder's moment, its records the lap.
+    std::shared_ptr<GhostLap> ghost_from(const replay::Demonstration& d) const {
+        if (d.streams.size() != 1 || d.time_ms <= 0 || !world_->session()) return nullptr;
         const std::optional<replay::RecorderState> st = replay::recorder_state(d.streams[0]);
-        if (!st) return false;
+        if (!st) return nullptr;
         std::unique_ptr<sim::Session> seed = world_->session()->solo(0);
-        if (!seed) return false;
+        if (!seed) return nullptr;
         sim::Record r;
         r.car = seed->record(0), r.x = seed->gt4_record(0), r.layout = seed->wheel_layout(0);
         sim::load_car_record(r, st->car);
@@ -1542,8 +1550,52 @@ public:
         lap->seed = std::move(seed), lap->ms = d.time_ms, lap->moment = *st;
         lap->moment.car = {}, lap->moment.body = {}; // (they point into the file)
         for (const replay::PadRecord& f : d.streams[0].frames) lap->frames.push_back(race::PadRecord{f.bytes});
-        ghost_best_ = std::move(lap);
+        return lap;
+    }
+
+    // ---- The Analyzer's tracks (the project logger, menu/logger.h): Track A the best lap's recorder (the race's vf72(0x100),
+    // 0x3EA8C8: the ghost's lap here), Track B the lap loaded into the other (vf72(1), 0x3EA908). The analysis runs a
+    // track's lap again: its car put at the lap's moment, stepped by its records, each picture's distance along the course
+    // (its distance in the lap and the laps before it, 0x11E450), speed, throttle, brake and gear.
+    const GhostLap* logger_lap(int t) const { return t == 0 ? ghost_best_.get() : logger_b_.get(); }
+    bool load_logger_track(const replay::Demonstration& d, int t) {
+        std::shared_ptr<GhostLap> lap = ghost_from(d);
+        if (!lap) return false;
+        if (t == 0) ghost_best_ = std::move(lap);
+        else logger_b_ = std::move(lap);
         return true;
+    }
+    std::optional<menu::LoggerLap> logger_run(int t) const {
+        const std::shared_ptr<const GhostLap> lap = t == 0 ? ghost_best_ : logger_b_;
+        if (!lap || !lap->seed) return std::nullopt;
+        std::shared_ptr<sim::Session> run = lap->seed->solo(0);
+        if (!run) return std::nullopt;
+        const float length = world_->lap_length();
+        struct State {
+            size_t at = 0;
+            float base = 0, last = 0;
+            bool first = true;
+        };
+        auto st = std::make_shared<State>();
+        menu::LoggerLap out;
+        out.frames = lap->frames.size();
+        out.next = [lap, run, st, length](menu::LoggerPicture& p) {
+            if (st->at >= lap->frames.size()) return false;
+            const race::PadRecord& f = lap->frames[st->at++];
+            race::CarInput in = sim::ai::pad_input(replay::PadRecord{f.bytes});
+            in.pad = &f;
+            run->step_once(std::span<const race::CarInput>(&in, 1));
+            const race::CarState& c = run->cars()[0];
+            // (the laps before it: the distance goes on past the line)
+            if (!st->first && length > 0) {
+                if (c.course_v < st->last - length * 0.5f) st->base += length;
+                else if (c.course_v > st->last + length * 0.5f) st->base -= length;
+            }
+            st->first = false, st->last = c.course_v;
+            p.distance = st->base + c.course_v, p.speed = c.speed, p.throttle = c.throttle, p.brake = c.brake, p.gear = c.gear;
+            return true;
+        };
+        return out;
     }
     // A license run graded (report_result): its run becomes the ghost when faster than the ghost's.
     void ghost_run_graded(s64 ms) {
@@ -2523,6 +2575,7 @@ private:
     sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
     std::vector<replay::PadRecord> records_; // the run's records, one a step
     std::shared_ptr<const GhostLap> ghost_best_; // the ghost's lap (kept for the sequence's next runs)
+    std::shared_ptr<const GhostLap> logger_b_;  // the Analyzer's Track B (a lap loaded from the card)
     std::unique_ptr<sim::Session> ghost_seed_;   // the lap being driven: the car at its crossing,
     std::vector<race::PadRecord> ghost_frames_;  // its records since
     replay::RecorderState ghost_moment_{};
@@ -4202,6 +4255,7 @@ private:
     void update_quick(App& app, const MenuInput& m, double dt) {
         try {
             send_menu_keys(*menus_, m);
+            menus_->set_pad(menu_runtime_pad(app.menu_pad())); // (the pad as the pages read it: the Analyzer's sticks)
             menus_->update();
         } catch (const std::exception& e) {
             menus_->note(std::string("stopped: ") + e.what());
@@ -4232,6 +4286,7 @@ private:
                 path.clear();
             }
         }
+        if (logger_) return logger_back(app, w);
         if (option_) return menus_->game().pending_replay.reset(), enter_quick(w.get("canReplay"), false);
         // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
@@ -4286,6 +4341,10 @@ private:
             menus_->game().ghost_course = setup_.course, menus_->game().ghost_car = race_->world().setup().entries[0].label;
             menus_->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
             menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
+        } else if (command == "COMMAND_LOGGER" && !prologue_hud_ && race_) {
+            // The Analyzer (0x10FEE8): the project logger with the race's two tracks; CanLogger kept to be put back.
+            logger_ = true, logger_load_ = -1, logger_can_ = w.get("CanLogger");
+            open_logger();
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
             // The options, or the car's settings (the project `setting`), then the menus again.
             option_ = true;
@@ -4310,6 +4369,66 @@ private:
             enter_quick(w.get("canReplay"), !session_over);
         }
     }
+
+    // ---- The Analyzer (the sequence's side, 0x10FEE8): the project logger; leaving it with a track to load (its
+    // load_track 0 or 1) the card's best lap replays (labomode, MODE_LOAD_BESTLAP_REPLAY), CanLogger 1 when one was loaded,
+    // and the logger again; leaving it otherwise the race's menus again with CanLogger as it was.
+    void open_logger() {
+        auto src = std::make_shared<menu::LoggerSource>();
+        for (int t = 0; t < 2; ++t) {
+            const Race::GhostLap* lap = race_->logger_lap(t);
+            menu::LoggerTrackInfo& i = src->info[size_t(t)];
+            i.has = lap && lap->seed && !lap->frames.empty();
+            i.car = race_->world().car_label(0), i.ms = lap ? lap->ms : -1;
+            if (const menu::QuickWork& w = menu::quick_work(menus_->game()); !w.rows.empty() && w.rows[0].power > 0) i.power = w.rows[0].power;
+        }
+        Race* race = race_.get();
+        src->lap = [race](int t) { return race->logger_run(t); };
+        src->course_length = race_->lap_length();
+        src->course_label = setup_.course;
+        std::tie(src->race_mode_label, src->race_mode_subnumber) = race_mode();
+        menus_->game().logger = src;
+        menus_->start_project("logger");
+    }
+    void logger_back(App& app, menu::QuickWork& w) {
+        menu::GameState& g = menus_->game();
+        if (logger_load_ >= 0) {
+            // Back from the card's list: the file chosen loaded into the track (0x10FFE4 .. 0x110030).
+            const int t = logger_load_;
+            logger_load_ = -1;
+            if (std::string& path = g.replay_file; !path.empty()) {
+                try {
+                    std::ifstream in(path, std::ios::binary);
+                    const Bytes b((std::istreambuf_iterator<char>(in)), {});
+                    const std::optional<Bytes> body = save::unscramble(b, 0, save::FileKind::Replay);
+                    std::string why;
+                    const std::optional<replay::Demonstration> d = body && app.disc() ? replay::Demonstration::parse(*body, sim::Program::load(*app.disc()), &why) : std::nullopt;
+                    if (d && race_->load_logger_track(*d, t)) {
+                        w.set("CanLogger", 1);
+                        LOG_INFO("Drive: the Analyzer's Track %c loaded from %s (%d ms)", t == 0 ? 'A' : 'B', path.c_str(), d->time_ms);
+                    } else LOG_WARN("Drive: the best lap replay %s does not load%s%s", path.c_str(), why.empty() ? "" : ": ", why.c_str());
+                } catch (const std::exception& e) {
+                    LOG_WARN("Drive: the best lap replay %s: %s", path.c_str(), e.what());
+                }
+                path.clear();
+            }
+            return open_logger();
+        }
+        if (g.logger && g.logger->load_track >= 0) {
+            logger_load_ = g.logger->load_track;
+            g.replay_file.clear();
+            g.next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
+            menus_->start_project("labomode");
+            return;
+        }
+        logger_ = false;
+        g.logger.reset();
+        w.set("CanLogger", logger_can_);
+        enter_quick(w.get("canReplay"), false);
+    }
+    bool logger_ = false;  // the Analyzer's pages (or its card list) are up
+    int logger_load_ = -1; // the track the card's list loads into
+    s32 logger_can_ = 0;   // CanLogger before it
 
     // FREE_QUALIFY (0x119310 .. 0x119420): a free practice of the race's field (RaceFreePractice on the race's information,
     // driven in mode 0: no laps, no hold, the pause's Exit ends it), then every car's best lap sorts the grid (0x3EE808) unless
@@ -4418,30 +4537,39 @@ private:
                 }
     }
 
+    // The race's mode by the program's names (0x6A0020) and its number (the license tests' and missions'), as a replay
+    // file and the Analyzer's page name it.
+    std::pair<std::string, int> race_mode() const {
+        const menu::RaceRequest& q = menus_->game().race;
+        std::pair<std::string, int> m{"NOTHING", -1};
+        static const std::pair<const char*, const char*> kModes[] = {
+            {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
+            {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
+        };
+        m.first = "NOTHING";
+        for (const auto& [sequence, mode] : kModes)
+            if (sequence_ == sequence) m.first = mode;
+        if (sequence_ == "machinetest") // ("mt400_testcourse")
+            m.first = q.race.find("mt1000") != q.race.npos ? "GTMODE_MACHINE_TEST_0_1000" : q.race.find("mtmax") != q.race.npos ? "GTMODE_MACHINE_TEST_MAX_SPEED" : "GTMODE_MACHINE_TEST_0_400";
+        const std::string label = q.race.size() > 7 ? q.race.substr(q.race.size() - 7) : q.race; // "l0b0001"
+        if (is_license(sequence_)) {
+            static const std::pair<const char*, const char*> kTests[] = {{"l0b", "GTMODE_LICENSE_B"},   {"l0a", "GTMODE_LICENSE_A"}, {"lib", "GTMODE_LICENSE_IB"},
+                                                                        {"lia", "GTMODE_LICENSE_IA"}, {"l0s", "GTMODE_LICENSE_S"}, {"l0c", "GTMODE_LICENSE_COFFEE_BREAK"}};
+            m.first = "GTMODE_LICENSE";
+            for (const auto& [prefix, mode] : kTests)
+                if (label.rfind(prefix, 0) == 0) m.first = mode;
+        }
+        if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) m.second = std::atoi(label.c_str() + 3);
+        return m;
+    }
+
     // The run for the menus' save page (menu::GameState::pending_replay; the modes by the program's names, 0x6A0020; ❓ the
     // number given for the license tests and missions alone).
     void pend_replay(App& app, bool best_lap = false) {
         const menu::RaceRequest& q = menus_->game().race;
         auto pending = std::make_shared<menu::GameState::PendingReplay>();
         auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
-        static const std::pair<const char*, const char*> kModes[] = {
-            {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
-            {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
-        };
-        pending->mode = "NOTHING";
-        for (const auto& [sequence, mode] : kModes)
-            if (sequence_ == sequence) pending->mode = mode;
-        if (sequence_ == "machinetest") // ("mt400_testcourse")
-            pending->mode = q.race.find("mt1000") != q.race.npos ? "GTMODE_MACHINE_TEST_0_1000" : q.race.find("mtmax") != q.race.npos ? "GTMODE_MACHINE_TEST_MAX_SPEED" : "GTMODE_MACHINE_TEST_0_400";
-        const std::string label = q.race.size() > 7 ? q.race.substr(q.race.size() - 7) : q.race; // "l0b0001"
-        if (is_license(sequence_)) {
-            static const std::pair<const char*, const char*> kTests[] = {{"l0b", "GTMODE_LICENSE_B"},   {"l0a", "GTMODE_LICENSE_A"}, {"lib", "GTMODE_LICENSE_IB"},
-                                                                        {"lia", "GTMODE_LICENSE_IA"}, {"l0s", "GTMODE_LICENSE_S"}, {"l0c", "GTMODE_LICENSE_COFFEE_BREAK"}};
-            pending->mode = "GTMODE_LICENSE";
-            for (const auto& [prefix, mode] : kTests)
-                if (label.rfind(prefix, 0) == 0) pending->mode = mode;
-        }
-        if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
+        std::tie(pending->mode, pending->submode) = race_mode();
         pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
         if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
         if (best_lap && race_->ghost_best()) pending->time_ms = u32(race_->ghost_best()->ms), pending->best_lap = true;

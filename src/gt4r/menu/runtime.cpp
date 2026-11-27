@@ -5,6 +5,7 @@
 
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/photo_natives.h"
+#include "gt4r/menu/logger.h"
 
 #include "gt4r/menu/no_card.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -235,6 +236,7 @@ void Runtime::install_natives() {
         install_actor_natives(*this, into);
         install_game_natives(*this, into);
         install_race_natives(*this, into);
+        install_logger_natives(*this, into);
         into.stubbed = true; // any other name of the program's is a stand-in
     });
     vm.add_native_module("gt4app", [](Vm&, script::Module&) {});

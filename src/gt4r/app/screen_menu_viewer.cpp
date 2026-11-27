@@ -15,6 +15,7 @@
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/logger_face.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
@@ -871,6 +872,7 @@ public:
         drawer_.draw_live = [this](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
             if (face.is("CarFace")) cars_.draw(face, project, page, at, dst, opacity);
             else if (face.is("ModelFace")) models_.draw(face, project, page, at, dst, opacity);
+            else if (face.is("LoggerFace")) draw_logger_face(drawer_, face, at, opacity);
         };
     }
     void draw(menu::Runtime& rt, float x, float scale) override {
