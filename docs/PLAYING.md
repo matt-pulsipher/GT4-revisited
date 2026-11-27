@@ -270,15 +270,16 @@ online, an exported car is never sent.
 
 **Mod makers** are text files too, `mods/<name>/makers/<key>.ini` (the file's name is the maker's key: letters, digits and
 `_`): a maker the game does not have, whose cars (`[car] maker =` its name or key) are its own. It gets a dealer on its
-country's page of Gran Turismo mode after the disc's dealers, with the mod's pictures, its name on the pages, the car
-picker and the Car database, and its line on the country page:
+country's page of Gran Turismo mode after the disc's dealers and a button on its country's row of Arcade's makers' page,
+with the mod's pictures, its name on the pages, the car picker and the Car database, and its line on the country page; the
+Mods page lists each mod's makers, "in the game" or why not:
 
 ```ini
 [maker]
 name = Voltra                       ; what the pages show
 country = US                        ; JP, US, GB, DE, FR, IT, AU, KR, BE, NL, SE or ES (GT3 Revisited's region = us .. works too)
 description = Voltra: electric cars from a mod.   ; the country page's line about it (default: the name)
-icon = images/voltra_icon.png       ; the country page's button, 128 x 84
+icon = images/voltra_icon.png       ; the country page's button, 128 x 84 (Arcade's at half its size)
 logo = images/voltra_logo.png       ; the dealer page's logo, 378 x 135 (also its tune shop's button)
 ```
 

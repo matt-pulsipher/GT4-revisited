@@ -13,6 +13,7 @@
 #include "gt4r/menu/save_editor.h"
 
 #include "base/file.h"
+#include "formats/png_writer.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -33,7 +34,18 @@ std::string write_file(const std::string& sub, const std::string& name, const st
 const char* const kMaker = "[maker]\nname = Voltra\ncountry = US\nicon = images/voltra_icon.png\nlogo = images/voltra_logo.png\n";
 const char* const kCar = "[car]\nlabel = voltra_one_26\nname = Voltra One `26\nmaker = Voltra\nyear = 2026\nprice = 45000\ndonor = impreza_wrx_sti_00\n";
 
-std::string the_list() { return write_file("makers", "voltra.ini", kMaker) + write_file("cars", "voltra_one_26.ini", kCar); }
+// A PNG of w x h (one color) in the mod's images/.
+void write_png(const std::string& name, u32 w, u32 h) {
+    const Bytes png = gt3r::encode_png(w, h, std::vector<u32>(size_t(w) * h, 0xFFC85A14u));
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r_test_mod_makers" / "images";
+    std::filesystem::create_directories(dir);
+    gt3r::write_host_file((dir / name).string(), ByteSpan(png));
+}
+
+std::string the_list() {
+    write_png("voltra_icon.png", 128, 84), write_png("voltra_logo.png", 378, 135);
+    return write_file("makers", "voltra.ini", kMaker) + write_file("cars", "voltra_one_26.ini", kCar);
+}
 
 menu::Runtime::Config menus_config(Disc& d) {
     menu::Runtime::Config config;
@@ -49,6 +61,10 @@ menu::Runtime::Config menus_config(Disc& d) {
         return out;
     };
     config.program = [&d] { return d.read_program(); };
+    // The disc's zone, product and language (as the app's menus: EU_carlist on the European disc).
+    config.region = d.info().region, config.product = d.info().product;
+    if (const std::vector<std::string> langs = menu::project_languages(config.list, "boot"); !langs.empty() && std::find(langs.begin(), langs.end(), config.language) == langs.end())
+        config.language = std::find(langs.begin(), langs.end(), d.info().language) != langs.end() ? d.info().language : langs[0];
     return config;
 }
 menu::FileReader reader(Disc& d, const std::string& list) {
@@ -141,7 +157,9 @@ TEST(disc_mod_maker_dealer) {
     CHECK(title && title->get("image_path").to_string() == "image/piece/tuner_logo2/voltra.png");
     rt->set_focus(*rt->current_page(), item);
     press({menu::Key::Accept});
-    CHECK(page() == "DealerRoot" && focus() == "New");
+    const std::shared_ptr<menu::LiveWidget> new_cars = page() == "DealerRoot" ? rt->current_page()->child("New") : nullptr;
+    CHECK(new_cars && new_cars->shown()); // (its new cars offered; the European and Japanese pages focus another button first)
+    if (new_cars) rt->set_focus(*rt->current_page(), new_cars), rt->settle();
     const std::shared_ptr<menu::LiveWidget> logo = rt->current_page()->child("Logo");
     CHECK(logo && logo->get("image_path").to_string() == "piece/tuner_logo/voltra.img");
     const std::optional<db::ModPicture> p = d.db->mod_picture("piece/tuner_logo/voltra.img");
@@ -158,6 +176,54 @@ TEST(disc_mod_maker_dealer) {
     const menu::CarDatabase::Car* c = cdb.car("voltra_one_26");
     CHECK(c && c->maker == "Voltra");
     if (c) std::printf("  the Car database: %s, %s, %s\n", c->name.c_str(), c->maker.c_str(), c->country.c_str());
+    bool clean = true;
+    for (const std::string& line : rt->log())
+        if (line.find("script error") != std::string::npos) clean = false, std::printf("  %s\n", line.c_str());
+    CHECK(clean);
+}
+
+// Arcade's makers' page: the maker's button (its own picture, at half its size as the page puts every maker's) on its
+// country's row, and its car on the car page behind it.
+TEST(disc_mod_maker_arcade) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    std::unique_ptr<menu::Runtime> rt = menus_with(*disc, the_list());
+    auto press = [&](std::initializer_list<menu::Key> keys) {
+        for (menu::Key k : keys) rt->key(k), rt->settle();
+    };
+    auto page = [&] { return rt->current_page() ? rt->current_page()->name : std::string(); };
+    rt->game().card.has_game_data = true, rt->game().username = "Player";
+    rt->boot();
+    rt->start_project(rt->first_project());
+    rt->settle();
+    if (page() == "MovieRoot") press({menu::Key::Start});
+    CHECK(rt->finished() && rt->advance());
+    rt->settle();
+    press({menu::Key::Accept}); // Arcade: single race
+    press({menu::Key::Accept}); // a category
+    press({menu::Key::Accept}); // its first course
+    if (page() == "CourseRoot") press({menu::Key::Accept}); // (its direction)
+    CHECK(page() == "MakerRoot");
+    if (page() != "MakerRoot") return;
+    const script::Value usa = rt->vm().lookup("ArcadeProject::MakerData::usa_makers");
+    CHECK(usa.items() && !usa.items()->empty() && usa.items()->back().as_string() == "voltra");
+    const std::shared_ptr<menu::LiveWidget> space = rt->current_page()->child("ScrollWindow")->child("clip")->child("space");
+    std::shared_ptr<menu::LiveWidget> item;
+    for (const auto& c : space->children)
+        if (c->name == "voltra") item = c;
+    CHECK(item != nullptr);
+    if (!item) return;
+    const std::shared_ptr<menu::LiveWidget> bg = item->child("bg");
+    std::printf("  voltra's button: %.0f x %.0f at (%.0f, %.0f), %s\n", item->get("w").as_float(), item->get("h").as_float(), item->get("x").as_float(),
+                item->get("y").as_float(), bg ? bg->data.text("image_path").c_str() : "-");
+    CHECK(bg && bg->data.text("image_path") == "image/piece/tuner_logo2/voltra.png");
+    CHECK(item->get("w").as_float() == 64.0f && item->get("h").as_float() == 42.0f); // (its 128 x 84 picture, halved)
+    rt->set_focus(*rt->current_page(), item);
+    press({menu::Key::Accept});
+    CHECK(page() == "CarRoot");
+    const std::shared_ptr<menu::LiveWidget> car_page = rt->open_pages().back();
+    const std::shared_ptr<menu::LiveWidget> face = car_page ? car_page->child("CarFace") : nullptr;
+    CHECK(face && face->data.text("car_code") == "voltra_one_26");
     bool clean = true;
     for (const std::string& line : rt->log())
         if (line.find("script error") != std::string::npos) clean = false, std::printf("  %s\n", line.c_str());

@@ -10,11 +10,16 @@
 // GTmodeProject's NationData each on its country's page: NationRoot (gtmode.adc) lists the dealers of NationData
 // `<nation>_dealers` that have a list, the nation the one whose `<nation>2` is the maker's country code, `<key>` its hall
 // (as `<nation>_hall`) and DealerData `<key>_subtuner` none; DealerRoot shows its logo (piece/tuner_logo/<key>.img), the
-// country page its button (image/piece/tuner_logo2/<key>.png): the mod's pictures (ModMakers::picture).
+// country page its button (image/piece/tuner_logo2/<key>.png): the mod's pictures (ModMakers::picture). Arcade's makers'
+// page (ArcadeProject::MakerRoot) lists MakerData `<nation>_makers` that have cars: the key goes on its country's.
 
 #include "gt4r/formats/db/mod_cars.h"
 #include "gt4r/formats/db/mod_makers.h"
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/runtime_internal.h"
+
+#include "base/file.h"
+#include "formats/png_reader.h"
 
 #include <algorithm>
 #include <map>
@@ -68,6 +73,26 @@ void add_mod_makers_to_nations(GameNatives& n) {
     Database& d = n.db();
     if (!d.db || d.db->mod_makers().empty()) return;
     script::Vm& vm = n.rt.vm();
+    // Arcade's makers' page (ArcadeProject::MakerRoot): MakerData `<nation>_makers` per nation, the nation of a country code by
+    // the page's own pairs of lists (`<region>_nation_list` and `_nation_list2`: "usa" beside "US").
+    if (const std::shared_ptr<Module> makers = vm.lookup("ArcadeProject::MakerData").as<Module>())
+        if (const std::shared_ptr<Module> page = vm.lookup("ArcadeProject::MakerRoot").as<Module>())
+            for (const db::ModMakerDef& m : d.db->mod_makers().makers()) {
+                std::string nation;
+                for (const auto& [name, v] : page->members) {
+                    if (!nation.empty() || name.size() < 13 || name.compare(name.size() - 13, 13, "_nation_list2") != 0 || !v) continue;
+                    const std::shared_ptr<script::Variable> names = page->find(name.substr(0, name.size() - 1));
+                    const std::vector<Value>* codes = v->value.items();
+                    const std::vector<Value>* keys = names ? names->value.items() : nullptr;
+                    for (size_t i = 0; codes && keys && i < codes->size() && i < keys->size(); ++i)
+                        if ((*codes)[i].kind == Kind::String && (*codes)[i].as_string() == m.country) nation = (*keys)[i].to_string();
+                }
+                const std::shared_ptr<script::Variable> list = nation.empty() ? nullptr : makers->find(nation + "_makers");
+                std::vector<Value>* items = list ? list->value.items() : nullptr;
+                if (!items) continue;
+                if (std::none_of(items->begin(), items->end(), [&](const Value& x) { return x.kind == Kind::String && x.as_string() == m.key; }))
+                    items->push_back(Value::string(m.key));
+            }
     const std::shared_ptr<Module> nations = vm.lookup("GTmodeProject::NationData").as<Module>();
     const std::shared_ptr<Module> dealers = vm.lookup("GTmodeProject::DealerData").as<Module>();
     if (!nations) return;
@@ -90,6 +115,21 @@ void add_mod_makers_to_nations(GameNatives& n) {
 }
 
 } // namespace
+
+std::optional<std::pair<float, float>> mod_picture_size(Runtime& rt, const std::string& path) {
+    const std::shared_ptr<GameNatives> n = natives_of(rt);
+    if (!n || !n->db().db) return std::nullopt;
+    const std::optional<db::ModPicture> p = n->db().db->mod_picture(path);
+    if (!p || p->png.empty() || !p->disc.empty()) return std::nullopt; // (a mod car's picture takes its stand-in's size)
+    try {
+        if (const std::optional<Bytes> file = gt3r::read_host_file(p->png)) {
+            const gt3r::PngImage png = gt3r::decode_png(*file, 2048);
+            if (png.width && png.height) return std::pair{float(png.width), float(png.height)};
+        }
+    } catch (const std::exception&) {
+    }
+    return std::nullopt;
+}
 
 void use_mod_makers(Database& d) {
     if (!d.db) return;

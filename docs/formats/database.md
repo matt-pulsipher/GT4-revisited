@@ -235,7 +235,10 @@ Code: `mod_cars.*` (the files: docs/PLAYING.md "Mod cars"; the menus' lists: `sr
   `<nation>_dealers` of the nation whose `<nation>2` is its code (`<key>` = that nation's `_hall`, DealerData
   `<key>_subtuner` none). Its pictures by path: `image/piece/tuner_logo2/<key>.png` (the country page's button),
   `piece/tuner_logo/<key>.img` and `piece/tuneshop_logo/<key>.img` (the dealer page's logo, its tune shop's: DealerData
-  getSubTuner gives the dealer itself); `piece/tuner_screen/<key>.strb` (the page's top film) has none.
+  getSubTuner gives the dealer itself); `piece/tuner_screen/<key>.strb` (the page's top film) has none. Arcade's makers' page
+  (ArcadeProject::MakerRoot) lists MakerData `<nation>_makers` whose makers have cars: the key goes at the end of its
+  nation's (the nation of its code by the page's own `<region>_nation_list` / `_nation_list2` pairs), its button
+  `image/piece/tuner_logo2/<key>.png` sized from the mod's PNG (`mod_picture_size`: the page halves every button).
 - A mod switched off or removed while the game runs (`SpecDb::remove_mod_cars`, `ModCars::remove`): the cars of the files no
   longer listed leave every table and label list (the rows each car added, its paint rows, its CARS/ file, its entries in
   the pools it joined), the menus' lists (`<maker>_carlist`, `_carnum`; a mod maker's emptied list goes) and the garage's
