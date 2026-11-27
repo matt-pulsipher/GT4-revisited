@@ -2,12 +2,14 @@
 
 #include "test_framework.h"
 
+#include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/display_mode_prologue.h"
 
 using gt3r::race::HudMode;
 using gt3r::race::HudPlay;
 using gt3r::race::HudRun;
 using gt4r::race::prologue_display_mode;
+using namespace gt4r;
 
 TEST(prologue_display_mode_by_its_race_classes) {
     CHECK(prologue_display_mode(HudRun::Race, HudPlay::Live) == HudMode::Race);
@@ -21,4 +23,34 @@ TEST(prologue_display_mode_by_its_race_classes) {
     gt3.run = HudRun::License, gt3.event_laps = 10;
     CHECK(gt3r::race::hud_mode(gt3) == HudMode::Endurance);
     CHECK(prologue_display_mode(HudRun::License, HudPlay::Live) == HudMode::License);
+}
+
+// The sheen's exponent (kind 4, 0x49EB90): 8 below a shininess of 12, never 4. The converted sets give the engine (which picks
+// 4 / 8 / 16 at 6 / 12) a shininess of at least 6 on every sheen; the lit shapes keep theirs (4 / 8 / 16 there too).
+TEST(disc_sheen_exponent_is_this_games) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != gt4r::Game::GT4) continue;
+        size_t sheen = 0, lit_low = 0;
+        for (const char* path : {"crs/20r60r", "car/lod/acra0008"}) {
+            const gt3r::Volume::Entry* e = disc->volume().find(path);
+            CHECK(e != nullptr);
+            if (!e) continue;
+            const gt4r::Bytes data = disc->volume().read(*e);
+            for (size_t off : gt4r::mdls::find_model_sets(data)) {
+                const gt3r::scene::Model m = gt4r::mdls::build_model(gt4r::ByteSpan(data).subspan(off), {});
+                for (const gt3r::scene::Mesh& mesh : m.meshes)
+                    for (const gt3r::scene::Primitive& p : mesh.primitives) {
+                        if (!p.material.valid) continue;
+                        if (p.material.specular_local) {
+                            ++sheen;
+                            CHECK(p.material.shininess >= 6);
+                        }
+                        else lit_low += p.material.shininess < 6;
+                    }
+            }
+        }
+        CHECK(sheen > 0);
+        CHECK(lit_low > 0); // (the lit shapes' low shininess is left alone)
+    }
 }
