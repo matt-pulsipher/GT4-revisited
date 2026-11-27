@@ -50,6 +50,9 @@ struct Entry {
     // The car's own start place, in place of its grid place (a license test's road section has its own: 0x3952C0); a plain
     // grid start (start kind 0).
     std::optional<course::Runway::Place> place;
+    // The start's kind for a car on its grid place (or its own place): 0 a grid start; 6 a pit start (the free practice's player,
+    // DynamicsConductorFreePractice::vf30 0x3F4F10: held two seconds, rules_start.cpp); 8 as 0x363B10 has it.
+    int grid_kind = 0;
     // The car's start on a driving line (the set-up's start kinds 1 and 2: race::car_start, CourseLines::start_place), in place
     // of its grid place and of start_distance: the place and heading in the record's frame (x, y, z up), the speed (km/h,
     // whole; 0 standing), F + 0x65B.
@@ -151,6 +154,8 @@ public:
     // timing, 0x35C0B8, on its own record): the car is held (the attitude's start hold 0x36AE20, the input's), and once a
     // car's counter is given so the session's preparation no longer runs 0x35C0B8 for it. Set it each step.
     void set_pit_hold(size_t car, u16 steps);
+    // The hold counter as the set-up left it (a pit start's 120, rules_start.cpp), for the caller that keeps it from then on.
+    u16 start_hold_of(size_t car) const { return car < cars_.size() ? u16(cars_[car].hold) : u16(0); }
     // A car's own start hold (conductor + 0xCBFC + 4 x car, set at the race's set-up from the event's seconds for its place:
     // 60 x them, the missions' "catch the cars ahead"): the car held (F + 0x4BC) that many steps after the start's count
     // (0x34DB30, rules_start's start_hold). 0: none.

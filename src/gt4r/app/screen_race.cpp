@@ -266,6 +266,10 @@ Setup setup_from_env() {
 // The sequences the free run's conductor runs (DynamicsConductorFreeRun: the arcade's time trial, the free run, Gran Turismo
 // mode's practice): the player's car alone, no number of laps (its virtual 37 answers 0).
 bool free_run(const std::string& sequence) { return sequence == "time_trial" || sequence == "freerun" || sequence == "practice"; }
+// A free practice (RaceFreePractice, its conductor DynamicsConductorFreePractice): the practice (0x1181C8) and a championship's
+// Free Qualify (0x119310). No hold (vf10 0x3F4EF0: start type 3); the player's car a pit start on its grid place (vf30
+// 0x3F4F10: kind 6), the others rolling in from behind the line; places by best laps (race::FlowSetup::practice_grid).
+bool free_practice(const Setup& setup) { return setup.qualify || setup.sequence == "practice"; }
 
 // The course's start (race/start_rule.h): its kind always; with `start` its start code's start, a
 // rolling start at the distance, speed and spacing of its drivers' file.
@@ -285,6 +289,7 @@ void apply_course_start(App& app, Setup& setup, bool start) {
             setup.start = cs.free_speed_kmh > 0 ? race::StartType::Rolling : race::StartType::Ten;
             setup.start_speed = cs.free_speed_kmh / 3.6f, setup.start_back = cs.free_distance_m, setup.start_kind = 3;
             if (free_run(setup.sequence)) setup.laps = 0;
+            if (free_practice(setup)) setup.start = race::StartType::None; // (not the free run's run-up: a pit start)
         }
     }
 }
@@ -663,9 +668,10 @@ public:
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
-            // (Free Qualify, 0x3F4F10: the others rolling at 120 km/h from 300 + 24 x their number metres behind the line; the
-            // player's kind 6 ❓ not worked out: his grid place, standing)
-            if (setup.qualify && i > 0) e.start_speed = race::kQualifyStartKmh / 3.6f, e.start_kind = 0, e.start_distance = race::qualify_start_distance(size_t(i));
+            // (A free practice, 0x3F4F10: the player's car a pit start (kind 6) on its grid place; the others rolling at 120 km/h
+            // from 300 + 24 x their number metres behind the line)
+            if (free_practice(setup) && i == 0) e.start_kind = 6, e.start_speed = 0;
+            else if (free_practice(setup)) e.start_speed = race::kQualifyStartKmh / 3.6f, e.start_kind = 5, e.start_distance = race::qualify_start_distance(size_t(i));
             if (i == 0) { // (what the player chose: RaceWorld::PlayerChoice)
                 e.automatic = setup.player.automatic, e.asm_on = setup.player.asm_on, e.tcs_on = setup.player.tcs_on;
                 e.wheel_aid = setup.player.wheel_aid, e.driver = setup.player.wheel_lock;
@@ -794,10 +800,13 @@ public:
             for (size_t i = 0; i < world_->car_count(); ++i) {
                 fs.crossings.push_back(world_->start_crossings(i));
                 fs.marks.push_back(world_->start_of(i).start.mark);
+                fs.back.push_back(u8(world_->start_back(i)));
             }
             if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
             fs.no_lap = world_->start_race().way == 1;
         } else fs.sectors = splits_;
+        if (free_practice(setup_) && !(db_ && db_->prologue()))
+            for (size_t i = 0; i < world_->car_count(); ++i) fs.practice_grid.push_back(grid_place(i));
         return fs;
     }
     void begin_run(bool watched = false, bool demo = false) {

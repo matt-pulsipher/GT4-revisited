@@ -57,6 +57,13 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         else if (setup.counted && setup.lap_length > 0) r.counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
         if (i < setup.past_line.size() && setup.past_line[i]) r.counter = 1;
         if (i < setup.marks.size()) r.mark = setup.marks[i];
+        if (i < setup.back.size()) r.back = setup.back[i];
+    }
+    practice_.clear();
+    if (setup.practice_grid.size() == cars.size()) { // (vf2 0x3F5270: the list by grid place)
+        practice_.resize(cars.size());
+        for (size_t i = 0; i < cars.size(); ++i) practice_[i] = i;
+        std::stable_sort(practice_.begin(), practice_.end(), [&](size_t a, size_t b) { return setup.practice_grid[a] < setup.practice_grid[b]; });
     }
     signal_start_ = false;
     claims_.clear();
@@ -78,6 +85,14 @@ float RaceFlow::progress(size_t i, const CarState& c) const {
 }
 
 void RaceFlow::sort_order(std::span<const CarState> cars) {
+    if (!practice_.empty()) {
+        // A free practice's places (vf3 0x3F5350): the list kept from step to step, sorted by the best lap (0x35E3F0, unsigned:
+        // no time is 0x157529FF), a car moved up only past a strictly slower one.
+        auto best = [&](size_t i) { return cars_[i].best_lap_ms < 0 ? u64(0x157529FF) : u64(cars_[i].best_lap_ms); };
+        std::stable_sort(practice_.begin(), practice_.end(), [&](size_t a, size_t b) { return best(a) < best(b); });
+        order_ = practice_;
+        return;
+    }
     for (size_t i = 0; i < order_.size(); ++i) order_[i] = i;
     std::stable_sort(order_.begin(), order_.end(), [&](size_t a, size_t b) {
         const CarRecord &ra = cars_[a], &rb = cars_[b];
@@ -96,6 +111,10 @@ void RaceFlow::sort_order(std::span<const CarState> cars) {
 void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
     CarRecord& r = cars_[i];
     ev.started.push_back(i);
+    if (!practice_.empty()) { // (a free practice's, vf20 0x3F50F0: its times from here)
+        r.base_ms = t;
+        return;
+    }
     if (setup_.start == StartType::Moving) {
         if (r.mark == 0) r.base_ms = setup_.mission ? 0 : t;
         if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
@@ -266,6 +285,7 @@ s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
     if (r.finished) return r.last_lap_ms >= 0 ? r.last_lap_ms : clock_ms(r.finish_units) - r.base_ms;
     if (hold_ > 0 || !clock_running_ || (setup_.player_clock && r.counter == 0)) return 0;
+    if (!practice_.empty() && r.counter == 0) return 0; // (a free practice's, vf34 → 0x357830: none before its start is counted)
     // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
     if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;
     if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;

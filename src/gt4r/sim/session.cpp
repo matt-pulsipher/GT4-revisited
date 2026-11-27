@@ -256,7 +256,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         // (the conductor's virtual +0xF0): 0 the grid, 1 a rolling start at or past the line, 2 before it.
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
         course::Runway::Place at = places[size_t(want) % places.size()];
-        int kind = 0;
+        int kind = e.grid_kind;
         if (e.place) {
             at = *e.place; // (the section's own start place: a plain grid start)
             GroundHit h;

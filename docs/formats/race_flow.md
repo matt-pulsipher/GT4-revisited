@@ -539,12 +539,29 @@ unless the player made no time (0x157529FF), the grid by every entry's best lap 
 entries with a strictly better time, ties to the earlier entry, each taking the first place free from there; written to the
 series' slots +0x2FC + 0x188 k and the entries' +0x3444 by 0x3EE7C0); the race behind the menus (mode 4, 0x387EF0) and the
 page filled again (0x119918). The practice's conductor (DynamicsConductorFreePractice): no hold (vf10: start type 3), no laps
-(vf37), no finish at the line (vf21 0x3F5150: the lap's time events only), the starts (vf30 0x3F4F10) the player's car kind 6
-(❓ the pit's, 0x36437C), every other car kind 5 at 120 km/h (300 + 24 x its number) m behind the line; the pause's Exit ends
-it. Here (`screen_race.cpp` `free_qualify`, `end_qualify`, `race::qualify_places`): the field rolling in as the program puts
-it, the player's car on its grid place, standing (judged for kind 6); the grid by the bests after the pause's Exit, the race
-rebuilt and the menus again; no result is reported. `GT4R_RACE="...,qualify=1"` runs the practice for checks. ❓ Not compared
-with a capture of the original's Free Qualify (none in the reference).
+(vf37), no finish at the line (vf21 0x3F5150: the lap's time events only), the starts (vf30 0x3F4F10) the player's car kind 6,
+every other car kind 5 at 120 km/h (300 + 24 x its number) m behind the line; the pause's Exit ends it. The same conductor runs
+Gran Turismo mode's practice (0x1181C8, also a `RaceFreePractice`).
+- **Kind 6, a pit start** (the set-up 0x363B10): the car stands on its grid place (vf28 0x34D490 places it there by 0x3952C0 before
+  the set-up; kinds 1 .. 5 alone are put on a driving line, 0x3640E0), not moving (vf30's speed 0), held 120 steps (F +0x4BA,
+  0x364620: the pit stop's counter, 0x35C0B8, counts it down; the car lifted and turned as in a stop, 0x36AE20); its crossings
+  F +0x4AC 0 wherever it stands and F +0x4B0 1 when it stands past half the lap (0x36437C): its first crossing of the line is taken
+  back, its laps counted from the second (an out lap).
+- **The places** (vf2 0x3F5270, vf3 0x3F5350): a list of the cars in grid order (F +0x5B3 = place + 1), sorted each step by the
+  best lap (0x35E3F0, unsigned: no time is 0x157529FF, behind every time; a car moves up only past a strictly slower one).
+- **The times**: a car's counted start (vf20 0x3F50F0) puts F +0x614 at the crossing's moment (and event 3 for car 0); its laps
+  count from there; no lap time is shown before it (vf34 → 0x357830).
+- **The display's words**: the word table's `PolePosition` (10), `StartQualify` (11), `ReadyQualify` (12) and `QualifyMode` (19)
+  are never read by the US program (no load of the table's +0x28, +0x2C, +0x30 or +0x4C, and no reckoned index reaches them, as
+  with the endurance words): the practice shows the practice's own display.
+Here (`screen_race.cpp` `free_qualify`, `end_qualify`, `free_practice`; `race::RaceFlow` `practice_grid`, `back`;
+`race::planned_back`; `sim::Entry::grid_kind`; the hold in `sim::ai::PitStops` from the set-up's): all of the above; the grid by
+the bests after the pause's Exit, the race rebuilt and the menus again; no result is reported. `GT4R_RACE="...,qualify=1"` runs
+the practice for checks. ✔ Scripted through the menus (the Tuning Car Grand Prix's race 1, the pre-race page's third icon
+"Practice", the computer driving, the pause's Exit and its "Are you sure?"): the car held 2 s with "In progress..", its out lap,
+lap 2 timed 1'43.539, Position 6 by the bests, the page's grid after it Opera, RUF, Spoon, NISMO, Mine's, the player, as the
+log's bests give. ❓ Not compared with a capture of the original's Free Qualify (none in the reference): whether the original
+shows "In progress.." under the pit start's hold.
 
 ## What runs where (the race screen)
 

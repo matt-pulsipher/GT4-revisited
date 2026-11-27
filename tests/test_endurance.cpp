@@ -7,6 +7,7 @@
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/race/race_display.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/race_start.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/program.h"
@@ -172,4 +173,51 @@ TEST(endurance_pit_lane_penalty_mark) {
     session->set_pit_mark(0, 0);
     step();
     CHECK(pits.car(0).pad_state == 0);
+}
+
+// A free practice (DynamicsConductorFreePractice): the player's pit start (kind 6, 0x36437C) behind the line takes its first
+// crossing back (F + 0x4B0 = 1, crossings 0), so its laps count from its second; a car's times from its counted start (vf20
+// 0x3F50F0); no lap time shown before it (0x357830); the places by best laps from the grid's order (vf2 / vf3).
+TEST(endurance_free_practice_flow) {
+    race::StartRace r;
+    course::Runway road;
+    road.length = kLap;
+    r.road = &road;
+    race::PlannedStart pit;
+    pit.start.kind = 6;
+    CHECK(!pit.start.on_line());
+    CHECK(race::planned_crossings(r, pit, 990) == 0 && race::planned_back(r, pit, 990) == 1);
+    CHECK(race::planned_crossings(r, pit, 10) == 0 && race::planned_back(r, pit, 10) == 0);
+    race::PlannedStart grid;
+    CHECK(race::planned_back(r, grid, 990) == 0);
+    for (int k = 1; k <= 5; ++k) CHECK(race::CarStart{k}.on_line());
+    CHECK(!race::CarStart{7}.on_line() && !race::CarStart{8}.on_line());
+
+    // Car 0 (the player, grid place 2) 10 m behind the line at 2 m a step; car 1 (place 0) 300 m behind at 2.5; car 2 (place 1)
+    // 324 m behind at 1.
+    Field f({2.0f, 2.5f, 1.0f}, 10);
+    f.at[1] = -300, f.at[2] = -324;
+    for (size_t i = 0; i < 3; ++i) f.publish(i);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 0, s.lap_length = kLap;
+    s.back = {1, 0, 0};
+    s.crossings = {0, 0, 0};
+    s.practice_grid = {2, 0, 1};
+    race::RaceFlow flow(s, f.cars);
+    CHECK(flow.place(1) == 1 && flow.place(2) == 2 && flow.place(0) == 3); // (the grid's order while nobody has a time)
+    int steps = 0;
+    for (; steps < 20 && flow.car(0).back != 0; ++steps) f.step(), flow.step(f.cars);
+    CHECK(flow.car(0).back == 0 && flow.car(0).counter == 0); // (the first crossing taken back)
+    for (int i = 0; i < 200; ++i) f.step(), flow.step(f.cars);
+    CHECK(flow.lap_ms(0) == 0); // (its out lap: no time)
+    while (flow.car(0).counter == 0) f.step(), flow.step(f.cars);
+    const s64 start0 = flow.car(0).base_ms;
+    CHECK(start0 > 0 && flow.car(1).base_ms > 0 && flow.car(1).base_ms < start0); // (car 1's from its own crossing)
+    while (flow.car(0).laps_done == 0) f.step(), flow.step(f.cars);
+    // 500 steps of 1/60 s a lap: 8,333 ms within a step.
+    CHECK(std::llabs(flow.car(0).best_lap_ms - 8333) <= 17);
+    CHECK(flow.car(1).best_lap_ms > 0 && flow.car(1).best_lap_ms < flow.car(0).best_lap_ms);
+    // Places by the bests: car 1 (fastest), car 0, then car 2 with no time yet.
+    CHECK(flow.car(2).best_lap_ms < 0);
+    CHECK(flow.place(1) == 1 && flow.place(0) == 2 && flow.place(2) == 3);
 }

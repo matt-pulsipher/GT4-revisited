@@ -76,5 +76,8 @@ void put_start(sim::Entry& entry, const StartRace& race, const PlannedStart& p, 
 // The car's crossings of the line at its start (F + 0x4AC, 0x363B10): on a driving line 0 before the line and one more than
 // the whole laps past it; on the grid by its sector (start_crossings). `v`: the car's distance along the course.
 int planned_crossings(const StartRace& race, const PlannedStart& p, float v);
+// The backward crossings it starts with (F + 0x4B0, 0x36437C): 1 for a car of start kind 6 standing past half the lap (its
+// crossings 0 wherever it stands: its first crossing of the line taken back, its laps counted from the next), else 0.
+int planned_back(const StartRace& race, const PlannedStart& p, float v);
 
 } // namespace gt4r::race

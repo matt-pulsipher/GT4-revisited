@@ -98,6 +98,7 @@ int first_line(const StartRace& r, const PlannedStart& p, bool pad, int grid_pla
 
 void put_start(sim::Entry& entry, const StartRace& race, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program) {
     entry.line_start = p.line, entry.place = p.place;
+    entry.grid_kind = p.line || p.start.on_line() ? 0 : p.start.kind;
     if (p.line || p.start.kind != 0 || p.start.speed <= 0) return;
     entry.start_speed = float(p.start.speed) / 3.6f;
     if (!race.lines) return;
@@ -108,6 +109,7 @@ void put_start(sim::Entry& entry, const StartRace& race, const PlannedStart& p, 
 
 int planned_crossings(const StartRace& r, const PlannedStart& p, float v) {
     const float lap = r.road ? r.road->length : 0;
+    if (p.start.kind == 6) return 0;
     if (p.start.on_line()) {
         if (p.start.distance < 0) return 0;
         const int whole = int(lap);
@@ -118,6 +120,11 @@ int planned_crossings(const StartRace& r, const PlannedStart& p, float v) {
         }
     }
     return start_crossings(v, lap, r.sectors, r.goal);
+}
+
+int planned_back(const StartRace& r, const PlannedStart& p, float v) {
+    const F lap(r.road ? r.road->length : 0);
+    return p.start.kind == 6 && lap * F::raw(0x3F000000) < F(v) ? 1 : 0;
 }
 
 } // namespace gt4r::race

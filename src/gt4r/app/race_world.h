@@ -59,7 +59,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
-    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
+    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it); 6 a pit start on its grid place
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
     bool remote = false; // another player's car of an online race: posed from its owner's states (net/net_race.h), its driver plans only
@@ -133,6 +133,8 @@ public:
     const race::StartRace& start_race() const { return start_course_->race(); }
     const race::PlannedStart& start_of(size_t car) const { return starts_[car]; }
     int start_crossings(size_t car) const;
+    // Its backward crossings to take back first (F + 0x4B0: a pit start's, race::planned_back).
+    int start_back(size_t car) const;
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
     void set_crossings(size_t car, int n) {
         if (session_) session_->set_crossings(car, n);
