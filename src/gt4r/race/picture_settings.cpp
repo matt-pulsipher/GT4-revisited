@@ -143,6 +143,21 @@ PictureSettings::Correction screen_correction(float b, float k, float saturation
     return c;
 }
 
+PictureSettings::Correction photo_filter(PictureSettings::Correction c, int filter) {
+    if (filter == 2) {
+        c.saturation = 0;
+        return c;
+    }
+    if (filter != 1 && filter != 4) return c;
+    // (0x3EFCE8's record, then 0x3EFD80: r *= r', g *= g', b *= b', black += 0, white += white' - 1, saturation *= saturation')
+    const F gains[2][3] = {{kOne, kOne, kOne}, {F::raw(0x3FC00000), F::raw(0x3F733333), F::raw(0x3F199999)}};
+    const F* g = gains[filter == 4 ? 1 : 0];
+    for (int i = 0; i < 3; ++i) c.gamma[i] = host(of(c.gamma[i]) * g[i]);
+    c.contrast = host(of(c.contrast) + (kOne - kOne));
+    c.saturation = host(of(c.saturation) * (filter == 4 ? F::raw(0x3E999999) : F::raw(0x3F199999)));
+    return c;
+}
+
 PictureSettings::Correction PictureSettings::correction() const {
     // (0x3EFDF0: b = brightness / 10, k = contrast x 3 / 5, the saturation (saturation + 10) / 10, 5500 + balance x 2000 / 10 kelvin.)
     const F ten = F::raw(0x41200000);

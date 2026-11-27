@@ -336,6 +336,15 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         // The volumes and output of the game's options, and the player's play list of racing music.
         m.sound->set_options(audio::race_sound_options(setup.options));
         if (setup.playlist) m.sound->set_playlist(setup.playlist);
+        // Ours: the player's own songs, as loud as the game's list's pieces.
+        if (setup.your_music) {
+            m.sound->set_your_music(&app.your_music(), setup.remember_song);
+            std::vector<int> enabled;
+            if (setup.playlist)
+                for (size_t i = 0; i < setup.playlist->rows().size(); ++i)
+                    if (setup.playlist->rows()[i].enabled) enabled.push_back(int(i));
+            app.measure_disc_music(enabled);
+        }
     }
     for (int i = 0; i < std::clamp(setup.players, 1, 2); ++i) m.views[size_t(i)].view = std::make_unique<render::View3D>(gpu);
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
@@ -1397,6 +1406,8 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const ByteSpan env0 = course_->section(course::kSlotEnv);
     s.wet = m.wet.active() && (!split || (env0.size() >= 0x14 && (rd32(env0, 0x10) & 0x1000000)));
     s.wet_at = m.items.size();
+    // (Everything so far gets the frame's second multiply, Env0 +0x3C; the road's reflection too, below; not the cars.)
+    race::scenery_multiply(m.items, 0, s.wet_at, course_->scenery_fix());
     const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
     m.lights.resize(n);
     for (size_t i = 0; i < n; ++i) {
@@ -1499,6 +1510,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
         if (SDL_GPUTexture* t = m.wet.render(view3d, pose.view, proj, pose.eye, m.wet_items, wo)) {
             std::vector<render::DrawItem> frame;
             m.wet.add_frame_items(frame, pose.view, frustum, t);
+            race::scenery_multiply(frame, 0, frame.size(), course_->scenery_fix());
             m.items.insert(m.items.begin() + std::ptrdiff_t(scene.wet_at), frame.begin(), frame.end());
             wet_items = frame.size();
         }
@@ -1714,6 +1726,7 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     const float kDepth = half >= 0 ? 60 : 120;
     m.mirror_items.clear();
     course_->add_items(m.mirror_items, pose.eye, half >= 0 ? race::CourseScene::View::HalfMirror : race::CourseScene::View::Mirror);
+    race::scenery_multiply(m.mirror_items, 0, m.mirror_items.size(), course_->scenery_fix()); // (its own second multiply, step 9)
     const size_t n = std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;

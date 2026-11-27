@@ -383,7 +383,11 @@ player's car, the barrier's round, and the host's settings.
 - **What is added on the pages**, by functions of the scripts given another body when the arcade project is read
   (`adapt_lan_pages`): after the course the makers' page as the 2-Player Battle has it (every car; the garages of the two
   card slots), when the host lets every car race (else the favorites alone, as the original); Triangle on a maker's cars
-  goes back to the makers; the driving options' OK says at once why a car may not race and stays. `isClientDisconnected` and
+  goes back to the makers; the driving options' OK says at once why a car may not race and stays. Over the makers' page the
+  app's car picker opens (`app/car_picker.h`, as Quick race's: by maker or every car by name, the cars the page's makers list,
+  open in the game); the car picked is the car page's list alone (`set_lan_pick`, `pick_lan_car`: `getCurrentCarList`
+  answers it, the makers' page's choice its maker), where its colors and the driving options are chosen as before;
+  Triangle in the picker leaves the page's own makers. What goes to the lobby is the pages' choice as before. `isClientDisconnected` and
   `isDisconnected` answer no: a player who leaves ends nothing for the others, and the lobby's own window says what ended.
 - **The host's rules**: the 2-Player Battle's options (laps, tire wear, boost) as the original's, and ours: a power limit (the
   car's as it races), garage cars or cars as sold, every car or the favorites, contact by round trip. The course is the

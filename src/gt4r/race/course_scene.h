@@ -69,6 +69,9 @@ public:
     const gt3r::race::SunParams& env() const { return env_; }
     // The picture's scale (Env0 +0x38). The models' stored colors carry race::stored_color_scale of it.
     float color_scale() const { return color_scale_; }
+    // The weight of the frame's second multiply, on the sky, the backdrop, the scenery and the road's reflection (Env0 +0x3C,
+    // course::scenery_multiply_fix): 127 on the disc's courses.
+    int scenery_fix() const { return scenery_fix_; }
     const course::Runway& road() const { return road_; }
     // The cones and boards where the road file puts them (still: ❓ the program knocks them about).
     const Gadgets& gadgets() const { return gadgets_; }
@@ -102,6 +105,7 @@ private:
     course::Runway road_;
     gt3r::race::SunParams env_;
     float color_scale_ = 1;
+    int scenery_fix_ = 128;
     AnimatedSet animated_, animated_sky_; // the scenery's, the sky's (aeroplanes and their trails)
     Bytes reflection_course_;
     float reflection_gain_ = 1;

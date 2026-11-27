@@ -22,6 +22,7 @@
 #include "gt4r/audio/course_sound.h"
 #include "gt4r/audio/menu_sound.h"
 #include "gt4r/audio/race_playlist.h"
+#include "gt4r/audio/your_music.h"
 
 #include <map>
 #include <memory>
@@ -91,6 +92,9 @@ public:
     // The player's play list of racing music (the game's options): its next piece plays at each
     // race's start. Without one the group's pieces play in the group's order.
     void set_playlist(std::shared_ptr<RacePlaylist> list) { playlist_ = std::move(list); }
+    // Ours: the player's own songs beside the play list's pieces (your_music.h; null: the disc's alone), and whether the
+    // songs of this race are remembered for the next ([music] next_race = same; a demonstration's are not).
+    void set_your_music(YourMusic* music, bool remember = true) { yours_ = music, remember_song_ = remember; }
     // A helicopter's sound overhead (a replay's view from the air).
     void set_helicopter(bool on) { helicopter_ = on; }
     // A split screen's other views' cameras (0x3B5E80: car i is heard as its own view's, i its number; 0x398B70: the course by
@@ -133,8 +137,14 @@ public:
     // hold of 8 or 10 s) the kind's start jingle, -1 (rolling) the racing music at once (rolling()), any other nothing until
     // the start.
     void begin_run(RaceMusic kind, int start);
-    // Ours: the racing music's next song, or the one heard before this one (-1), while the racing music plays.
+    // Ours: the racing music's next song, or the one heard before this one (-1), while the racing music plays. After a
+    // song before, the next ones are those heard again, in turn, then new ones from the list. On the pause the song
+    // waits silent until the race goes on.
     bool skip_song(int direction);
+    // Ours: the racing song playing (none while no racing music plays), and its title and artist (the streamed
+    // music's index for a disc piece, the file's tags for one of the player's songs).
+    RaceSong now_playing() const { return racing_ ? song_ : RaceSong{}; }
+    bool song_info(const RaceSong& s, std::string& title, std::string& artist) const;
     // The race's start jingle (before the count) and finish jingle (0x3A0228; the license tests' display, 0x3BD330, plays
     // none at their finish).
     void intro();
@@ -177,6 +187,7 @@ private:
     bool play_effect(const char* name, float level);
     bool play_stream(const char* group, int number, bool racing);
     bool play_racing();
+    bool play_song(const RaceSong& s);
     float stream_level(bool racing) const;
     void quiet_course();
 
@@ -199,8 +210,11 @@ private:
     std::vector<SoundListener> more_cameras_;
     bool helicopter_ = false, refueling_on_ = false, paused_ = false, music_held_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
-    int racing_piece_ = -1;
-    int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
+    RaceSong song_;       // the racing song last started
+    RaceSong first_song_; // the race's first racing song (a replay plays it again)
+    YourMusic* yours_ = nullptr;
+    bool remember_song_ = true;
+    float trim_ = 1.0f; // one of the player's songs: its gain now (eased toward its measured one)
     // Prologue's replay runs the start again: the jingle over the hold, the racing piece from the step the run started
     // (the live run's step of START, kept here), as its recording has it.
     size_t start_step_ = SIZE_MAX, replay_piece_step_ = SIZE_MAX;
@@ -208,7 +222,8 @@ private:
     bool designer_shot_ = false, free_run_duck_ = false;
     void duck();
     std::shared_ptr<RacePlaylist> playlist_;
-    std::vector<int> songs_heard_; // this run's racing pieces, for skip_song()
+    std::vector<RaceSong> heard_; // this run's racing songs, for skip_song()
+    size_t at_ = 0;                // the one playing
     static constexpr size_t kRecordSteps = 60 * 60 * 10;
     std::vector<std::vector<CarSoundState>> recorded_;
     size_t replay_step_ = 0;

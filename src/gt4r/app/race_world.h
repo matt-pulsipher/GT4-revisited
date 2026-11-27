@@ -101,6 +101,9 @@ struct WorldSetup {
     // play list; none: a new game's.
     std::map<std::string, std::variant<s32, float, std::string>> options;
     std::shared_ptr<audio::RacePlaylist> playlist;
+    // Ours: the player's own songs play beside the play list's (audio/your_music.h); the songs heard are remembered for the
+    // next race's [music] next_race = same (a demonstration's are not).
+    bool your_music = true, remember_song = true;
 };
 
 namespace net {

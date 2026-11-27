@@ -1193,6 +1193,11 @@ Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
         v.insert(v.end(), b.items()->begin(), b.items()->end());
         return Value::array(std::move(v));
     }
+    // An integer's operators take the other value's integer (hInt's operators ask it of the operand, its vtable +0x58: a
+    // string's is strtol(text, 0, 10), hString 0x314A40 -> 0x5A2F88): the regulations compare a length limit with the car's
+    // getLength text (share/regulation.ad).
+    if (a.kind == Kind::Int && b.kind == Kind::String && op != "+")
+        return binary(op, a, Value::integer(s32(std::strtol(b.as_string().c_str(), nullptr, 10))));
     if (!a.is_number() || !b.is_number()) throw ScriptError("no " + a.to_string() + " " + op + " " + b.to_string());
     if (a.kind == Kind::Int && b.kind == Kind::Int) {
         const s32 x = a.i, y = b.i;

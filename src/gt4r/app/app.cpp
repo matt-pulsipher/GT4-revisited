@@ -316,6 +316,7 @@ bool App::init(int argc, char** argv) {
         else if (start_ == "online") push(make_online_script_screen(*this));
         else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "saveeditor") push(make_save_editor(*this));
+        else if (start_ == "database") push(make_database_screen(*this));
         else if (start_ == "settings") push(make_settings_screen(*this));
         else if (start_ == "quickrace") push(make_quick_race_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (Developer tools' first items: Cars, Courses)
@@ -361,6 +362,7 @@ std::string App::open_disc(const std::string& path) {
         return e.what();
     }
     if (audio_) audio_->stop_music(); // (it streams from the disc being closed)
+    forget_disc_music();
     sound_.reset();
     vfs_.reset();
     db_.reset(), db_tried_ = false;
@@ -591,6 +593,12 @@ SDL_AppResult App::iterate() {
 
     apply_screen_changes();
     updates().poll(*this);
+    music_.poll();
+    // (the song a run ended on, for the next run's [music] next_race = same, and the next start's)
+    if (const std::string last = music_.last_song().text(); !last.empty() && last != config_.get("music", "race_song").value_or("")) {
+        config_.set("music", "race_song", last);
+        save_config();
+    }
     discord_status().frame(*this);
     updates().frame(*this, !screens_.empty() && screens_.back()->update_prompts());
     const bool modal = updates().modal(); // the update dialog takes the menu input
@@ -823,6 +831,11 @@ SDL_AppResult App::event(const SDL_Event& e) {
     if (e.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) apply_frame_limit(); // (another display's rate)
     if (e.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED || e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || e.type == SDL_EVENT_DID_ENTER_FOREGROUND)
         display_insets_.reset(), insets_retry_ = 0; // (asked again: a turn, a folding phone)
+    // Songs copied in while the game was away (the Files app on phones), music access allowed or taken back meanwhile; no songs
+    // measured while a phone's game is in the background.
+    if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) follow_music_folder(true);
+    if (gt3r::platform::is_mobile() && (e.type == SDL_EVENT_WILL_ENTER_BACKGROUND || e.type == SDL_EVENT_DID_ENTER_FOREGROUND))
+        music_.library().set_away(e.type == SDL_EVENT_WILL_ENTER_BACKGROUND);
     SDL_Event local = e; // the pointer in UI units
     SDL_ConvertEventToRenderCoordinates(renderer_, &local);
 #if GT3R_XR
@@ -872,6 +885,8 @@ void App::shutdown() {
     discord_status().shutdown(); // clears the Discord status
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
+    music_.library().cancel(); // (a scan's and the measuring's threads)
+    forget_disc_music();
     sound_.reset();
     audio_.reset();
     db_.reset();

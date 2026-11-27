@@ -225,6 +225,14 @@ TEST(course_container_reads) {
     CHECK(c.section(file, course::kSlotEnv).size() == 0x80 && c.section(file, course::kSlotSky).empty());
     CHECK(course::scenery_color_scale(c.section(file, course::kSlotEnv)) == 2.0f);
     CHECK(course::scenery_color_scale({}) == 1.0f);
+    // The frame's second multiply as a blend's weight (0x4A2808): trunc(128 f), 0 .. 255; none (128) without the block.
+    CHECK(course::scenery_multiply_fix({}) == 128 && course::scenery_multiply_fix(c.section(file, course::kSlotEnv)) == 0);
+    putf(env, 0x3C, 0.9999977f);
+    CHECK(course::scenery_multiply_fix(env) == 127);
+    putf(env, 0x3C, 1.0f);
+    CHECK(course::scenery_multiply_fix(env) == 128);
+    putf(env, 0x3C, 3.0f);
+    CHECK(course::scenery_multiply_fix(env) == 255);
     const gt3r::scene::Model m = course::build_course_model(file);
     CHECK(m.meshes.size() == 1 && m.meshes[0].name.compare(0, 6, "world/") == 0);
     CHECK(!course::CourseFile::looks_like_course(set));
@@ -234,7 +242,7 @@ TEST(disc_courses_decode) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     for (const auto& disc : test::discs()) {
         if (disc->info().game != Game::GT4) continue;
-        size_t courses = 0, with_road = 0;
+        size_t courses = 0, with_road = 0, fix127 = 0;
         for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
             if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
             const Bytes data = disc->volume().read(e);
@@ -243,6 +251,11 @@ TEST(disc_courses_decode) {
             ++courses;
             with_road += c.find(course::kSlotRunway) && c.find(course::kSlotRunway)->tag == "RNW4";
             CHECK(c.find(course::kSlotEnv) && c.find(course::kSlotEnv)->tag == "Env0");
+            // Env0 +0x3C: 0.9999977 (0x3F7FFFDA) on 103 courses, the frame's second multiply at FIX 127 (as the original's GS dump of
+            // Tsukuba shows it); 1.0 or a step over on Paris, Route 5 and its club layout (and their reverse layouts) and ss_snow: 128.
+            const int fix = course::scenery_multiply_fix(c.section(data, course::kSlotEnv));
+            CHECK(fix == 127 || fix == 128);
+            fix127 += fix == 127;
             if (e.path == "crs/tsukuba") {
                 course::ModelOptions o;
                 o.textures = false;
@@ -253,6 +266,7 @@ TEST(disc_courses_decode) {
             }
         }
         CHECK(courses == 110 && with_road == courses);
+        CHECK(fix127 == 103);
     }
 }
 

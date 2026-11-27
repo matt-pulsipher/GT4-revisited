@@ -93,7 +93,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0x28 / +0x48 | yaw / pitch (degrees) of the reflection picture's sky (slot 23) | read |
 | +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. Times Square (1.0, 0.85: nothing head-on) bears it out: its glass fronts show no reflection facing the camera in the original's photo. No course's program sets its own factors (0x32, 0x33, 0x36, 0x37, 0x56, 0x57 are on none) | read |
 | +0x38 | the picture's scale, 2.0 on all 110 (below) | read |
-| +0x3C | a second factor on the scenery alone (below); 1.0 on all 110 | read |
+| +0x3C | a second factor on what is drawn before the cars (below): 0.9999977 (0x3F7FFFDA) on 103 courses, 1.0 or a step over (1.00000024) on Paris, Route 5, its club layout (and their reverse layouts) and `ss_snow`; +0x38 is 1.999997 where +0x3C is 0.9999977 | read |
 | +0x4C | brake disc glow gain (the car's wheel code reads it with +0x38) | read |
 | +0x50 | texture-list threshold of the scenery ("The race view's frame"); 0 on all 110 | read |
 | +0x54 | 220 or 200 (one 440): the car LOD size threshold in the shared engine's layout | data |
@@ -168,8 +168,17 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   0x80 throughout (Nürburgring, Grand Valley): their pictures were not looked at.
 - **Fog color**: the color given to the GS is the `Env0` color x 1 / (+0x38 x +0x3C) while the
   backdrop and scenery are drawn and x 1 / +0x38 while the cars are drawn (the sky has no fog).
-- **The scenery** is multiplied once more, by +0x3C, after it is drawn and before the cars
-  (the same kind of full-screen pass; 1.0 everywhere, so nothing happens on this disc).
+- **The scenery** is multiplied once more, by +0x3C, after it is drawn and before the cars: the sky, the sun's disc, the
+  backdrop, the scenery and the road's reflection (0x342580 -> 0x4A2808: blend 0xA9, (Cd x FIX) >> 7 over the whole frame,
+  FIX = trunc(min(max(+0x3C x 128, 0), 255)), the conversion toward zero). +0x3C is 0.9999977 on 103 courses, so FIX is
+  **127**: every level of the half-strength picture but 0 loses one, two in the finished picture, by day and on every
+  course but the seven at 1.0 (Route 5's night among them). ✔ In a PCSX2 GS dump of the original (Tsukuba, the race paused
+  on the frame of a saved state; its draws played back in the software renderer with their targets saved): the strip
+  sprites at FIX 127 right after the road's reflection and before the cars' shadows, and the picture before and after them
+  2.0 levels apart in every part of it (sky, tarps, dirt, banner, rail). The mirror gets the same pass before its cars.
+  Ours: `race::scenery_multiply` (the shared engine's `DrawItem::pre_fix`, the same two-instruction form as the picture's
+  scale: ((c x 127) >> 7) x 255 >> 7 = 2 c - 3) on the items before the cars, the road's reflection and the mirror's
+  course; nothing where the engine lacks it.
 - **Car lights** (+0xD0) and the scene lights as the cars' and lit objects' renderer gets them
   are multiplied by 1 / +0x38, after the shade factors: for the car's shade s (0..1) and a
   second factor t, ambient x ((1 - (1 - s)(1 - [+0xAC8])) (1 - [+0xACC]) t + [+0xACC]) / +0x38;

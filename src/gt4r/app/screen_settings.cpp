@@ -20,6 +20,7 @@
 #include "base/log_file.h"
 #include "gt3r_version.h"
 #include "gt4r_version.h"
+#include "platform/music_folder.h"
 #include "platform/render_scale.h"
 #include "platform/user_files.h"
 #include "vfs/mod_archive.h"
@@ -106,10 +107,12 @@ public:
             install(app, path);
         }
         poll(app);
+        poll_music_pick(app);
         if (look_again_ && !job_ && !dump_.running()) {
             look_again_ = false;
             discs_known_ = false;
             if (page_ == kMods) app.rescan_mods();
+            if (page_ == kAudio) app.follow_music_folder(true); // (songs copied in meanwhile)
         }
         if (question_.open()) return question_.update(app);
         if (job_ && job_->stage() != InstallJob::Stage::Planned) return; // (unpacking: it waits)
@@ -161,12 +164,16 @@ private:
     void turn_to(App& app, int page, bool keep_tabs = false) {
         if (page == page_) return;
         stop_preview(app);
-        page_ = page, mod_.clear(), message_.clear();
+        page_ = page, mod_.clear(), message_.clear(), song_list_ = false;
         rows_.selected = 0, rows_.scroll.first = 0;
         on_tabs_ = keep_tabs;
         look_again_ = page == kMods || page == kDisc;
     }
     void back(App& app) {
+        if (song_list_) {
+            song_list_ = false, rows_.selected = 0, rows_.scroll.first = 0;
+            return;
+        }
         if (!mod_.empty()) {
             mod_.clear(), message_.clear();
             rows_.selected = list_row_, rows_.scroll.first = list_first_;
@@ -189,7 +196,7 @@ private:
         rows_.rows.clear();
         switch (page_) {
         case kDisplay: return display(app), vr_display_rows(app, rows_); // (a headset's build: its rows first)
-        case kAudio: return audio(app);
+        case kAudio: return song_list_ ? song_list(app) : audio(app);
         case kControls: return controls(app);
         case kViews: return views(app);
         case kDisc: return disc(app);
@@ -310,6 +317,99 @@ private:
             if (audio::AppSound* sound = a->sound()) sound->menu().play("ok");
         });
         rows_.choice("Sounds behind you", {"Plain stereo", "As the console sends them, for a surround decoder"}, s.rear_cue, [set](size_t i) { set([&](auto& n) { n.rear_cue = i == 1; }); });
+        your_music(app);
+    }
+
+    // Your music (audio/your_music.h): the songs' source, the next race's first song, the folder, what is in it, the pause's song.
+    void your_music(App& app) {
+        App* a = &app;
+        audio::YourMusic& music = app.your_music();
+        const gt3r::race::MusicLibrary& lib = music.library();
+        const auto keep = [a](const char* key, const char* value) {
+            a->config().set("music", key, value);
+            a->save_config();
+        };
+        rows_.heading("Your music: MP3, FLAC, WAV and Ogg files play as race songs");
+        static constexpr audio::SongSource kSources[] = {audio::SongSource::Game, audio::SongSource::Yours, audio::SongSource::Both};
+        const size_t source = music.source() == audio::SongSource::Game ? 0 : music.source() == audio::SongSource::Yours ? 1 : 2;
+        PageRow& src = rows_.choice("Race songs", {"The game's music list", "Your songs", "Both, mixed"}, source, [a, keep](size_t i) {
+            a->your_music().set_source(kSources[std::min<size_t>(i, 2)]);
+            keep("source", std::string(audio::song_source_name(kSources[std::min<size_t>(i, 2)])).c_str());
+        });
+        if (source != 0 && !lib.has_songs()) src.tag = "the game's until songs are found";
+        rows_.choice("Next race starts with", {"The next song", "The same song"}, music.same_song(), [a, keep](size_t i) {
+            a->your_music().set_same_song(i == 1);
+            keep("next_race", i == 1 ? "same" : "next");
+        });
+        // Phones and tablets: a chosen folder by its name (its path is long), the game's as the Files app shows it.
+        const bool mobile = gt3r::platform::is_mobile(), chosen = app.music_folder_chosen();
+        std::string shown = app.music_folder();
+        while (shown.size() > 1 && (shown.back() == '/' || shown.back() == '\\')) shown.pop_back();
+        if (mobile) shown = shown.substr(shown.find_last_of("/\\") + 1);
+        PageRow& folder = rows_.action("Music folder", chosen ? shown : mobile ? "GT4 Revisited > music" : "music, in the data folder", "choose another", [this, a] { choose_music_folder(*a); });
+        if (chosen) folder.other = [a] { a->set_music_folder(""); }, folder.other_hint = "the game's music folder";
+        if (!mobile || !chosen) rows_.action("Open the music folder", "", mobile ? "in the Files app" : "copy songs in", [this, a] { show(*a, a->music_folder()); });
+        // Android: reading audio files not allowed (refused, or turned off in its settings).
+        if (music_refused_ || (chosen && !app.music_access()))
+            rows_.action("Allow music access", "Permissions > Music and audio", "open Android's settings", [this] {
+                if (!gt3r::platform::open_app_settings()) say("Android's settings could not be opened", true);
+            });
+        std::string songs = lib.scanning() ? "looking for songs..." : lib.has_songs() ? count_text(lib.songs().size(), "song", "songs") : "none yet";
+        if (!lib.scanning()) {
+            if (chosen && !app.music_access()) songs = "music access is off";
+            else if (!lib.folder_found() && !app.music_folder().empty() && !lib.has_songs()) songs = "folder not found";
+            else if (lib.capped()) songs += " (the first ones kept)";
+            // Files in other formats (AAC, Opus...) and damaged ones are skipped: said, as they are missing.
+            if (const size_t skipped = lib.unplayable() + lib.broken())
+                songs += ", " + count_text(skipped, "file", "files") + " skipped (" + (lib.broken() ? "damaged, or not MP3, FLAC, WAV or Ogg)" : "not MP3, FLAC, WAV or Ogg)");
+        }
+        rows_.action("Songs", songs, "look for new songs", [a] { a->your_music().rescan(); });
+        if (lib.has_songs()) {
+            const std::string checked = std::to_string(music.playlist().checked_count()) + " of " + std::to_string(lib.songs().size()) + " on the list";
+            rows_.action("Your songs' list", checked, "check or uncheck songs", [this] { song_list_ = true, rows_.selected = 0, rows_.scroll.first = 0; });
+        }
+        rows_.choice("Song on the race's pause", {"Not shown", "Its title, and {L1} {R1} to skip"}, app.show_song(), [keep](size_t i) { keep("show_song", i ? "on" : "off"); });
+    }
+
+    // The player's songs, each checked (on the list) or not.
+    void song_list(App& app) {
+        App* a = &app;
+        audio::YourMusic& music = app.your_music();
+        rows_.heading("Your songs: checked songs play (in the game's list's order, or shuffled as it is)");
+        for (const gt3r::race::CustomSong& song : music.library().songs()) {
+            const bool on = music.playlist().checked(song.id);
+            std::string label = song.title.empty() ? song.rel : song.title;
+            if (!song.artist.empty()) label += " / " + song.artist;
+            PageRow& r = rows_.action(Ui::elide(label, 420), on ? "on the list" : "off", on ? "take it off" : "put it on", [a, id = song.id, on] { a->your_music().set_checked(id, !on); });
+            r.bad = !on;
+        }
+    }
+
+    void choose_music_folder(App& app) {
+        if (music_picking_) return;
+        if (app.scripted()) { // (a scripted run's answer: GT4R_DIALOG)
+            if (const char* path = SDL_getenv("GT4R_DIALOG")) app.set_music_folder(path);
+            return;
+        }
+        if (!gt3r::platform::start_folder_pick(app.window(), app.music_folder(), gt3r::platform::FolderUse::Music)) return say("A folder picker could not be shown", true);
+        music_picking_ = true;
+    }
+
+    void poll_music_pick(App& app) {
+        // (also a picker left open by an earlier Settings page: answered here)
+        const std::optional<gt3r::platform::FolderAnswer> answer = gt3r::platform::take_folder_pick();
+        if (!answer) return;
+        music_picking_ = false;
+        using Kind = gt3r::platform::FolderAnswer::Kind;
+        music_refused_ = answer->kind == Kind::NoAccess;
+        switch (answer->kind) {
+        case Kind::Picked: app.set_music_folder(answer->path); return;
+        case Kind::Cancelled: break;
+        case Kind::NoAccess: say("Music access was not allowed: Allow music access opens Android's settings", true); break;
+        case Kind::Elsewhere: say("Choose a folder on this device or its memory card (not in a cloud drive)", true); break;
+        default: say("A folder picker could not be shown", true); break;
+        }
+        app.follow_music_folder(false); // (access may have been allowed before a cancel)
     }
     // The menus' music while its volume is changed.
     void preview(App& app) {
@@ -731,6 +831,7 @@ private:
     bool scripted_ = false;
     int page_ = 0, list_row_ = 0, list_first_ = 0;
     bool on_tabs_ = false, look_again_ = true, discs_known_ = false, message_bad_ = false, previewing_ = false, asked_ = false;
+    bool song_list_ = false, music_picking_ = false, music_refused_ = false; // (Your music)
     PageRows rows_;
     UiRect tabs_[kPages];
     PageQuestion question_;

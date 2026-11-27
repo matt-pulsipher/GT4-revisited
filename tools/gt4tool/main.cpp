@@ -61,6 +61,7 @@ namespace tool { int cmd_car_digests(Disc& disc, const std::vector<std::string>&
 namespace tool { int cmd_tables(Disc& disc, const std::vector<std::string>& args); } // cmd_tables.cpp
 namespace tool { int cmd_regions(Disc& disc, const std::vector<std::string>& args); } // cmd_regions.cpp
 namespace tool { int cmd_modcar(Disc& disc, const std::vector<std::string>& args); } // cmd_modcar.cpp
+namespace tool { int cmd_cardb(Disc& disc, const std::vector<std::string>& args); } // cmd_cardb.cpp
 }
 using namespace gt4r;
 
@@ -632,6 +633,7 @@ const Command kCommands[] = {
     {"tables", "<disc> [survey <sites.tsv>] (cmd_tables.cpp)", 0, [](Disc& d, const Args& a) { return gt4r::tool::cmd_tables(d, a); }},
     {"regions", "<disc> map <reference image> <functions.tsv> <out prefix> (cmd_regions.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_regions(d, a); }},
     {"modcar", "<disc> <mods folder | a mod's folder> [disc:<label> ...] (cmd_modcar.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_modcar(d, a); }},
+    {"cardb", "<disc> list | <car label> [specs | curve | parts | events] (cmd_cardb.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_cardb(d, a); }},
 };
 
 } // namespace

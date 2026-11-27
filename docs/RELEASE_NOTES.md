@@ -18,7 +18,7 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 - Controllers and wheels with force feedback, rumble for modern controllers, DualSense triggers, remappable controls
 - Mods over the disc's files, texture packs, and cars of their own (a text file over a car of the disc), fetched from the other players online
 - Replay effects and extra views as options
-- GT4 Revisited's own menu from the title: Select, or the GT4R menu button beside it
+- GT4 Revisited's own menu from the title: Select, or the GT4R menu button beside it (beside Gran Turismo mode's map too)
 
 Discs: Gran Turismo 4 US (SCUS-97328, v1.01), Europe (SCES-51719, v1.00) and Japan (SCPS-17001, v1.05), and Gran
 Turismo 4 Prologue (Japan, SCPS-15055).

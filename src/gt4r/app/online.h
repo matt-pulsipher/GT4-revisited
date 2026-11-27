@@ -43,6 +43,8 @@ public:
 private:
     void panel(App& app, Ui& ui, float x, float y, float w, float h, bool compact);
     void leave();
+    void offer_car_picker(App& app);
+    bool picker_offered_ = false; // on this showing of the makers' page
     menu::Runtime& rt_;
     net::Discovery discovery_;
     bool connecting_ = false, racing_ = false, open_ = false;
