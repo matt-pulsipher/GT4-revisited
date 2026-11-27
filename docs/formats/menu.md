@@ -647,8 +647,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   a graded run faster than the best takes both): when it ends (Exit, or NEXT_RACE to the next test; 0x110800) the
   diary gets that day (result, note 14, time), or a day with nothing in it when no run was graded: every visit to a
   test's page is a day, as the original's calendar shows. The page has no Replay after a demonstration (0x11CED8) nor
-  after a run that ended under 2 s on the race clock (0x11CE3C; ❓ the test's settings then reloaded, 0x1100D0, not
-  done). **A course's visit** is one day of the diary, put when its sequence ends whatever the runs
+  after a run that ended under 2 s on the race clock (0x11CE3C); both load the test's settings again (0x1100D0, as at the
+  sequence's start: its demonstration file `replay/license/<label>`, the entry's transmission and aids +0x1A0 .. +0x1A4 into the
+  race information, its equipment into the player's entry): here the demonstration's entries leave the race as it ends and
+  every START takes the test's car and the player's choices anew (0x10F880). **A course's visit** is one day of the diary, put when its sequence ends whatever the runs
   (0x42F448, place 15, note 14, no time: the machine test 0x115E90, the practice 0x1184DC, the photo drive 0x11B0D8; the free
   run 0x1179F8 with the session's best time and note 13 when it beat the course's record, else 14; ours puts one per run:
   RULES_AUDIT.md); Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).

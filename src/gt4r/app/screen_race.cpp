@@ -3892,8 +3892,16 @@ private:
         int can = spectator_ ? 2 : 1;
         // A license test's page after a demonstration has no Replay (0x11CED8: canReplay 0; ✔ 34-b3-demo, the Replay icon a
         // run added is gone after the demo), nor after a run that ended before 2 s on the race clock (0x11CE3C: 0x358440,
-        // cond + 0xF898 / 3, under 2,001 ms). ❓ The program then also reloads the test's settings (0x1100D0): not done here.
-        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) can = 0;
+        // cond + 0xF898 / 3, under 2,001 ms). Both then load the test's settings again (0x1100D0: the test's demonstration file,
+        // replay/license/<label>, its entry's transmission and aids, +0x1A0 .. +0x1A4, into the race information and its
+        // equipment into the player's entry, the race's virtual 0x4D8), as the sequence did at its start: here the
+        // demonstration's entries leave the race (end_demo) and every START takes the test's car (its pool's, the same
+        // equipment as the demonstration's entry: replay.md) and the player's choices anew (0x10F880), so a short run leaves
+        // nothing to undo.
+        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) {
+            can = 0;
+            if (demo_) race_->end_demo();
+        }
         report_result();
         if (session_kind() && !demo_) return enter_quick(can, false);
         enter_quick(can);
