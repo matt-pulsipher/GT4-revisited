@@ -348,6 +348,7 @@ constexpr int kDiscPage = 4, kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
+std::unique_ptr<Screen> make_database_screen(App& app); // the Car database (screen_database.cpp)
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);

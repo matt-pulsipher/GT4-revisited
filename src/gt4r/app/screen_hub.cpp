@@ -89,6 +89,7 @@ public:
                 case 8: app.push(make_controls_screen(app)); break;
                 case 9: app.push(make_saves_screen(app)); break;
                 case 22: app.push(make_save_editor(app)); break;
+                case 26: app.push(make_database_screen(app)); break;
                 case 20: app.push(make_settings_screen(app)); break;
                 case 21: app.push(make_settings_screen(app, kModsPage)); break;
                 case 23: app.push(make_hub_screen(true)); break;
@@ -152,6 +153,7 @@ private:
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
             items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
             items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), "Install mods and texture packs, and choose which are used.", 21});
+            items_.push_back({"Car database", "", "Every car of the disc: its specifications, power and torque, the tune shops' parts and the events it may enter.", 26});
             items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});
             items_.push_back({"Discs...", "", "Your disc library: switch to another disc, or add one.", 25});
             items_.push_back({"Developer tools", "", "Viewers for the disc's cars, courses, menu pages and files, and a race set up by hand.", 23});
