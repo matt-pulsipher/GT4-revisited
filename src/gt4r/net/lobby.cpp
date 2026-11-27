@@ -94,7 +94,7 @@ Lobby& lobby() {
 void Lobby::begin(const std::string& account) {
     mine_ = Member{};
     mine_.account = account;
-    members_.clear(), seen_.clear(), problems_.clear();
+    members_.clear(), seen_.clear(), problems_.clear(), packages_.clear();
     next_round_ = 0;
     wanted_.reset(), race_.reset();
     error_.clear();
@@ -126,7 +126,19 @@ void Lobby::publish() {
 
 void Lobby::change(const std::function<void(Member&)>& f) {
     f(mine_);
+    if (mine_.choice && describe_car) describe_car(*mine_.choice);
     publish();
+}
+
+// The mod cars of others this disc lacks: their packages asked of their owners, once each.
+void Lobby::fetch_packages() {
+    if (!wants_package || !on_package) return;
+    for (const auto& [id, m] : members_) {
+        if (int(id) == session_.my_id() || !m.choice || m.choice->package.empty() || packages_.count(m.choice->package)) continue;
+        if (!wants_package(*m.choice)) continue;
+        packages_[m.choice->package] = "";
+        session_.request_package(m.choice->package, id);
+    }
 }
 
 void Lobby::poll() {
@@ -139,6 +151,7 @@ void Lobby::poll() {
     }
     publish(); // (a guest's record goes out once the host accepted it)
     refresh();
+    fetch_packages();
     if (!host()) return;
     // The host: no more players than the pages hold, none while the menus of this round are over.
     while (count() > kMaxLobbyPlayers) {
@@ -221,6 +234,23 @@ void Lobby::on_event(const gt3r::net::Event& e) {
             race.cars.push_back(std::move(car));
         }
         race_ = std::move(race);
+        break;
+    }
+    case K::PackageDone:
+    case K::PackageFailed: {
+        std::string& state = packages_[e.text];
+        if (e.kind == K::PackageFailed) {
+            state = "its files did not come: " + e.course;
+        } else if (std::optional<Bytes> blob = session_.take_package(e.text)) {
+            for (const auto& [id, m] : members_)
+                if (m.choice && m.choice->package == e.text) {
+                    const gt3r::net::Player* p = session_.player(id);
+                    state = on_package ? on_package(e.text, std::move(*blob), *m.choice, m.account.empty() && p ? p->name : m.account) : "";
+                    break;
+                }
+        }
+        problems_.clear();
+        ++version_;
         break;
     }
     case K::Lobby: // (the host went back before our race began)
@@ -318,6 +348,11 @@ std::string Lobby::car_problem(int index) {
     const Member& m = member(index);
     if (!m.choice || !check_car) return {};
     if (!(problems_for_ == host_member().limits)) problems_.clear(), problems_for_ = host_member().limits;
+    if (const auto p = packages_.find(m.choice->package); !m.choice->package.empty() && p != packages_.end()) {
+        if (!p->second.empty()) return p->second;
+        if (const gt3r::net::Session::Download* d = session_.download(p->first); d && !d->done)
+            return "its files are on their way (" + std::to_string(d->received / 1024) + " of " + std::to_string(std::max<u32>(d->total, 1) / 1024) + " KB)";
+    }
     gt3r::net::Writer w;
     write_choice(w, *m.choice);
     const auto it = problems_.find(w.data);

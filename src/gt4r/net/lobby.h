@@ -117,6 +117,13 @@ public:
     std::function<std::string(const CarChoice&, const LobbyLimits&)> check_car;
     std::function<std::optional<sim::Equipment>(const CarChoice&, const std::string& course)> build_car;
     std::string car_problem(int index); // ("" : none, or it has no car yet)
+    // Mod cars (formats/db/mod_cars.h, net/mod_car_package.h), set by whoever has the disc: `describe_car` fills our car's
+    // package and donor (and offers the package to the session) as our record changes; `wants_package` says whether a car
+    // received is one to fetch (this disc lacks it and has its donor); `on_package` takes a package fetched (its hash, the
+    // car, who sent it) and returns "" when it is installed, else why not.
+    std::function<void(CarChoice&)> describe_car;
+    std::function<bool(const CarChoice&)> wants_package;
+    std::function<std::string(const std::string& hash, Bytes blob, const CarChoice&, const std::string& from)> on_package;
     // The race the host loaded, once: every machine's car by its record. The race owns the session from here; end_race
     // after it.
     std::optional<OnlineRace> take_race();
@@ -137,6 +144,8 @@ private:
     std::optional<OnlineRace> race_;
     std::string error_;
     std::map<Bytes, std::string> problems_; // car_problem's, by the record (kept: the check builds the car)
+    std::map<std::string, std::string> packages_; // the packages asked for, by hash: "" on the way or installed, else why not
+    void fetch_packages();
     LobbyLimits problems_for_;
     u64 version_ = 0, version_seen_ = 0;
     u16 next_round_ = 0; // after a race: the round it leads to (the host's word of it may still be on its way)

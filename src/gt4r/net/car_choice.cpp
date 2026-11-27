@@ -129,7 +129,8 @@ std::string settings_problem(db::SpecDb& db, const sim::Program& program, const 
 
 bool CarChoice::operator==(const CarChoice& o) const {
     return label == o.label && paint == o.paint && tire == o.tire && garage == o.garage && equipment.bytes == o.equipment.bytes && condition == o.condition &&
-           automatic == o.automatic && asm_on == o.asm_on && tcs_on == o.tcs_on && wheel_aid == o.wheel_aid && driver == o.driver && digest == o.digest;
+           automatic == o.automatic && asm_on == o.asm_on && tcs_on == o.tcs_on && wheel_aid == o.wheel_aid && driver == o.driver && digest == o.digest &&
+           package == o.package && package_size == o.package_size && donor == o.donor;
 }
 
 void write_choice(gt3r::net::Writer& w, const CarChoice& c) {
@@ -139,9 +140,12 @@ void write_choice(gt3r::net::Writer& w, const CarChoice& c) {
     w.u8_(u8((c.automatic ? 1 : 0) | (c.asm_on ? 2 : 0) | (c.tcs_on ? 4 : 0) | (c.wheel_aid ? 8 : 0) | (c.garage ? 16 : 0)));
     w.u8_(c.driver);
     w.u32_(u32(c.digest)), w.u32_(u32(c.digest >> 32));
-    if (!c.garage) return;
-    w.bytes(c.equipment.bytes);
-    w.bytes(c.condition);
+    if (c.garage) {
+        w.bytes(c.equipment.bytes);
+        w.bytes(c.condition);
+    }
+    // A mod car's package after the rest (a reader that knows none stops before it).
+    if (!c.package.empty()) w.u8_('P'), w.str(c.package), w.u32_(c.package_size), w.str(c.donor);
 }
 
 bool read_choice(gt3r::net::Reader& r, CarChoice& c) {
@@ -158,6 +162,11 @@ bool read_choice(gt3r::net::Reader& r, CarChoice& c) {
         if (!r.ok()) return false;
         std::copy(eq.begin(), eq.end(), c.equipment.bytes.begin());
         std::copy(cond.begin(), cond.end(), c.condition.begin());
+    }
+    c.package.clear(), c.package_size = 0, c.donor.clear();
+    if (r.ok() && r.remaining() > 0 && r.u8_() == 'P') {
+        c.package = r.str(), c.package_size = r.u32_(), c.donor = r.str();
+        if (c.package.size() != 64 || c.donor.size() >= 0x40) return false;
     }
     return r.ok() && c.label.size() < 0x40 && c.tire <= 12 && c.driver <= 2;
 }

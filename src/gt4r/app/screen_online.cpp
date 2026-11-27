@@ -44,6 +44,7 @@ bool loopback_only() {
 // The disc's side of the lobby.
 struct OnlineDisc {
     std::string key;
+    db::SpecDb* db = nullptr; // the database the builder is of (the mods' cars change it)
     sim::Program program;
     std::unique_ptr<net::CarBuilder> builder;
 };
@@ -112,14 +113,14 @@ bool online_setup(App& app) {
     if (!disc) return false;
     OnlineDisc& d = online_side();
     net::Lobby& l = net::lobby();
-    if (d.key != app.disc()->info().digest) {
+    if (d.key != app.disc()->info().digest || d.db != app.db()) {
         d.builder.reset();
-        d.key = app.disc()->info().digest;
-        try {
-            d.program = sim::Program::load(*app.disc());
-        } catch (const std::exception& e) {
-            LOG_WARN("Online: the program: %s", e.what());
-        }
+        if (d.key != app.disc()->info().digest) try {
+                d.program = sim::Program::load(*app.disc());
+            } catch (const std::exception& e) {
+                LOG_WARN("Online: the program: %s", e.what());
+            }
+        d.key = app.disc()->info().digest, d.db = app.db();
         if (d.program.known()) {
             gt3r::Vfs* vfs = app.vfs();
             d.builder = std::make_unique<net::CarBuilder>(*app.db(), d.program, [vfs](const std::string& path) { return vfs->read(path); });
@@ -137,6 +138,7 @@ bool online_setup(App& app) {
         const std::optional<sim::CourseRow> row = sim::course_row(*sdb, course);
         return b->raced(c, row ? row->kind : 0);
     };
+    online_mod_cars(app, l);
     return true;
 }
 
