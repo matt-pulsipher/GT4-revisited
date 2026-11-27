@@ -7,6 +7,7 @@
 
 #include "audio/audio_engine.h"
 #include "base/file.h"
+#include "gt4r/audio/menu_sound.h"
 #include "gt4r/audio/race_sound.h"
 #include "gt4r/audio/race_tables.h"
 #include "gt4r/audio/render.h"
@@ -218,6 +219,42 @@ TEST(your_music_race) {
     }
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+// A mod's recording of a piece of the menus' sequenced music plays in its place (by the piece's file name), looping at the
+// menus' stream level; the group's next piece without one is the sequence again; a stop stops it.
+TEST(your_music_menu_recordings) {
+    Disc* disc = nullptr;
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("music/us/mid.inf")) disc = d;
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::MenuSound menu(library, s.driver());
+    std::vector<std::string> asked;
+    std::string playing;
+    float level = 0;
+    audio::MusicRecordings r;
+    r.find = [&](const std::string& piece) {
+        asked.push_back(piece);
+        return piece == "gt4mn-01" ? std::string("/somewhere/gt4mn-01.flac") : std::string();
+    };
+    r.play = [&](const std::string& file, float l) { return playing = file, level = l, true; };
+    r.stop = [&] { playing.clear(); };
+    r.playing = [&] { return !playing.empty(); };
+    menu.set_recordings(r);
+    CHECK(menu.start_music("map"));
+    CHECK(!asked.empty() && asked.back() == "gt4mn-01" && playing == "/somewhere/gt4mn-01.flac");
+    const float stream = library->levels().level(1, sound::VolumeTable::Stream);
+    CHECK(std::fabs(level - stream * 115.0f / 128.0f) < 1e-6f);
+    CHECK(menu.music_group() == "map" && !menu.recording().empty() && !s.driver().music_active());
+    CHECK(menu.keep_music("map") && playing == "/somewhere/gt4mn-01.flac"); // (plays on)
+    menu.stop_music();
+    CHECK(playing.empty() && menu.recording().empty());
+    // The map's next piece has none: its sequence.
+    CHECK(menu.start_music("map") && asked.back() == "gt4mn-02" && playing.empty() && s.driver().music_active());
+    menu.stop_music();
 }
 
 // The disc's racing pieces measured through the shared engine's .ads reader (GT4's streams), and a song's gain from them:

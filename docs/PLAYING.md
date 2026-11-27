@@ -192,6 +192,12 @@ and artist with L1 / R1 to skip (held, every 0.3 s; the song waits silent until 
 (Settings > Controls) and the on-screen song buttons (shown from the layout's settings) skip while driving, and show the
 new song for a moment. The replay's caption names your song by its tags.
 
+A mod's recording of the menus' music plays in place of a piece of the sequenced music: `files/music/<region>/<piece>.wav`
+(or `.flac`, `.ogg`, `.mp3`; also `files/music/<piece>.<ext>`), `<piece>` being the piece's file name in the disc's
+`mid.inf` without `.mid` (`gt4mn-02` for the map's second piece, `gt4ac-01` for Arcade's: `gt4tool sound <disc> music`).
+It loops at its own loop points (a WAV's `smpl` loop, or `LOOPSTART` with `LOOPEND` or `LOOPLENGTH` tags in a FLAC or Ogg
+file), else from its start, at the level the game streams its music at; a fade out of the menus' music stops it at once.
+
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
 stop on a pause, a replay, the menus and the end of a run.

@@ -44,6 +44,20 @@ struct StreamPlayer {
     std::function<void(float trim)> set_trim;
 };
 
+// Ours: a mod's recording of a piece of the sequenced music, which plays in its place (MenuSound::set_recordings): a file
+// music/<region>/<piece>.wav, .flac, .ogg or .mp3 in a mod's files (or music/<piece>.<ext>), <piece> being the piece's
+// file name in the index without its extension ("gt4mn-02" for the map's second piece, `gt4tool sound <disc> music`), any
+// case. It loops at its own loop points (a WAV's smpl chunk, LOOPSTART / LOOPEND or LOOPLENGTH tags: the shared engine's
+// music_file.h), else from its start, at the menus' stream level (the mix table's stream level x the music option, as the
+// game's streamed pieces play).
+struct MusicRecordings {
+    std::function<std::string(const std::string& piece)> find;          // the recording's file ("" none)
+    std::function<bool(const std::string& file, float level)> play;     // looping
+    std::function<void()> stop;
+    std::function<bool()> playing; // (false once something else took the stream: a race's music)
+    std::function<void(float level)> set_level;
+};
+
 class MenuSound {
 public:
     // `library`: shared with the race's sounds when given, else its own over `vfs`.
@@ -87,15 +101,25 @@ public:
     // which is what the original's menus measure at).
     void set_music_option(float v);
     void set_effect_option(float v);
+    // Ours: mods' recordings of the sequenced music (MusicRecordings).
+    void set_recordings(MusicRecordings r) { recordings_ = std::move(r); }
+    // The recording playing in a piece's place ("" none).
+    const std::string& recording() const { return recording_; }
 
 private:
     bool start(int group, int number, bool restart);
     void stop(bool remember);
     int draw(int count) const;
+    bool active() const { return driver_.music_active() || (!recording_.empty() && (!recordings_.playing || recordings_.playing())); }
+    int number() const { return recording_.empty() ? driver_.music_number() : recording_number_; }
+    float recording_level() const;
 
     std::shared_ptr<SoundLibrary> library_;
     SoundDriver& driver_;
     StreamPlayer streams_;
+    MusicRecordings recordings_;
+    std::string recording_; // the recording playing
+    int recording_number_ = 0;
     int group_ = -1;          // the group whose bank is in use
     std::vector<int> next_;   // per group: the piece its next start plays
     float music_volume_ = 1.0f; // the scripts' music volume (MMusic.volume)

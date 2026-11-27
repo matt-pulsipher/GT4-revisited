@@ -27,7 +27,13 @@ namespace gt4r::audio {
 // The app's music streams for the game's sound objects (MenuSound, RaceSound): a PS-ADPCM piece on
 // two of the mixer's voices as the original plays it (`voices`, stream_voices.h), anything else
 // through the shared engine's AudioEngine at the game's output level (sound_driver.h, stream_request).
-StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs, StreamVoices* voices = nullptr);
+// `recording`: whether a mod's recording of the menus' music (MusicRecordings) has the engine's stream now; the menus' player
+// (`menus`) leaves it playing when it stops or pauses its streams, the race's stops it too.
+StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs, StreamVoices* voices = nullptr, std::shared_ptr<bool> recording = nullptr,
+                           bool menus = false);
+// The mods' recordings of the menus' sequenced music (menu_sound.h MusicRecordings) on the engine's stream, for the disc's
+// region `region`.
+MusicRecordings music_recordings(gt3r::AudioEngine& audio, gt3r::Vfs& vfs, std::string region, std::shared_ptr<bool> recording);
 
 class AppSound {
 public:
@@ -41,7 +47,7 @@ public:
     SoundLibrary& library() { return *library_; }
     std::shared_ptr<SoundLibrary> library_ptr() { return library_; }
     // The music streams (stream_player() on the app's engine and disc).
-    StreamPlayer streams() { return stream_player(audio_, vfs_, &stream_voices_); }
+    StreamPlayer streams() { return stream_player(audio_, vfs_, &stream_voices_, recording_); }
 
     // For the asset browser: plays what a sound file holds and says what that is (", sequence
     // 2 of 5, ..."). A sequence bank (.sqt, or its .ins) plays a sequence, the next one each
@@ -56,6 +62,7 @@ private:
     gt3r::Vfs& vfs_;
     SoundDriver driver_;
     StreamVoices stream_voices_;
+    std::shared_ptr<bool> recording_ = std::make_shared<bool>(false); // (MusicRecordings)
     std::shared_ptr<SoundLibrary> library_;
     MenuSound menu_;
     bool surround_cue_before_ = false; // the shared engine's setting, given back when the disc closes
