@@ -191,6 +191,7 @@ void query_points(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
 
 BodyGlobals body_globals(const Program& program) {
     BodyGlobals g = body_globals([&](u32 a) { return program.w(a); }, [&](u32 a) { return program.b(a); });
+    g.japan = program.known() && program.release() == Release::Japan;
     // The dampers' square-law table as the converter sets it from the static block (0x360A78; the image holds 0): on with
     // the byte +0x102; each axle's knees +0x105 / +0x109 x 0.01, shares +0x107 / +0x10B / 100.
     const u32 S = Program::kStatic;
@@ -527,7 +528,7 @@ void attitude(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const TireExtra&
         for (size_t i = 0; i < 3; ++i) acc[i] = acc[i] + f * d[i];
     }
     F up = lift - (c.downforce[0] + c.downforce[1]);
-    if (x.speed_part_kind == 7) { // a lift under the body near the ground, gone 10 cm higher
+    if (x.speed_part_kind == 7 && !g.japan) { // a lift under the body near the ground, gone 10 cm higher (none in SCPS-17001 v1.05's 0x365610)
         const F h = (c.pos.z - c.ground_pos.z) - (c.p.cog_height + kTenth);
         if (h <= k0) up = up - x.speed_part_lift;
         else if (!(kTenth < h)) up = up - x.speed_part_lift * (kOne - h * kTen);

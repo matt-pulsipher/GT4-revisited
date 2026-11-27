@@ -1247,10 +1247,10 @@ public:
             LOG_INFO("Drive: the demonstration %s ended at step %zu: %s %lld ms (recorded %d ms)", demo_run_->label.c_str(), demo_step_ - 1, license_failed_ ? "failed" : "timed",
                      (long long)flow_.run_ms(0), demo_run_->recorded_ms());
         }
-        if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
+        if (demo_run_ && ev.lap_done(0)) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
         step_lap_gaps();
         // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
-        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
+        if (ev.lap_done(display_car())) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
         step_pace_lists();
         if (const int mark = world_->pit_mark(0), stage = world_->pit_stage(0); mark != logged_mark_ || stage != logged_stage_) {
@@ -1331,6 +1331,8 @@ public:
     void step_splits() {
         if (splits_.empty() || flow_.steps_since_start() < 0) return;
         if (const int kind = flow_.setup().test_kind; kind != 0 && kind != 6 && world_->car_count() > 1) return; // (0x3F63A0: no section times in a test with other cars)
+        // (a test's section times only while its laps x sectors are at most 16, 0x3F6320; SCPS-17001 v1.05's at most 4, 0x3EF010)
+        if (flow_.setup().test_kind != 0 && std::max(1, flow_.setup().laps) * (int(splits_.size()) + 1) > (release_ == sim::Release::Japan ? 4 : 16)) return;
         const std::span<const race::CarState> cars = world_->cars();
         split_prev_.resize(cars.size(), -1);
         for (size_t i = 0; i < cars.size(); ++i) {
@@ -1415,7 +1417,7 @@ public:
             start = !hold && !ghost_lap_open_ && !ghost_run_done_;
         } else if (c.counter != ghost_counter_) {
             // A crossing of the line: the lap just completed kept when it is the best so far; a new lap begins.
-            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done == 0 && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
+            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done(0) && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
                 auto lap = std::make_shared<GhostLap>();
                 lap->states = std::move(ghost_lap_), lap->ms = c.last_lap_ms;
                 ghost_best_ = std::move(lap);
@@ -1612,6 +1614,7 @@ public:
         view_cut_ = true;
     }
     bool replaying() const { return replaying_ && !page_replay_; } // (not the replay behind a license test's page)
+    sim::Release release() const { return release_; } // the disc's release
     bool replay_done() const { return replay_done_; }
     void stop_replay() { replaying_ = page_replay_ = false, replay_done_ = true; }
 
@@ -2229,12 +2232,13 @@ public:
         return setup_.start_speed > 0 && setup_.start_kind != 3 && to_line() > 3 * setup_.start_speed;
     }
     // A race of A-spec points (0x39C4C8: the single race, the missions, Gran Turismo mode's events, with other cars), and the
-    // points taken in it (0x3C1220): the race's when the player leads at its end and the B-spec driver drove none of it.
+    // points taken in it (0x3C1220): the race's when the player leads at its end and the B-spec driver drove none of it
+    // (SCPS-17001 v1.05's 0x3BA528: whoever drove; its cars keep no B-spec distance).
     bool aspec_race() const {
         return world_->car_count() > 1 && (setup_.sequence == "single_race" || setup_.sequence == "mission" || setup_.sequence == "solo_event" || setup_.sequence == "championship");
     }
     int aspec_taken() const {
-        return aspec_race() && flow_.player_finished() && flow_.place(0) == 1 && bspec_distance_ <= 0 ? world_->aspec_points(setup_.sequence == "mission") : 0;
+        return aspec_race() && flow_.player_finished() && flow_.place(0) == 1 && (bspec_distance_ <= 0 || release_ == sim::Release::Japan) ? world_->aspec_points(setup_.sequence == "mission") : 0;
     }
 
     // A rolling start before the player's car takes the line: it is driven for him.
@@ -3591,6 +3595,8 @@ private:
         }
         pit_choice_.feed = offer.fuel ? 1 : 0;
         pit_choice_.bspec = offer.bspec ? 1 : 0;
+        // (SCPS-17001 v1.05: no driving mode at the pit, its menu has no such item and its program no command to change it)
+        if (race_->release() == sim::Release::Japan) pit_choice_.mode = false;
         pit_open_ = true, pit_touched_ = false;
         LOG_INFO("Drive: the pit stop menu at %.1f s (tires %d, fuel %d)", double(race_->flow().time_ms()) / 1000, int(offer.tires), int(offer.fuel));
         if (!pit_movie_) return;

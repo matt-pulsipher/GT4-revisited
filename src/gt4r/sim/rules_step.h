@@ -39,6 +39,7 @@ struct Tables {
     SlideTables slide; // (0x366D68 at the race's start)
     FeelTables feel;   // (the view follower's gains, 0x34A4B8's sway constants)
     std::array<F, 9> condition{}; // the engine condition's limits (0x620320: sim::condition_table)
+    bool condition_japan = false;  // SCPS-17001 v1.05's factor (0x34AFD0: no loss for old oil)
     ForceTables force; // the steering force's (0x353938, at the race's start)
     // The rule block's +0x18 .. +0x1B (conductor + 0xF830): each drive class's extra grip for a car a computer drives, in
     // percent (phase 10). A single race's conductor sets each 0 to 20 (0x353570).
