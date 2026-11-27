@@ -370,6 +370,8 @@ struct GameState {
         std::function<bool(const std::string& title, const std::string& path)> save;
     };
     std::shared_ptr<PendingReplay> pending_replay;
+    // The race's course and car (labels) for Load Best Lap Replay's list (0x11CF30 hands the card manager their codes).
+    std::string ghost_course, ghost_car;
     // The pictures the scripts hold as texture chunks (a card file's getIconTexture): an image face's `image_chunk` is the
     // picture's name here.
     std::map<std::string, gt3r::Tex1::Image> chunk_pictures;
