@@ -335,7 +335,9 @@ The conductor's set-up (virtual 26, 0x34CA20, for a RaceArcadeSingle: 0x3BFD00) 
   written after it (`PitHooks::mark`, `set_mark`). ✔ In a race at Tsukuba (`GT4R_RACE="...,penalty=2,drive=pad,auto_after=1500"`: the
   player's car into turn 1's wall at full throttle, then the computer driving it): the mark 1 at the hit (236.9 m, 10.5 s), 2 from
   1362.9 m, the car down the lane (the pit stage 1 at 1738 m) and out (stage 5) without a stop, the mark 0 at 147.5 m, past the
-  lane's end; the line's crossing in the lane counted. ❓ What the display shows while the mark is set is not read.
+  lane's end; the line's crossing in the lane counted. The display shows nothing of its own while the mark is set: F +0x62E's
+  only readers are the pit pass (0x35AF18, 0x35B060), virtual 50 and the set-up (0x363B10); on the lane the pass's own messages
+  (F +0x5FA, e.g. `PitSpeedLimit`) show as for any car there.
 - `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 1, 5, 4, 0, 5, 5 and 6, 40, 12,
   1, 5, 3, 0, 4, 5.
 Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose: 0x34CCD4).
@@ -563,8 +565,10 @@ the bests after the pause's Exit, the race rebuilt and the menus again; no resul
 the practice for checks. ✔ Scripted through the menus (the Tuning Car Grand Prix's race 1, the pre-race page's third icon
 "Practice", the computer driving, the pause's Exit and its "Are you sure?"): the car held 2 s with "In progress..", its out lap,
 lap 2 timed 1'43.539, Position 6 by the bests, the page's grid after it Opera, RUF, Spoon, NISMO, Mine's, the player, as the
-log's bests give. ❓ Not compared with a capture of the original's Free Qualify (none in the reference): whether the original
-shows "In progress.." under the pit start's hold.
+log's bests give. "In progress.." under the pit start's hold is the program's: the pit pass (0x359008 → 0x35B060, every car each step once the race
+runs, on a course with pit lines, 0x34C750) gives any car with a hold count (F +0x4BA, 120 from the pit start's set-up) the pit
+message 11 (0x35ACD8), which the display shows as `PitWork` (RaceDisplay::vf28); ✔ ours by picture (`qualify=1`, 0.7 s in). (No
+capture of the original's Free Qualify in the reference.)
 
 ## Power & Speed (the machine tests)
 
