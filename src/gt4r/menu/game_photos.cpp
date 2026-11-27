@@ -283,9 +283,11 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     manager.set("free", number(kFreeKb)), manager.set("realFree", number(kFreeKb));
     manager.set("cursorPos", number(0));
 
-    // The slide show's list: the card's LSTSLIDE file, read into the list the scripts give it.
+    // The slide show's list: the card's LSTSLIDE file, read into the list the scripts give it. Its result as the replay
+    // list's (the manager's autoload file, 0x17C97C for both; its read 0x1D2E18): FILE_NOT_FOUND with no list on the card,
+    // which the scripts answer by asking to make one ("no playlist slot n create?").
     auto shown = std::make_shared<std::shared_ptr<PlayListObject>>();
-    auto loaded = std::make_shared<save::Result>(save::Result::Ok);
+    auto loaded = std::make_shared<save::Result>(save::Result::FileNotFound);
     manager.property("autoloadPlayListResult", [loaded] { return text(save::result_name(*loaded)); });
     auto auto_list = std::make_shared<Object>("MMemoryCardFile");
     auto_list->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [np, rt, slot, shown, loaded](const Value& v) {
@@ -294,9 +296,8 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
         *shown = l;
         const save::PhotoCard card = photo_card(*rt, slot);
         std::vector<save::PhotoCard::Listed> ids;
-        // (No list yet is an empty one: nothing to ask.)
-        *loaded = card.has_slides() ? card.load_slides(ids) : save::Result::Ok;
-        if (*loaded != save::Result::Ok || !card.has_slides()) return;
+        *loaded = card.load_slides(ids);
+        if (*loaded != save::Result::Ok) return;
         const std::vector<save::PhotoEntry> photos = card.list('P');
         l->files.clear();
         for (const save::PhotoCard::Listed& id : ids) {

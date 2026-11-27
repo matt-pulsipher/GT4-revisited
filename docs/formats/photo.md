@@ -142,7 +142,11 @@ a card are answered in the menus.
 
 The **slide show's list** is the folder `BASCUS-97328LSTSLIDE` (76 KB by the program's count): 400
 places of u64 (the folder's number, its letter in the top byte), u32 count at 0xC80, padded to 0xCC0
-bytes and not scrambled (0x1D0F38). The slide show face shows the list's photos, or the disc's
+bytes and not scrambled (0x1D0F38). It is the card manager's autoload file in MODE_PHOTO_PLAYLIST and
+MODE_PHOTO_PRINTLIST as the replay list is in the replay modes (0x17C348 sets the manager work's +0x67C for both, 0x17C97C;
+its read 0x1D2E18 leaves `autoloadPlayListResult`, +0x680: DEVICE_ERROR when the card cannot be asked, FILE_NOT_FOUND
+with no list on it, else the read's result): with no list Photo Lab's ToSlide asks to make one ("No slideshow data
+present", then the room it takes) before it writes it (✔ `disc_photo_slide_list_asked`). The slide show face shows the list's photos, or the disc's
 (`photo/%03d.JPG`) when the card has none or the face's `demo` is set (0x1C6BE8).
 
 ## The photo pause (Replay Theater Photo Mode, the photo drive)
