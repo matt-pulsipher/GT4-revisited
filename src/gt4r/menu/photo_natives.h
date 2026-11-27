@@ -22,6 +22,7 @@ struct PhotoPicture {
     std::optional<JpegPicture::Focus> focus;
     u64 version = 0;           // changes with the picture
     float ofs_x = 0, ofs_y = 0, scale = 1; // the page's move and zoom
+    std::string course, car_label; // what it shows (the card's record): the course's file, the car's label
 };
 
 // A photo shoot: what the photo page's scripts set, beside the camera.

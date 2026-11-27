@@ -868,13 +868,16 @@ namespace {
 
 class RuntimePainter : public MenuPainter {
 public:
-    explicit RuntimePainter(App& app) : drawer_(app), cars_(app), models_(app) {
+    explicit RuntimePainter(App& app) : drawer_(app), cars_(app), models_(app), photos_(app) {
         drawer_.draw_live = [this](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
             if (face.is("CarFace")) cars_.draw(face, project, page, at, dst, opacity);
             else if (face.is("ModelFace")) models_.draw(face, project, page, at, dst, opacity);
+            else if (face.is("PhotoRenderFace")) photos_.draw(at, dst, opacity); // (the photo pause's photo_save page)
         };
+        photos_.picture = [this]() { return rt_ ? rt_->photo_picture.get() : nullptr; };
     }
     void draw(menu::Runtime& rt, float x, float scale) override {
+        rt_ = &rt;
         const menu::TransitionPicture tp = menu::transition_picture(rt.vm().attribute(rt.context(), "transition"));
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
@@ -895,6 +898,8 @@ private:
     PageDrawer drawer_;
     MenuCars cars_;     // the prize pages' models
     MenuModels models_;
+    PhotoFaces photos_;
+    menu::Runtime* rt_ = nullptr; // while drawn
     MenuCursor cursor_;
     u64 stepped_ = 0; // the menus' picture the pointer was last stepped to
 };

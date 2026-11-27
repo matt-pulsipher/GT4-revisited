@@ -478,7 +478,7 @@ the race input's word +0x174, read by 0x3FB1E0) while the play mode is 1 to 4; t
 | Circle | the music on or off (race +0xCFBC; not in Dive, which turns it on), "BGM ON" / "BGM OFF" |
 | L3 | the speed x 4 or x 1 (race +0xD3C), two arrows or one |
 | R1, L1, L2, R2, Left / Right held | on the car's own cameras: the next of five places, ahead or back, the cameras beside the cabin, the looks to the sides (the two tables 0x621200 / 0x621228, 0x621250 .. 0x621268: places 0, 1, 20, 7, 5; back 0, 1, 20 turned and 8, 9; 11 and 10; 4 and 3) |
-| Select | holds it still (`SimplePause`: the black strip from 438 of 480 with "Press SELECT to resume"); from the Replay Theater the photo drive instead (`PhotoPause`, not built) |
+| Select | holds it still (`SimplePause`: the black strip from 438 of 480 with "Press SELECT to resume"); in the Replay Theater's and the photo drive's replays the photo pause instead (`PhotoPause`: [photo.md](photo.md) "The photo pause") |
 | Start | ends it |
 
 The mode starts by the options: Dive with `replay_mode` DIVE, else by `replay_display_enable`. The place on the car is kept for the
@@ -525,7 +525,7 @@ Here the program's random numbers are a generator of ours, the line ahead is the
 the program's is the driving line), the point's own distance along the course is the middle of its stretch and the lens's distances are taken from the point
 along it (🔎 the program asks the road), a wall is the scenery's, the on-board shots' wobble is not here.
 
-Not done: the photo drive, a wheel's own keys, ❓ the speed's effect on
+Not done: a wheel's own keys, ❓ the speed's effect on
 the sound (four steps a picture here).
 
 ## Camera motions: `Mot1` (course slots 52, 53)
