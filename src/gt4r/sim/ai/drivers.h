@@ -437,6 +437,7 @@ private:
     void prologue_decide(Driver& d, bool plans_only, race::CarInput& in);
     void suggest(Driver& d);
     Tables tables_;
+    bool spread_live_ = true; // the spreads' switches set (SCPS-17001 v1.05: by the race's preparation, after the set-up)
     CourseLines lines_;
     Pace pace_;
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)

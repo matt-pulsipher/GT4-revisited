@@ -80,10 +80,17 @@ public:
     // B-spec's pit command (0x3F19E0 command 6) or any request: the car goes in at the pit lane's entry.
     void request(size_t car) { if (car < cars_.size()) cars_[car].flags |= 8; }
     // The pit command as the program takes it (0x3F19E0 command 6): not before the car's first crossing nor once its laps are run
-    // (0x343C20); on, the request; off, taken back (a request passed on to the lane left: F +0x5C1).
+    // (0x343C20); on, the request; off, taken back (a request passed on to the lane left: F +0x5C1). SCPS-17001 v1.05's
+    // (0x3EA7E8): at any time, and taken back without the mark.
     void command(size_t car, bool on) {
-        if (car >= cars_.size() || last_lap_[car] < 1 || lap_state_[car] != 0) return;
+        if (car >= cars_.size()) return;
         PitCar& c = cars_[car];
+        if (japan_) {
+            if (on) c.flags |= 8;
+            else c.flags &= u8(~8);
+            return;
+        }
+        if (last_lap_[car] < 1 || lap_state_[car] != 0) return;
         if (on) {
             if (!(c.flags & 8)) c.flags |= 8, c.x5C1 = 0;
         } else if (c.flags & 8) {
@@ -128,6 +135,7 @@ private:
     PitLine line_;
     PitHooks hooks_;
     PitRace race_;
+    bool japan_ = false; // SCPS-17001 v1.05's program
     std::vector<PitCar> cars_;
     std::vector<F> last_d_;
     std::vector<int> last_lap_, stops_, lap_state_;
