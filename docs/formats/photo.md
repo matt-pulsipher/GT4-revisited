@@ -19,7 +19,7 @@ scripts, and the reference card with one photo (Times Square, a Ford GT). ❓ no
 | The finder's color correction | the shared engine's grade pass, a curve through the gamma's middle value | 🔎 the photo itself uses the program's gamma table |
 | The printer | `menu/photo_natives.cpp` | as the original with no printer: its driver loads, no printer opens, `scanPrinter` answers `no_printer` (0x1CA878) and the print page says "Printer not connected." |
 | The USB memory | `menu/photo_natives.cpp` | the data folder's `photos/` stands for it: `img0001.jpg` on, the photo's JPEG (the program's `/GT4/img%04d.jpg`) |
-| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎; the B-spec panel's refusal not done |
+| The photo pause (its cameras, pad, steps, movie, finder, photo) | `race/photo_pause.*`, `app/race_photo.*` | Gran Turismo 4's; the random cameras' numbers ours 🔎 |
 | Films: their data, saving, developing | `photo/film.*`, `save/photo_file.*`, `app/race_photo.*`, `screen_race.cpp` (sequence `photo_develop`) | Gran Turismo 4's chunks and card files, byte for byte on the original's film; a car's parameters from our drawn state (the ones the drawing does not use written as 0 🔎); the frames' drivers, skid marks, gadgets and particles not written (DRVR, SMOK's marks, GDGT, PTCL: read and kept, not drawn) |
 
 ## The sequence
@@ -168,11 +168,12 @@ race screen's `open_photo` / `update_photo`.
 - **The pause** (`PhotoPause`, vtable 0x681B98; made at 0x3C3C20): its photo 640 x 480 tiles, 2 x 2, 4:3, 32 pictures
   (0x333560); the movie `menu/common/racephoto.strb` (0x3C4640), played without the pad (0x3C46C8: player +0x10 = 0), a
   twelfth of a second a step (0x475488 with 0.0833). Each step (vf4, 0x3C4A48): the first refuses, and the
-  pause ends at once (vf4 answers 3), with the sound `disable` while the race's B-spec panel (race +0xE424) has its +0x28 at 1
-  (❓ which state of the panel that is), or with the race's text `CantCaptureWhenPitSequence` ("You cannot take pictures when
+  pause ends at once (vf4 answers 3), with the sound `disable` while the race's B-spec panel (race +0xE424) has its +0x28 at 1:
+  the Race Monitor up (the panel's states 0, 1, 2 at +0x28, the one asked at +0x2C taken when its fade has gone out, 0x3DA380; 1 the
+  monitor's, opened by 0x3D91C0; reset to 2, 0x3D8518; ✔ here in the photo drive's B-spec run: Select over the monitor, nothing), or with the race's text `CantCaptureWhenPitSequence` ("You cannot take pictures when
   pitting in.") for 3 s on the event line (race +0xE420's vf19 0x3A2198 through 0x38BC98) while the followed car is in a pit
   visit (0x35BBD8 not 0; the program's override 0x6201A8 is 0 and nothing sets it); here the pit's (the step shown's pit stage,
-  kept beside a replay's states), not the panel's; else the camera manager's slot 0 becomes kind 7
+  kept beside a replay's states) and the monitor's; else the camera manager's slot 0 becomes kind 7
   (0x372110) and the race's picture is the pause's (+0xD84 / +0xD8C, 0x3C48D8 / 0x3C4900). Select (0x80 of 0x426A08) leaves
   after two more steps (camera kind 9 again, 0x3C49C8). Triangle (0x20 of 0x426A90) steps the color filter +0x1A8 through 0
   none, 1 Mature (saturation x 0.6), 2 black and white (0x3C58C0). The held shoulder button (0x426A88) is the movie's

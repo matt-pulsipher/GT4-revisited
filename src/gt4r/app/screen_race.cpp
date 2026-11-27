@@ -4190,8 +4190,14 @@ private:
     }
     bool photo_pause_here() const { return (sequence_ == "replay" || sequence_ == "photo_drive" || setup_.photo_pause) && !online_ && !prologue_hud_; }
     void open_photo(App& app) {
-        // The pause's first step (PhotoPause::vf4 0x3C4A48): with the followed car in a pit visit (0x35BBD8; the program's
-        // override 0x6201A8 is 0 and never set) the race's text CantCaptureWhenPitSequence for 3 s, and no pause.
+        // The pause's first step (PhotoPause::vf4 0x3C4A48) refuses, and the pause ends at once: while the race's B-spec panel
+        // (race +0xE424) shows the Race Monitor (its state +0x28 at 1, 0x3D8AB0: the state its fade switched to, 0x3DA380; the
+        // monitor's opening 0x3D91C0) with the sound `disable`; with the followed car in a pit visit (0x35BBD8; the program's
+        // override 0x6201A8 is 0 and never set) with the race's text CantCaptureWhenPitSequence for 3 s.
+        if (race_->watched() && monitor_) {
+            if (audio::AppSound* sound = app.sound()) sound->menu().play("disable");
+            return;
+        }
         if (race_->shown_pit_stage() != 0) {
             if (hud_ && hud_->ready()) race_->post_notice(hud_->word("CantCaptureWhenPitSequence"));
             return;
