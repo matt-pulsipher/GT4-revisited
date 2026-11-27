@@ -1066,7 +1066,7 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   of the race, car +0x7B0, which Japan's cars do not keep). `ScreenRace::aspec_taken`.
 - ✔ **A license test's section times** (its conductor's virtual 19 0x3EF090 and 21 0x3EF268, with 0x3EF010; v1.01 0x3F63A0,
   0x3F6588, 0x3F6320): shown only while the test's laps (at least 1) x its sectors (the conductor's virtual 42: the road's
-  split points + 1) are at most **4** (v1.01 16); of the 76 timed tests S-15 (7 sectors), S-16 and IA-15 (12) show none. The
+  split points + 1) are at most **4** (v1.01 16): of the 76 timed tests, S-15 (7 sectors), S-16 and IA-15 (12) show none, nor any of 2 laps or more with 3 sectors or more. The
   difference to the best run's section (0x358C70 = v1.01 0x35E6B0, the time difference event against the race's +0x928) only
   when K +0xF858 is 0 (v1.01: or a test of kind 6), and the same for the end's (0x3F1738, v1.01 0x3F8AB0): ours shows no such
   difference in either 🔎. `ScreenRace::step_splits`. Judged from the code; not looked at in a picture.
