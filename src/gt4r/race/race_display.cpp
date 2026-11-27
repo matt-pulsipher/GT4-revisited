@@ -2,6 +2,7 @@
 
 #include "gt4r/sim/program_tables.h"
 
+#include "base/ee_float.h"
 #include "formats/gs_memory.h"
 
 #include <algorithm>
@@ -123,6 +124,81 @@ float place_x(const DisplayPlace& p, bool wide) {
     }
     return x;
 }
+
+
+namespace {
+
+namespace ee = gt3r::ee;
+// VU0's products and sums: each rounded toward zero.
+u32 vu_mul(u32 a, u32 b) { return ee::from_double(ee::to_double(a) * ee::to_double(b), ee::Round::Chop); }
+u32 vu_add(u32 a, u32 b) { return ee::add(a, b, ee::Round::Chop); }
+float host(u32 b) { return ee::to_host(b); }
+// The canvas' edges as the program passes them: 0, 640, and with the wide flag -106.66666 (0xC2D55554) and 746.66666
+// (0x443AAAAA); other sides of ours as they are.
+constexpr u32 kWideLeft = 0xC2D55554u, kWideRight = 0x443AAAAAu;
+bool is_wide(float side) { return std::fabs(side - 320.0f / 3) < 0.01f; }
+float side_left(float side) { return side <= 0.001f ? 0.0f : is_wide(side) ? host(kWideLeft) : -side; }
+float side_right(float side) { return side <= 0.001f ? 640.0f : is_wide(side) ? host(kWideRight) : 640 + side; }
+
+} // namespace
+
+DisplayFrame single_frame(float side) {
+    DisplayFrame f;
+    f.left = side_left(side), f.right = side_right(side);
+    return f;
+}
+
+DisplayFrame stacked_frame(int half, float side) {
+    DisplayFrame f;
+    f.left = side_left(side), f.right = side_right(side);
+    f.top = half == 0 ? -10.0f : 0.0f, f.bottom = f.top + 240, f.height = 224;
+    return f;
+}
+
+DisplayFrame side_by_side_frame(float side) {
+    DisplayFrame f;
+    f.left = side_left(side), f.right = 320, f.width = 320;
+    return f;
+}
+
+FramePlace frame_place(const DisplayFrame& f, float x, float y) {
+    // The projection (0x39BB38, on the FPU): 2 / (r - l), 2 / (t - b), (l + r) / (l - r), (b + t) / (b - t); moved up by the
+    // shift (0x4A7844 on VU0: the row's y times -shift, plus the row's translation).
+    const u32 l = ee::from_host(f.left), r = ee::from_host(f.right), b = ee::from_host(f.bottom), t = ee::from_host(f.top);
+    const u32 two = ee::from_host(2.0f);
+    const u32 m00 = ee::div(two, ee::sub(r, l)), m11 = ee::div(two, ee::sub(t, b));
+    const u32 m30 = ee::div(ee::add(l, r), ee::sub(l, r));
+    u32 m31 = ee::div(ee::add(b, t), ee::sub(b, t));
+    if (f.shift_y != 0) m31 = vu_add(vu_mul(m11, ee::from_host(-f.shift_y)), m31);
+    // The place through it on VU0 (0x44DCC0: w stays 1, so the divide by w and the clamp leave it), then to pixels on the FPU.
+    const u32 nx = vu_add(vu_mul(ee::from_host(x), m00), m30), ny = vu_add(vu_mul(ee::from_host(y), m11), m31);
+    const u32 one = ee::from_host(1.0f), half = ee::from_host(0.5f);
+    FramePlace p;
+    p.x = host(ee::mul(ee::mul(ee::add(nx, one), ee::from_int(f.width)), half));
+    p.y = host(ee::mul(ee::mul(ee::sub(one, ny), ee::from_int(f.height)), half));
+    return p;
+}
+
+TextStart text_start(const DisplayFrame& f, float x, float y, int flags, float width, int ascent, int line_height, float scale_y) {
+    const FramePlace p = frame_place(f, x, y);
+    const int ix = int(std::trunc(p.x)), iy = int(std::trunc(p.y));
+    TextStart s;
+    const u32 w = ee::from_host(width);
+    switch (flags & 3) {
+    case 2: s.x = host(ee::sub(ee::from_int(ix), w)); break; // (the box 0 .. ix, the line at its right)
+    case 3: s.x = host(ee::add(ee::from_int(ix - 320), ee::mul(ee::sub(ee::from_int(640), w), ee::from_host(0.5f)))); break; // (ix - 320 .. ix + 320, centered)
+    case 1: s.x = 0; break;
+    default: s.x = float(ix); break;
+    }
+    s.top = iy;
+    const u32 sy = ee::from_host(scale_y);
+    if ((flags & 12) == 0) s.top -= ee::to_int(ee::mul(ee::from_int(ascent), sy));
+    else if ((flags & 12) == 12) s.top -= ee::to_int(ee::mul(ee::from_int(line_height >> 1), sy));
+    return s;
+}
+
+float frame_to_canvas_x(const DisplayFrame& f, float px) { return f.left + px * (f.right - f.left) / float(f.width); }
+float frame_to_canvas_y(const DisplayFrame& f, float py) { return f.top + py * (f.bottom - f.top) / float(f.height); }
 
 DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide) {
     if (p.w > 0) w = float(p.w);

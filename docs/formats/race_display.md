@@ -174,22 +174,54 @@ plain draw uses 0):
 - bits 2-3: 0 the pen is on the baseline; 4 the pen is the top of the line; 12 the pen is the
   middle of the line (top = y - line height / 2).
 
-So 2 = right-aligned on the baseline, 15 = centered both ways. The pen's place: an element hands its place (x, y, z) to
-0x44DCC0 (through 0x44DD98 / 0x44DDF8 / 0x44DE40), which puts it through VU0's matrix vf24 .. vf27 (the display's: x / 320,
--y / 240, -z and the element's own translation, e.g. (-0.64375, 0.225) for a display at (114, 186); the matrix ops each
-chopped) and divides by w, then on the FPU x = (ndc x + 1) x W x 0.5 and y = (1 - ndc y) x H x 0.5 (W, H the renderer's
-+0x30 / +0x34, ❓ 640 x 448 not read from a state); 0x44E1E0 then takes trunc of it for every alignment: the box [0, trunc x] right-aligned, the pen
-at trunc x left-aligned, trunc x - 320 centered, the line at trunc y. So, as in Prologue (prologue.md part 11), a place can
-land a hair under its whole pixel and draw a pixel left or up, but by other arithmetic (no fixed point with 4 fraction
-bits). The matrix is the renderer's current one: 0x44DCC0 starts with 0x49E3E0, which (through 0x49E480 when the state
-changed) leaves modelview x projection in VU0's vf24 .. vf27 and the state's +0xFA0 .. +0xFD0 in vf20 .. vf23 (vf22 the
-clamp of the `vmini`); so a display's translation is the 2D modelview its draw sets before its elements, and the
-elements' places (RaceTimeDisplay::vf5: the element's +4 / +6 through 0x3AFD18's side push) are taken from it. With the
-translation -1 (no display offset) 374 of the 641 places 0 .. 640 come out a hair under their whole pixel and land one to
-the left (`~/gt4re-out/daylight/tools/gt4proj.py`). 🔎 Ours draws GT4's elements at their layout places as they are: the
-per-display translations are not read (they are set in each display's draw, and a saved state holds only the last).
-Text colors are the GS colors
-above, used as the shared engine's race display uses them: the RGB as it is, alpha 0x80
+So 2 = right-aligned on the baseline, 15 = centered both ways.
+
+### Where a text lands
+
+Code: `race::frame_place`, `race::text_start` (race_display.h), race_hud's `draw_text`; tests `gt4_display_*`,
+`disc_gt4_display_texts_land_as_the_original`.
+
+- **The projection.** The display's draw (RaceDisplay::vf3 0x39F498) loads its projection from the display + 0x70 (made by
+  0x39BB38, an orthographic one on the FPU: 2 / (r - l), 2 / (t - b), (l + r) / (l - r), (b + t) / (b - t), from RaceDisplay::vf9
+  0x39BA08: (0, 640, 480, 0), with the wide flag (-106.66666, 746.66666, 480, 0)) and sets the modelview to identity
+  (0x4A7454). No element moves the modelview for its text: the matrix ops of the race display's draws (0x4A7844 translate,
+  0x4A7890 scale, 0x4A53F8 / 0x4A5400 push / pop) are the course map's, the round meters' needles and faces and the steering
+  picture's, none around a text. The one exception is the projection itself moved up by the display + 0x6C (0x39F698, around
+  the panel, its steering picture, the status message and 0x39D500, 0x39FFF8): 240 for a stacked two-player half
+  (RaceDisplay::vf34 0x3A23D0), else 0. ✔ VU0's vf24 .. vf27 in a saved state of the original's Tsukuba race (03-race, the
+  first corner): (1/320 = 0x3B4CCCCD, 0, 0, 0), (0, -1/240 = 0xBB888889, 0, 0), (0, 0, -1, 0), (-1, 1, 0, 1), and vf28 .. vf31
+  (the modelview) identity. A two-player half (RaceSplitDisplayBase::vf9 0x3A29A0): stacked (no wide flag) (0, 640, 230, -10)
+  for the upper half and (0, 640, 240, 0) for the lower, the frame 640 x 224; side by side (the wide flag) (-106.66666, 320,
+  480, 0), the frame 320 x 448 (the renderer's +0x30 / +0x34; the one-view display's 640 x 448, the display + 0xB0 / + 0xB4).
+  A license test's display (RaceLicenseDisplay::vf9 0x3BD150) calls RaceDisplay::vf9 first and keeps its vf3; a replay's is
+  RaceDisplay itself: the same projection. Prologue's display: prologue.md part 11 (another routine, 0x40C0D8).
+- **The place** (0x44DCC0, through 0x44DDF8 for floats, 0x44DD98 for whole numbers): 0x49E3E0 leaves modelview x projection
+  in VU0's vf24 .. vf27 (0x49E480, microcode 0x858, when the state changed); the place (x, y, z, 1) goes through it on VU0
+  (each product and sum rounded toward zero; w stays 1, the clamp by vf22 does nothing), then on the FPU x = (ndc x + 1) x W x
+  0.5, y = (1 - ndc y) x H x 0.5 (the EE's rounding). 1/320 is a hair over, so a whole place often comes out a hair under its
+  pixel: 507 -> 506.99997, 581 -> 580.99994, 55 and 550 stay (473 of the places 0 .. 640 land under with the EE's
+  multiplier on the FPU steps).
+- **The line** (0x44E1E0): the place's whole pixel ix and line iy (truncated). By the pen flags: 0 the box [ix, 640] and the
+  line from ix; 2 the box [0, ix] and the line ending at ix; 3 the box [ix - 320, ix + 320] and the line centered in it,
+  (640 - w) x 0.5 in from its left (0x491220): ix - w / 2, a half pixel when w is odd. The line's top: iy less trunc(ascent x
+  scale y) on the baseline (0), iy at the top (4), iy less trunc((line height >> 1) x scale y) at the middle (12); 8 the
+  box's bottom (not used by the race display). w is the line's pen, its whole (0x490A98, 0x491220: the pen after the last
+  glyph's advance, nothing taken off).
+- **Two ways of aligning.** The formatted draw (0x44E088, 0x44E120, 0x44E188: the renderer's flags + 4) aligns by the flags
+  about the place's pixel: the place digit (RaceRankDisplay, 15), the speed (RaceDigitalSpeedmeter::vf5: 2, at the anchor's
+  left for "000" plus that width), the gears (RaceShiftPositionDisplay / RaceSuggestedGearDisplay, 15), the messages
+  (RaceMessageDisplay, the element's flags), the refuel figures. The plain draw (0x44E030: flags 0) draws from the place:
+  the times (RaceTimeDisplay::vf5) and the lap count (RaceRichCountDisplay) put their left edge from the anchor by the line's
+  width themselves (0x3AFD18: x, x - w, x - w / 2, the wide side's 96) and that left edge goes through the projection, so the
+  time centered on 335, 87 wide, starts at trunc(291.5) = 291 and the best lap's dashes on 550, 86 wide, at 506.
+- **The glyphs** are laid out by the text renderer's own rule (0x492978 a character: the menus' layout, `menu/text_layout.*`),
+  in frame pixels across (times the renderer's x scale: 0.75 with the wide flag, a canvas unit) and frame lines down.
+- ✔ Every glyph of the original's race display in a GS dump of that race (the lap time "0'30.900", both rows of dashes, the
+  lap count "1/2" at 80 %, the place digit, the speed "  3", the gear "R" and the suggested gear): ours lands on the same
+  pixel and line (the GS's 16ths of the 80 % font aside). Ours on a picture of another shape: the canvas' sides as they are
+  (-side .. 640 + side) over the 640 frame pixels.
+
+Text colors are the GS colors above, used as the shared engine's race display uses them: the RGB as it is, alpha 0x80
 opaque. Setting a color also sets the outlined fonts' outline: black, with alpha
 (A / 128 - 0.25) x 4/3 kept in 0 .. 1.
 

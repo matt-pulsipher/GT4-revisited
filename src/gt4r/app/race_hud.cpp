@@ -104,6 +104,16 @@ Rgba8 text_color(u32 c, float opacity) {
 
 // Pen flags of the game's text draw.
 constexpr int kEndsAtPen = 2, kCentered = 3, kMiddleOfLine = 12;
+// The element aligns the line itself and draws it from its left edge (race_hud's draw_text).
+constexpr int kPlain = 0x100;
+
+// The frame the display's texts are placed on now (its projection): a half's while it is drawn, else the one-view display's.
+std::optional<race::DisplayFrame> text_frame;
+struct TextFrameScope {
+    explicit TextFrameScope(const race::DisplayFrame& f) : was(text_frame) { text_frame = f; }
+    ~TextFrameScope() { text_frame = was; }
+    std::optional<race::DisplayFrame> was;
+};
 
 } // namespace
 
@@ -210,43 +220,53 @@ struct RaceHud::Impl {
         f.variant = variant;
         return f;
     }
-    float text_width(const FontSpec& f, const std::string& s) {
-        if (!f.font) return 0;
-        gt3r::text::LayoutOptions opt;
-        opt.scale_x = f.sx, opt.scale_y = f.sy;
-        std::u32string codes;
-        for (char32_t c : gt3r::text::utf8_decode(s)) codes += c;
-        return gt3r::text::layout_text(gt3r::text::map_unicode(codes, *f.font, nullptr, nullptr), *f.font, nullptr, 0, 0, opt).width;
+    // A line of the display's text as Gran Turismo 4's text renderer lays it out (0x492978 a character, the pen's whole as its
+    // width: 0x490A98, 0x491220), at the origin, its line's top at 0: x in canvas units, y in frame lines.
+    menu::TextLayout layout_line(const FontSpec& f, const std::string& s, float squeeze = 1) const {
+        menu::TextStyle st;
+        st.font = f.font;
+        if (const auto it = spacing.find(f.font->name); it != spacing.end()) st.spacing = it->second;
+        st.scale_x = f.sx * squeeze, st.scale_y = f.sy;
+        st.one_line = true;
+        st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+        return menu::layout_menu_text(s, st, 0, 0);
     }
-    // Text at a pen of the canvas. `flags`: bits 0-1: 0 it starts at the pen, 2 it ends there, 3 it
-    // is centered on it; bits 2-3: 0 the pen is on the baseline, 12 at the middle of the line.
-    // `squeeze`: an x factor on top of the font's. Returns the text's left edge.
+    float text_width(const FontSpec& f, const std::string& s) const { return f.font ? layout_line(f, s).width : 0; }
+    // Text at a pen of the canvas, placed as the program places it (docs/formats/race_display.md "Where a text lands"): the
+    // place goes through the display's projection onto the frame (race::text_start, 0x44DCC0 -> 0x44E1E0), the line starts at
+    // the place's whole pixel and line, and its glyphs are in frame pixels. `flags`: bits 0-1: 0 it starts at the pen, 2 it ends
+    // there, 3 it is centered on it; bits 2-3: 0 the pen is on the baseline, 12 at the middle of the line, 4 the line's top.
+    // kPlain: the element puts the line's left edge from the pen by its width itself (0x3AFD18) and draws it from there
+    // (0x44E030: the left edge through the projection); otherwise the text renderer aligns it about the pen's pixel (0x44E088).
+    // `squeeze`: an x factor on top of the font's. Returns the text's left edge (the element's own, before the projection, for
+    // kPlain).
     float draw_text(const FontSpec& f, float x, float y, int flags, u32 color, float opacity, const std::string& s, float squeeze = 1) {
         if (!f.font || s.empty() || opacity <= 0) return x;
-        gt3r::text::LayoutOptions opt;
-        opt.scale_x = f.sx * squeeze, opt.scale_y = f.sy;
-        opt.align = (flags & 3) == kEndsAtPen ? gt3r::text::HAlign::Right : (flags & 3) == kCentered ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Left;
-        opt.valign = gt3r::text::VAlign::Baseline;
-        if ((flags & 12) == kMiddleOfLine) {
-            // The line's top is half a line height above the pen.
-            y = y - float(f.font->line_height) * f.sy * 0.5f + float(f.font->ascent) * f.sy;
+        const menu::TextLayout lay = layout_line(f, s, squeeze);
+        const race::DisplayFrame fr = text_frame ? *text_frame : race::single_frame(game_area::side());
+        const float across = float(fr.width) / (fr.right - fr.left), down = (fr.bottom - fr.top) / float(fr.height);
+        int pen = flags & 15;
+        float px = x;
+        if (flags & kPlain) {
+            if ((flags & 3) == kEndsAtPen) px = x - lay.width;
+            else if ((flags & 3) == kCentered) px = x - lay.width * 0.5f;
+            pen &= 12;
         }
-        std::u32string codes; // (the game's strings are the font's own codes: 0x7F is its dash)
-        for (char32_t c : gt3r::text::utf8_decode(s)) codes += c;
-        const gt3r::text::TextLayout lay = gt3r::text::layout_text(gt3r::text::map_unicode(codes, *f.font, nullptr, nullptr), *f.font, nullptr, x, y, opt);
-        SDL_Texture*& atlas = atlases[{f.font, f.variant}];
-        if (!atlas) atlas = make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
-        if (!atlas) return x;
+        const race::TextStart at = race::text_start(fr, px, y + fr.shift_y, pen, lay.width * across, f.font->ascent, f.font->line_height, f.sy);
+        const float left = race::frame_to_canvas_x(fr, at.x);
         const Rgba8 c = text_color(color, opacity);
-        SDL_SetTextureColorMod(atlas, c.r, c.g, c.b);
-        SDL_SetTextureAlphaMod(atlas, c.a);
-        for (const gt3r::text::GlyphQuad& q : lay.quads) {
-            if (q.kanji || !q.sw || !q.sh) continue;
-            const SDL_FRect src{float(q.sx), float(q.sy), float(q.sw), float(q.sh)};
-            const SDL_FRect dst = to_ui({q.x, q.y, q.w, q.h});
+        for (const menu::PlacedGlyph& g : lay.glyphs) {
+            if (!g.font || !g.sw || !g.sh) continue;
+            SDL_Texture*& atlas = atlases[{g.font, f.variant}];
+            if (!atlas) atlas = make_texture(g.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
+            if (!atlas) continue;
+            SDL_SetTextureColorMod(atlas, c.r, c.g, c.b);
+            SDL_SetTextureAlphaMod(atlas, c.a);
+            const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+            const SDL_FRect dst = to_ui({left + g.x, race::frame_to_canvas_y(fr, float(at.top) + g.y), g.w, g.h * down});
             SDL_RenderTexture(r, atlas, &src, &dst);
         }
-        return lay.x;
+        return (flags & kPlain) ? px : left;
     }
 
     // Untextured triangles on the canvas (the needles, the red zone): colors as they are.
@@ -684,7 +704,7 @@ void RaceHud::Impl::draw_targets(const HudState& s) {
         const float y = 100.0f + 28.0f * float(k);
         const Picture& mark = picture(kMarks[k]);
         draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
-        draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
+        draw_text(times, 608, y + 8, kEndsAtPen | kPlain, kTextGray, o, race::format_lap_time(s.targets[k]));
     }
 }
 
@@ -723,7 +743,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         // (a half's ends at its place; on a picture wider than the halves' own 4:3 it keeps its side of the screen)
         DisplayPlace q = *p;
         if (s.split == 1) q.anchor_x |= 12;
-        const float left = draw_text(times, race::place_x(q, true), float(p->y), (q.anchor_x & 3) == 1 ? kEndsAtPen : kCentered, kTextGray, o, race::format_lap_time(s.lap_ms));
+        const float left = draw_text(times, race::place_x(q, true), float(p->y), ((q.anchor_x & 3) == 1 ? kEndsAtPen : kCentered) | kPlain, kTextGray, o, race::format_lap_time(s.lap_ms));
         // The stopwatch ends 8 units left of the text and 7 below its baseline.
         const Picture& watch = picture("GT4_meter_texture_laptime");
         draw_picture(watch, {left - 8 - watch.w, float(p->y) + 7 - watch.h, watch.w, watch.h}, kNeutral, o);
@@ -731,15 +751,15 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     const bool with_total = cur == &total; // (0x3A2480: "Total Time" over the race's time, "Best Lap" over the best lap)
     if (const DisplayPlace* p = cur->find(element::kBestWord); p && s.show_time) draw_at(s.bspec || with_total ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
     if (const DisplayPlace* p = cur->find(element::kTotalTime); p && s.show_time)
-        draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_total_time(s.total_ms));
+        draw_text(times, race::place_x(*p, true), float(p->y), kCentered | kPlain, kTextGray, o, race::format_total_time(s.total_ms));
     if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
-        draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
+        draw_text(times, race::place_x(*p, true), float(p->y), kCentered | kPlain, kTextGray, o, race::format_lap_time(s.best_ms));
     if (s.license && s.show_time) {
         draw_targets(s);
     } else {
         if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at(with_total ? "JP/best_time" : "JP/last_time", *p, kNeutral, o);
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
-            draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
+            draw_text(times, race::place_x(*p, true), float(p->y), kCentered | kPlain, kTextGray, o, race::format_lap_time(s.last_ms));
     }
     {
         const EdgeScope middle(0); // (the lines in the middle stay there)
@@ -761,6 +781,12 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     // at (320, 430); `hn_20R`.
     std::optional<EdgeScope> bottom; // (the upper half's line stays by the middle)
     if (!(s.split == 1 && s.half == 0)) bottom.emplace(1);
+    std::optional<TextFrameScope> shifted; // (a stacked half's: drawn with the panel, 0x39FFF8)
+    if (s.split == 1 && text_frame) {
+        race::DisplayFrame f = *text_frame;
+        f.shift_y = 240;
+        shifted.emplace(f);
+    }
     if (!s.status.empty() && s.status_opacity > 0)
         draw_text(font("hn_20R"), s.split == 2 ? 203.0f - race::anchor_push(game_area::side()) : 320.0f, s.split == 1 ? 430.0f - 240 : s.split == 2 ? 380.0f : s.driver_view ? 348.0f : 430.0f, kCentered, s.status_red ? 0x800000C8u : kTextGray, o * s.status_opacity, s.status);
 }
@@ -895,6 +921,13 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const int R = form.R, B = form.B;
     const u8 right = form.right();
     const float o = s.opacity;
+    // (a stacked half's panel: the projection moved 240 up, 0x39F698; its places here already 240 higher)
+    std::optional<TextFrameScope> shifted;
+    if (s.split == 1 && text_frame) {
+        race::DisplayFrame f = *text_frame;
+        f.shift_y = 240;
+        shifted.emplace(f);
+    }
     std::optional<GroupScale> group(std::in_place, lower_shrink[1]);
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B - 44, 82, 26, right, 0}, kNeutral, o);
     // The digits end where the widest number would.
@@ -1158,6 +1191,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).
         if (!split_ready() || (s.replay && !s.replay_display)) return;
         const OriginScope scope(s.split == 1 ? SDL_FPoint{0, s.half == 0 ? 10.0f : 240.0f} : SDL_FPoint{s.half == 0 ? 0.0f : 320.0f + game_area::side(), 0});
+        const TextFrameScope frame(s.split == 1 ? race::stacked_frame(s.half, game_area::side()) : race::side_by_side_frame(game_area::side()));
         // (Side by side wider than 16:9: each half's top parts as at 16:9, at the half's sides and middle, clear of the in-car mirror.)
         struct HalfScope {
             bool on;
