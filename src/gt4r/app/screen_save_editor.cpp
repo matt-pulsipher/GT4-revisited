@@ -224,6 +224,7 @@ private:
 
     enum Hit { kRow = 1, kTab, kBack, kSave, kLess, kMore, kListItem };
     HitList hits_;
+    DragScroll drag_;
     int typed_wait_ = 0;
     CarPictures pictures_;
     ChoicePopup picker_;
@@ -236,8 +237,17 @@ private:
             const gt3r::HitArea* h = hits_.at(a.x, a.y);
             using K = PointerInput::Action::Kind;
             const bool popup = picker_.active || pad_.active || text_.active || confirm_.active;
-            if (a.kind == K::Wheel) {
-                const int steps = int(std::lround(a.wheel)) * 2;
+            if (a.kind == K::Wheel || a.kind == K::Drag || a.kind == K::DragEnd) {
+                // The wheel two rows a step; a drag that started on a list's rows (or the open list's) moves it with the finger.
+                int steps = 0;
+                if (a.kind == K::Wheel) steps = int(std::lround(a.wheel)) * 2;
+                else {
+                    const gt3r::HitArea* from = hits_.at(a.sx, a.sy);
+                    const bool on_rows = from && (picker_.active ? from->id == kPopupItem : !popup && (from->id == kRow || from->id == kLess || from->id == kMore || from->id == kListItem));
+                    steps = drag_.feed(a, on_rows, kRowH);
+                    if (!steps) continue;
+                    if (!picker_.active && !editing()) steps *= 2; // (the card list moves its selection: half a step a row below)
+                }
                 if (picker_.active) picker_.wheel(steps);
                 else if (!popup && editing()) page().top = std::clamp(page().top - steps, 0, std::max(0, int(rows_.size()) - kShown));
                 else if (!popup) list_sel_ = std::clamp(list_sel_ - steps / 2, 0, int(list_.size()) + 1);

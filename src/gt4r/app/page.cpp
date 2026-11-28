@@ -63,13 +63,25 @@ std::vector<RowPointer::Hit> RowPointer::read(App& app) const {
 
 float RowPointer::wheel(App& app, int list) const {
     float turns = 0;
-    for (const Pointer& a : app.pointer())
+    DragScroll* drag = nullptr;
+    for (auto& [l, d] : drags_)
+        if (l == list) drag = &d;
+    if (!drag) drag = &drags_.emplace_back(list, DragScroll{}).second;
+    for (const Pointer& a : app.pointer()) {
+        if (a.kind == Pointer::Kind::Drag || a.kind == Pointer::Kind::DragEnd) {
+            const Area* from = nullptr; // (the rows the drag started on)
+            for (const Area& area : areas_)
+                if (!from && area.list == list && area.count > 1 && area.r.contains(a.sx, a.sy)) from = &area;
+            turns += float(drag->feed(a, from != nullptr, from ? from->r.h / float(from->count) : 0));
+            continue;
+        }
         if (a.kind == Pointer::Kind::Wheel)
             for (const Area& area : areas_)
                 if (area.list == list && area.r.contains(a.x, a.y)) {
                     turns += a.wheel;
                     break;
                 }
+    }
     return turns;
 }
 
@@ -201,6 +213,17 @@ PageRows::Done PageRows::update(App& app) {
             const int most = std::max(0, count - shown_);
             scroll.first = std::clamp(scroll.first - int(std::lround(a.wheel > 0 ? std::max(1.0f, a.wheel) : std::min(-1.0f, a.wheel))), 0, most);
             continue;
+        }
+        if ((a.kind == Pointer::Kind::Drag || a.kind == Pointer::Kind::DragEnd) && dragging_ < 0) {
+            // (a drag that did not start on a slider scrolls the rows)
+            bool slider = false;
+            if (!drag_.active())
+                for (const Place& p : places_)
+                    slider = slider || (rows[size_t(p.row)].slide && p.track.w > 0 && UiRect{p.track.x - 8, p.r.y, p.track.w + 16, p.r.h}.contains(a.sx, a.sy));
+            if (drag_.active() || !slider) {
+                if (const int by = drag_.feed(a, area_, kRow)) scroll.first = std::clamp(scroll.first - by, 0, std::max(0, count - shown_));
+                continue;
+            }
         }
         if (a.kind == Pointer::Kind::DragEnd) dragging_ = -1;
         if (a.kind == Pointer::Kind::Drag) {
