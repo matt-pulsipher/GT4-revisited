@@ -36,7 +36,7 @@ struct CarFeel {
     float impact = 0;          // the step's strongest hit as a change of speed, m/s
     float impulse = 0;         // and as an impulse, N s
     float abs_level = 0;       // the ABS at work, 0 .. 1 (a wheel without it: how far past its best slip it is)
-    float traction = 0;        // the driven wheels at the edge of their grip under throttle, 0 .. 1
+    float traction = 0;        // the driven wheels slipping past their best under throttle, or the TCS cutting, 0 .. 0.6
     float understeer = 0, oversteer = 0; // the aids' indicators (F +0x470 / +0x478), 0 .. 1
 };
 CarFeel car_feel(const sim::Session& session, size_t car);

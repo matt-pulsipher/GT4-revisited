@@ -346,12 +346,13 @@ TEST(input_feel_from_a_drive) {
         if (brake > 0) p.buttons |= gt3r::u16(1u << unsigned(PadButton::Square)), p.pressure[size_t(PadButton::Square)] = u8(brake * 255);
         return p;
     };
-    // Half and full throttle: proportional. A standing start at full throttle works the driven tires.
+    // Half and full throttle: proportional. A standing start at full throttle takes the driven tires a little past their best:
+    // the throttle's buzz faint; at 40 % nothing.
     float half_traction = 0, full_traction = 0;
     const float half = drive(300, [&](int) { return pedals(0.4f, 0, 0); }, [&](int, const CarFeel& f) { half_traction = std::max(half_traction, f.traction); });
     const float full = drive(300, [&](int) { return pedals(1, 0, 0); }, [&](int, const CarFeel& f) { full_traction = std::max(full_traction, f.traction); });
     std::printf("  5 s at 40 %% and full throttle: %.1f and %.1f km/h; the edge of grip %.2f and %.2f\n", double(half) * 3.6, double(full) * 3.6, double(half_traction), double(full_traction));
-    CHECK(half > 5 && full > half * 1.2f && full_traction > 0.3f);
+    CHECK(half > 5 && full > half * 1.2f && half_traction == 0 && full_traction > 0 && full_traction < 0.3f);
     // Braking hard from speed: the ABS. Off the pedals it is still.
     float abs = 0, coast = 0;
     drive(500, [&](int i) { return i < 300 ? pedals(1, 0, 0) : i < 400 ? pedals(0, 1, 0) : pedals(0, 0, 0); },
