@@ -100,8 +100,8 @@ body:
     attributes:
       label: Log
       description: |
-        Settings → Disc & saves → Copy both logs puts the log of this session and the session before on the clipboard: paste them here. Or drag in `gt4r.log` and `gt4r.prev.log` from the data folder (Settings → Disc & saves → Data folder opens it).
-        After a crash, start the game again and copy both: `gt4r.prev.log` is the session that crashed. Look them over before you send them.
+        Drag in `gt4r.log` and `gt4r.prev.log` as files; don't paste them. Settings → Disc & saves → Data folder opens the folder they're in.
+        After a crash, start the game again first: `gt4r.prev.log` is then the session that crashed. Look them over before you attach them.
     validations:
       required: true
 

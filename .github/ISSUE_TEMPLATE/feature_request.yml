@@ -47,7 +47,7 @@ body:
     attributes:
       label: Log
       description: |
-        Settings → Disc & saves → Copy both logs puts the game's logs on the clipboard: paste them here, so we know your version, platform and setup. Look them over before you send them.
+        Drag in `gt4r.log` as a file, so we know your version, platform and setup; don't paste it. Settings → Disc & saves → Data folder opens the folder it's in. Look it over before you attach it.
     validations:
       required: false
 
