@@ -9,7 +9,8 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
 
 1. Start `gt4r`. Without a disc it asks for one: *Choose a disc image* (Enter or Cross) opens a file window for
    your Gran Turismo 4 or Gran Turismo 4 Prologue disc image (`.iso`, or `.chd` made from one), or drop the file
-   on the window. Nothing is copied from the disc; the game's files are read from the image as they are needed.
+   on the window (on Android the system's file picker; on iOS the Files app's picker, the image anywhere it reaches and
+   read where it is). Nothing is copied from the disc; the game's files are read from the image as they are needed.
    The disc images opened before that are still there are offered below it. A file that cannot be played says
    why and what to do: a file that is not there any more (moved, renamed, a drive not connected), a file that
    is not a disc image, another game's disc (a Gran Turismo 3 A-Spec or Gran Turismo Concept image says so), an
@@ -19,7 +20,8 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    saved); then the Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
 3. Your saved games, options and replays are kept in the app's data folder (on macOS
-   `~/Library/Application Support/GT4Revisited/GT4Revisited/`; a `portable.ini` beside the program
+   `~/Library/Application Support/GT4Revisited/GT4Revisited/`; on iOS the app's Documents, in the Files app On My
+   iPhone › GT4 Revisited; a `portable.ini` beside the program
    keeps them beside it: on macOS in the folder that holds `gt4r.app`, not inside the app, which would break its
    signature; `GT4R_DATA_DIR` names another folder). The game saves itself after every race and purchase (Options,
    Miscellaneous, Autosave) and the next launch goes on with it.
@@ -598,6 +600,14 @@ GT4R_DATA_DIR=<a scratch folder> GT4R_RACE="course=nurburgring,car=ford_gt_05,ca
   list in 3.8 s on a first start and in 0.3 s with the cache (several times longer while the system's file picker is in front:
   a background app's threads run on the slow cores).
   Meta Quest: the `-Pquest` app, as an immersive OpenXR app ([VR.md](VR.md)).
+- iOS ([BUILDING.md](BUILDING.md#ios)): the app's bundle (`packaging/Info-iOS.plist.in`, `org.gt4revisited.gt4r`, the icon's
+  asset catalog in `cmake/Packaging.cmake`) is ours; the Files app's pickers for the disc image, mods, memory card images and
+  folders, their lasting access (bookmarks, and a moved install's folder) and the music folder's picker are the shared
+  engine's (`platform/ios_files.*`, `music_folder.*`), called from ours (`App::show_open_dialog`, `FileWindow`,
+  `App::init`). Ours: the data folder in Documents (`user_data_dir`), a file to write going into `exports/`, no Quit (the
+  home screen, the disc-choice page), the game's keyboards without the system's screen keyboard unless a keyboard is
+  connected (`screen_menu_viewer.cpp` `typing_frame`), and GT4R menu beside the title and the map clear of the camera
+  housing (`menu_button_rect`, from the window's safe area). The touch controls are the shared engine's as on Android.
 - VR headsets ([VR.md](VR.md)): the OpenXR session, its canvas and eyes, the controllers' virtual pad and pointer are the shared
   engine's (`src/xr`); the frame loop's use of them is ours (`app_xr.cpp`), and so is the race in stereo (`race_vr.cpp`,
   `RaceWorld::render_eyes`): GT4's own draw, from the head's place, per eye. Not on a headset yet.

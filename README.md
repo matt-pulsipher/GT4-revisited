@@ -65,6 +65,12 @@ needs one extra step:
 - **PC VR** (Windows x64, a headset through Quest Link, SteamVR or another OpenXR runtime): `gt4r-windows-x64-vr.zip`.
   Unzip it and run `gt4r.exe` with the headset's software running; without a headset it opens its window as the
   Windows package does.
+- **iPhone and iPad** (iOS 16 or later): there is no package, because an iOS app has to be signed for the device it
+  runs on. Build it on a Mac and install it with Xcode and your own Apple ID; a free account is enough
+  ([docs/BUILDING.md](docs/BUILDING.md#ios)). With a free account the installed app stops opening after 7 days:
+  installing it again renews it, and your saves and settings stay. Tap **Choose a disc image** and pick the image in
+  the Files app's picker: it can be anywhere the Files app reaches (On My iPhone, iCloud Drive, a USB drive, another
+  app's folder) and is read where it is, never copied; it is remembered.
 
 On a computer, the first start asks for your disc image: press Enter (or Cross) and choose your
 Gran Turismo 4 image (`.iso` or `.chd`, made from your own disc), or drop the file on the window.
@@ -96,7 +102,8 @@ Needs CMake 3.21+, a C++20 compiler and SDL 3.4+ (found on the system, else buil
 source). The shared engine is the `engine/gt3r` submodule; run
 `git submodule update --init` if it is empty. Linux (on the machine or in Docker) and the other
 platforms: [docs/BUILDING.md](docs/BUILDING.md). Android phones and tablets:
-[android/README.md](android/README.md) (an APK built with Gradle).
+[android/README.md](android/README.md) (an APK built with Gradle). iPhone and iPad (on a Mac with Xcode, signed with
+your own Apple ID): [docs/BUILDING.md](docs/BUILDING.md#ios).
 
 VR headsets (the Meta Quest APK, a desktop build with OpenXR): [docs/VR.md](docs/VR.md).
 
