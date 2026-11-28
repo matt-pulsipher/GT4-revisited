@@ -72,7 +72,7 @@ resolution) show "The headset's".
 ## Building
 
 Quest: `android/fetch-sdl.sh --xr`, then `./gradlew assembleDebug -Pquest` in `android/` (app-quest-debug.apk; the same
-application id as the phone app, `org.gt4revisited.gt4r`).
+application id as the phone app: `org.gt4revisited.gt4r`, and a debug build's `org.gt4revisited.gt4r.debug`).
 
 Desktop: `cmake -S . -B build-xr -DGT3R_XR=ON` (SDL's development branch at the engine's pinned commit; a local copy with
 `-DFETCHCONTENT_SOURCE_DIR_SDL3=<path>`). Windows also gets the Khronos OpenXR loader next to `gt4r.exe`, and the package

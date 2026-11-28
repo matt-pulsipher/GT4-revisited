@@ -4,6 +4,7 @@
 // keyboard and the mouse change, lists the mouse scrolls and chooses in, and the system's file windows.
 
 #include "app/ui.h"
+#include "gt4r/app/drag_scroll.h"
 
 #include <SDL3/SDL_dialog.h>
 
@@ -44,7 +45,7 @@ public:
     void place(int list, int row, const gt3r::UiRect& r);
     // What the mouse did this frame, in order.
     std::vector<Hit> read(App& app) const;
-    // The wheel's turns over a list (0 when the mouse is not on it).
+    // The wheel's turns over a list (0 when the mouse is not on it), with the rows a drag started on it moved the list.
     float wheel(App& app, int list) const;
     // For a list that keeps its selection in the middle: a click selects a row (true: the row that was selected already, to open
     // it), the wheel moves the selection among `count`. The row the mouse is on, -1: none.
@@ -57,6 +58,7 @@ private:
         int list, first, count; // (count rows of r.h / count)
     };
     std::vector<Area> areas_;
+    mutable std::vector<std::pair<int, DragScroll>> drags_; // (a list's)
 };
 
 struct PageRow {
@@ -107,7 +109,8 @@ private:
     };
     std::vector<Place> places_;
     gt3r::UiRect area_{};
-    int shown_ = 1, dragging_ = -1;
+    int shown_ = 1, dragging_ = -1; // dragging_: the slider a drag moves
+    DragScroll drag_;               // a drag on the rows elsewhere
 };
 
 // A question over a page: two answers, the mouse, the pad and the keyboard.

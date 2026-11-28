@@ -1,0 +1,4 @@
+<resources>
+    <!-- A debug build's name in the launcher and the Files app: it sits beside the release copy -->
+    <string name="app_name">GT4R Debug</string>
+</resources>
