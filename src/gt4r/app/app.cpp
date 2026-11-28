@@ -219,6 +219,7 @@ bool App::init(int argc, char** argv) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+    if (const char* driver = SDL_GetCurrentAudioDriver()) LOG_INFO("Sound: SDL's %s driver", driver); // ("dummy": none)
     scripted_ = run_.scripted;
     if (scripted_) SDL_SetEventFilter([](void*, SDL_Event* e) { return !settings::is_real_input(e->type); }, nullptr);
     data_dir_ = user_data_dir();
