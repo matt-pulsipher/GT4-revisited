@@ -36,12 +36,12 @@ int cmd_modcar(Disc& disc, const std::vector<std::string>& args) {
     // The car files: <folder>/cars/*.ini, else <folder>/<mod>/cars/*.ini.
     std::string list;
     std::string root = args[0];
-    while (root.size() > 1 && root.back() == '/') root.pop_back();
+    while (root.size() > 1 && (root.back() == '/' || root.back() == '\\')) root.pop_back();
     auto add_mod = [&](const std::string& dir, const std::string& id) {
         for (const std::string& f : gt3r::list_host_dir(dir + "/cars"))
             if (f.size() > 4 && f.compare(f.size() - 4, 4, ".ini") == 0) list += id + "\t" + dir + "/cars/" + f + "\n";
     };
-    add_mod(root, root.substr(root.find_last_of('/') + 1));
+    add_mod(root, root.substr(root.find_last_of("/\\") + 1));
     if (list.empty())
         for (const std::string& m : gt3r::list_host_dir(root)) add_mod(root + "/" + m, m);
     gt3r::Volume* vol = &disc.volume();

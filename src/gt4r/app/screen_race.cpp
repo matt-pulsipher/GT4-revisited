@@ -625,7 +625,7 @@ bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file
     if (!file || !sdb || !disc) return false;
     const sim::Program program = sim::Program::load(*disc);
     std::string error;
-    const std::string name = setup.replay_file.substr(setup.replay_file.rfind('/') + 1);
+    const std::string name = setup.replay_file.substr(setup.replay_file.find_last_of("/\\") + 1);
     std::optional<sim::ai::DemoRun> run = sdb->prologue() ? prologue_recorded_race(app, *file, program, name, &error) : sim::ai::DemoRun::load_replay(*file, program, name, &error);
     if (!run || run->demo.entries.empty()) throw FormatError(setup.replay_file + ": " + (error.empty() ? "no entries" : error));
     auto label = [&](const char* table, u64 code) {
@@ -5232,7 +5232,7 @@ private:
         }
         if (!sound || !app_sound) return;
         const std::string& file = sound->report().music;
-        const std::string base = file.substr(file.find_last_of('/') + 1);
+        const std::string base = file.substr(file.find_last_of("/\\") + 1);
         for (const auto& group : app_sound->library().streams().groups)
             for (const sound::MusicRecord& r : group)
                 if (!base.empty() && (r.file == base || r.file + ".ads" == base || base.rfind(r.file, 0) == 0)) {

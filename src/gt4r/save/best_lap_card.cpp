@@ -38,7 +38,7 @@ Result write_best_lap(const std::string& card, const std::string& product, const
     if (card.empty()) return Result::NoCard;
     if (data.empty()) return Result::InvalidFile;
     std::error_code ec;
-    if (!over.empty() && over.find('/') == std::string::npos && is_best_lap_folder(over)) fs::remove_all(fs::path(card) / over, ec);
+    if (!over.empty() && over.find_first_of("/\\") == std::string::npos && is_best_lap_folder(over)) fs::remove_all(fs::path(card) / over, ec);
     std::string folder;
     for (int tries = 0; tries < 64 && (folder.empty() || fs::exists(fs::path(card) / folder, ec)); ++tries)
         folder = product + "B" + folder_letters(u64(chance()) << 10 ^ chance());

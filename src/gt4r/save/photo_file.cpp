@@ -248,7 +248,7 @@ std::vector<PhotoEntry> PhotoCard::list(char kind) const {
 }
 
 std::optional<Bytes> PhotoCard::picture(const std::string& folder) const {
-    if (card_.empty() || folder.find('/') != std::string::npos) return std::nullopt;
+    if (card_.empty() || folder.find_first_of("/\\") != std::string::npos) return std::nullopt;
     const Bytes file = read_file(fs::path(card_) / folder / folder);
     const std::optional<Bytes> plain = unscramble(file, 0, FileKind::Photo);
     if (!plain || plain->size() < 4 || (*plain)[0] != 0xFF || (*plain)[1] != 0xD8) return std::nullopt;
@@ -256,7 +256,7 @@ std::optional<Bytes> PhotoCard::picture(const std::string& folder) const {
 }
 
 std::optional<std::vector<u32>> PhotoCard::icon(const std::string& folder) const {
-    if (card_.empty() || folder.find('/') != std::string::npos) return std::nullopt;
+    if (card_.empty() || folder.find_first_of("/\\") != std::string::npos) return std::nullopt;
     return icon_picture(read_file(fs::path(card_) / folder / "icon0.ico"));
 }
 
@@ -290,7 +290,7 @@ Result PhotoCard::save_film(const PhotoInfo& info, ByteSpan film, const std::vec
 }
 
 std::optional<Bytes> PhotoCard::film(const std::string& folder) const {
-    if (card_.empty() || folder.find('/') != std::string::npos) return std::nullopt;
+    if (card_.empty() || folder.find_first_of("/\\") != std::string::npos) return std::nullopt;
     return unscramble(read_file(fs::path(card_) / folder / folder), 0, FileKind::Film);
 }
 
@@ -345,13 +345,13 @@ Result PhotoCard::write_info(const std::string& folder, const PhotoInfo& info) {
     if (card_.empty()) return Result::NoCard;
     std::error_code ec;
     const fs::path dir = fs::path(card_) / folder;
-    if (folder.find('/') != std::string::npos || !fs::is_directory(dir, ec)) return Result::FileNotFound;
+    if (folder.find_first_of("/\\") != std::string::npos || !fs::is_directory(dir, ec)) return Result::FileNotFound;
     return write_file(dir / "thumbnail", scramble(info.encode(), 0, chance(), FileKind::Info)) ? Result::Ok : Result::DeviceError;
 }
 
 Result PhotoCard::remove(const std::string& folder) {
     if (card_.empty()) return Result::NoCard;
-    if (folder.empty() || folder.find('/') != std::string::npos || folder.rfind(product_, 0) != 0) return Result::FileNotFound;
+    if (folder.empty() || folder.find_first_of("/\\") != std::string::npos || folder.rfind(product_, 0) != 0) return Result::FileNotFound;
     std::error_code ec;
     fs::remove_all(fs::path(card_) / folder, ec);
     return ec ? Result::DeviceError : Result::Ok;

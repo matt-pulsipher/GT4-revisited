@@ -53,8 +53,15 @@ std::string file_name(const std::string& path) {
     return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
+// The system's own separator: the folders the pages show read as the player's system writes them.
+#ifdef _WIN32
+constexpr char kSep = '\\';
+#else
+constexpr char kSep = '/';
+#endif
+
 std::string with_sep(std::string d) {
-    if (!d.empty() && d.back() != '/' && d.back() != '\\') d += '/';
+    if (!d.empty() && d.back() != '/' && d.back() != '\\') d += kSep;
     return d;
 }
 
@@ -246,7 +253,7 @@ std::vector<EarlierGame> find_gt3r_games(const std::string& gt3r_dir, const std:
         if (const std::optional<std::string> chosen = cfg->get("saves", "folder"); chosen && !chosen->empty() && chosen->rfind("content:", 0) != 0)
             folder = with_sep(*chosen);
     const std::string key = region == "us" ? "" : region == "uk" ? "eu" : "jp";
-    const std::string library = folder + "saves/" + (key.empty() ? "" : key + "/");
+    const std::string library = folder + "saves" + kSep + (key.empty() ? "" : key + kSep);
     if (looked) *looked = library;
     auto add = [&](const std::string& path, s64 mtime, bool current) {
         const std::optional<Bytes> b = gt3r::read_host_file(path);

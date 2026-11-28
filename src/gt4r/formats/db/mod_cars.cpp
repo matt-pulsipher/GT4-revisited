@@ -112,11 +112,26 @@ std::optional<u32> table_id_of(std::string_view name) {
 
 } // namespace
 
-std::string ModCarDef::folder() const {
-    std::string root = file.substr(0, file.find_last_of('/') + 1);
-    if (root.size() >= 6 && root.compare(root.size() - 6, 6, "/cars/") == 0) root.resize(root.size() - 5);
+size_t mod_file_name_at(std::string_view file) {
+    const size_t slash = file.find_last_of("/\\");
+    return slash == std::string_view::npos ? 0 : slash + 1;
+}
+
+bool mod_file_in(std::string_view file, std::string_view sub) {
+    std::string f(file);
+    std::replace(f.begin(), f.end(), '\\', '/');
+    return f.find("/" + std::string(sub) + "/") != std::string::npos;
+}
+
+std::string mod_folder_of(const std::string& file, std::string_view sub) {
+    std::string root = file.substr(0, mod_file_name_at(file));
+    // (".../<sub>/": the folder above, its separator kept)
+    const size_t n = sub.size() + 2;
+    if (root.size() >= n && mod_file_in(std::string_view(root).substr(root.size() - n), sub)) root.resize(root.size() - n + 1);
     return root;
 }
+
+std::string ModCarDef::folder() const { return mod_folder_of(file, "cars"); }
 
 std::string ModCarDef::model_path(bool menu, int time_of_day) const {
     // The menus: menu, else file, else the race's; a race: its time of day's, else race, else file, else another time's, else
@@ -995,7 +1010,7 @@ bool ModCarBuilder::import(const ModCarDef& d, ModCarStatus& st) {
         return false;
     };
     if (d.records.find("..") != std::string::npos || d.records[0] == '/') return fail("[car] records: a file beside the car file");
-    const std::string dir = d.file.substr(0, d.file.find_last_of('/') + 1);
+    const std::string dir = d.file.substr(0, mod_file_name_at(d.file));
     const std::optional<Bytes> file = gt3r::read_host_file(dir + d.records);
     if (!file) return fail("the donor '" + d.donor + "' is not a car of this disc, and its records file " + d.records + " is not read");
     std::string why;
@@ -1159,7 +1174,7 @@ ModCars ModCars::build_list(SpecDb& db, std::string_view list, const std::map<in
         const size_t tab = line.find('\t');
         if (tab == std::string_view::npos) continue;
         const std::string mod(line.substr(0, tab)), file(line.substr(tab + 1));
-        if (file.find("/cars/") == std::string::npos) continue; // (a maker's or an event's)
+        if (!mod_file_in(file, "cars")) continue; // (a maker's or an event's)
         if (before && std::any_of(before->statuses().begin(), before->statuses().end(), [&](const ModCarStatus& s) { return s.file == file; })) continue;
         ModCarStatus st;
         st.mod = mod, st.file = file;
@@ -1168,7 +1183,7 @@ ModCars ModCars::build_list(SpecDb& db, std::string_view list, const std::map<in
         if (!text) st.error = "the file is not read";
         else d = parse_mod_car(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), &st.error, &warnings[file]);
         if (!d) {
-            const size_t slash = file.find_last_of('/') + 1, dot = file.rfind(".ini");
+            const size_t slash = mod_file_name_at(file), dot = file.rfind(".ini");
             st.label = file.substr(slash, dot == std::string::npos || dot < slash ? std::string::npos : dot - slash);
             st.warnings = warnings[file];
             bad.push_back(std::move(st));
