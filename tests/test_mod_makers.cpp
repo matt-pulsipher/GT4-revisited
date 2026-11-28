@@ -103,6 +103,21 @@ TEST(mod_maker_file) {
     }
 }
 
+// Windows' mod files: the file layer lists them with backslashes ("<mods>\\<mod>\\makers\\<file>"), read alike.
+TEST(mod_files_with_backslashes) {
+    CHECK(db::mod_file_in("C:\\Users\\p\\mods\\voltra\\makers\\voltra.ini", "makers") && db::mod_file_in("C:\\mods\\v/cars\\one.ini", "cars"));
+    CHECK(!db::mod_file_in("C:\\mods\\v\\events\\cup.ini", "cars") && !db::mod_file_in("C:\\mods\\mycars\\one.ini", "cars"));
+    CHECK(db::mod_file_name_at("C:\\mods\\v\\cars\\one.ini") == 15 && db::mod_file_name_at("one.ini") == 0);
+    CHECK(db::mod_folder_of("C:\\mods\\v\\cars\\one.ini", "cars") == "C:\\mods\\v\\" && db::mod_folder_of("/m/v/makers/x.ini", "makers") == "/m/v/");
+    CHECK(db::mod_folder_of("C:\\mods\\v\\one.ini", "cars") == "C:\\mods\\v\\");
+    db::ModCarDef car;
+    car.file = "D:\\GT4R\\mods\\voltra\\cars\\voltra_one_26.ini";
+    CHECK(car.folder() == "D:\\GT4R\\mods\\voltra\\");
+    // A maker file named so is one (its status kept, named by its key) though not read here; a car's file is passed over.
+    const db::ModMakers mm = db::ModMakers::read("m\tD:\\GT4R\\mods\\m\\makers\\Kia.INI\nm\tD:\\GT4R\\mods\\m\\cars\\k.ini\n", {}, {}, {});
+    CHECK(mm.makers().empty() && mm.statuses().size() == 1 && mm.statuses()[0].key == "kia" && !mm.statuses()[0].error.empty());
+}
+
 // The maker's car is its car (its maker, brand and country), at its dealer on the USA page, the dealer's page with its logo,
 // its car for sale there; the pages and the app name it.
 TEST(disc_mod_maker_dealer) {

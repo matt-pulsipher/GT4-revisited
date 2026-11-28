@@ -21,6 +21,13 @@
 
 namespace gt4r::db {
 
+// A mod file's host path, read alike with either separator (Windows' folders end in a backslash): where the file's own name
+// starts, and whether it is in the mod's folder `sub` ("cars", "makers").
+size_t mod_file_name_at(std::string_view file);
+bool mod_file_in(std::string_view file, std::string_view sub);
+// The mod's folder of a file in its folder `sub`, with its separator ("" none: the file's own folder).
+std::string mod_folder_of(const std::string& file, std::string_view sub);
+
 // One car file. Unset values keep the donor's.
 struct ModCarDef {
     std::string label, name, maker, donor, body; // body: another disc car whose body and paints the car takes ([car] model)

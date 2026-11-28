@@ -53,11 +53,7 @@ std::string maker_match_key(std::string_view name) {
     return s;
 }
 
-std::string ModMakerDef::folder() const {
-    std::string root = file.substr(0, file.find_last_of('/') + 1);
-    if (root.size() >= 8 && root.compare(root.size() - 8, 8, "/makers/") == 0) root.resize(root.size() - 7);
-    return root;
-}
+std::string ModMakerDef::folder() const { return mod_folder_of(file, "makers"); }
 
 std::optional<ModMakerDef> parse_mod_maker(std::string_view text, const std::string& key, std::string* error, std::vector<std::string>* warnings) {
     auto fail = [&](const std::string& m) -> std::optional<ModMakerDef> {
@@ -110,11 +106,11 @@ ModMakers ModMakers::read(std::string_view list, const std::map<int, std::string
         const size_t tab = line.find('\t');
         if (tab == std::string_view::npos) continue;
         const std::string mod(line.substr(0, tab)), file(line.substr(tab + 1));
-        if (file.find("/makers/") == std::string::npos || file.size() < 5 || to_lower(file.substr(file.size() - 4)) != ".ini") continue;
+        if (!mod_file_in(file, "makers") || file.size() < 5 || to_lower(file.substr(file.size() - 4)) != ".ini") continue;
         if (before && std::any_of(before->statuses_.begin(), before->statuses_.end(), [&](const Status& s) { return s.file == file; })) continue;
         Status st;
         st.mod = mod, st.file = file;
-        const size_t slash = file.find_last_of('/') + 1;
+        const size_t slash = mod_file_name_at(file);
         st.key = to_lower(file.substr(slash, file.size() - 4 - slash));
         const std::optional<Bytes> text = gt3r::read_host_file(file);
         std::optional<ModMakerDef> m;
