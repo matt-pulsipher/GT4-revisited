@@ -86,7 +86,9 @@ public:
     explicit MenuViewer(App& app, bool player = false, std::string new_card = {}, bool online = false) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
         online_start_ = online;
-        advertise_on_ = player && !online; // (scripted runs: GT4R_MENU advertise=1)
+        // The copyright notice and "Presents" before the menus are not shown: the game starts at the Polyphony Digital logo
+        // (GT4R_MENU advertise=1 shows them).
+        advertise_on_ = false;
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
@@ -450,9 +452,18 @@ private:
             // held is no menu key meanwhile.
             typing_frame(app);
             const bool typing_keys = typing_on_ && (!typing_held_.empty() || typing_.pending());
-            send_menu_directions(*runtime_, m, keys_on && !key_page);
-            for (const auto& [button, key] : keys)
-                if (keys_on && !typing_keys && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
+            // The opening movie: any button skips it (the page's script skips on Start alone).
+            if (player_ && keys_on && opening_movie_page()) {
+                for (size_t b = 0; b < gt3r::kPadButtonCount; ++b)
+                    if (m.pressed(PadButton(b))) {
+                        runtime_->key(menu::Key::Start);
+                        break;
+                    }
+            } else {
+                send_menu_directions(*runtime_, m, keys_on && !key_page);
+                for (const auto& [button, key] : keys)
+                    if (keys_on && !typing_keys && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
+            }
             if (keys_on && typing_on_) typing_.step(*runtime_);
             // The mouse and fingers on the shown page (app/menu_pointer.h), where it was drawn last.
             if (keys_on && !key_page && live_drawer_) menu_pointer_frame(app, *runtime_, boxes_, drag_, page_x_, page_scale_);
@@ -727,6 +738,10 @@ private:
         return b == menu::AppButton::Menu ? Way::Menu : b == menu::AppButton::Keys ? Way::Keys : Way::None;
     }
     // Select does what the button does where the page's scripts do nothing with it.
+    // The opening movie's page (the boot project's MovieRoot, demo_movie's at the title's time-out).
+    bool opening_movie_page() const {
+        return runtime_ && !runtime_->finished() && runtime_->current_page() && runtime_->current_page()->name == "MovieRoot";
+    }
     bool select_is_ours() const {
         const auto [project, page] = page_id();
         return menu::select_is_app_button(project, page, in_ring());

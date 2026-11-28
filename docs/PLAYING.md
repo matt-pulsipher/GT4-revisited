@@ -17,7 +17,7 @@ Français, Deutsch, Italiano, Español) at every start, as the console does, and
    image cut short or damaged (make it again from your disc).
 2. With a disc chosen, the game starts as the console does, without its questions about a memory card. The first
    time, it asks for your name (the game's own name entry; your game is made then, so everything from the start is
-   saved); then the Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
+   saved); then the Polyphony Digital logo, the opening movie (any button skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
 3. Your saved games, options and replays are kept in the app's data folder (on macOS
    `~/Library/Application Support/GT4Revisited/GT4Revisited/`; on iOS the app's Documents, in the Files app On My

@@ -966,8 +966,9 @@ brightened in over 15 steps, held the seconds given x 30 steps and darkened out 
 every other field: 0x109048, 0x109080); the program's list (0x618700) holds texture 2 ("Sony
 Computer Entertainment America Presents", 3 s). The copyright notice (texture 0) before it is
 shown here for 1 s (❓ judged from the reference: about 2 s on screen; not found in the list).
-Texture 1 is the Polyphony Digital logo, texture 3 a demo disc's notice. Shown when the app runs
-as the game (scripted runs: `GT4R_MENU=advertise=1`); the boot project starts after them.
+Texture 1 is the Polyphony Digital logo, texture 3 a demo disc's notice. Here they are
+not shown: the game starts at the boot project (the Polyphony Digital logo); `GT4R_MENU=advertise=1` shows them first. The
+opening movie's page (`MovieRoot`) skips on Start alone; here any button is Start on it.
 
 **The loading page** (`app/menu_loading.h`; the program's LoadingPS2, 0x102840, its modes
 0x104E30): between two projects the "black" mode: a black quad fades in over the last page in
