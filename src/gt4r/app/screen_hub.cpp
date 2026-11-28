@@ -170,7 +170,9 @@ private:
             items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});
             items_.push_back({"Discs...", "", "Your disc library: switch to another disc, or add one.", 25});
             items_.push_back({"Developer tools", "", "Viewers for the disc's cars, courses, menu pages and files, and a race set up by hand.", 23});
+#if !defined(SDL_PLATFORM_IOS) // (iOS apps do not quit themselves: the app switcher closes them)
             items_.push_back({"Quit", "", "Leave GT4 Revisited.", 4});
+#endif
             return;
         }
         size_t cars = 0, courses = 0;

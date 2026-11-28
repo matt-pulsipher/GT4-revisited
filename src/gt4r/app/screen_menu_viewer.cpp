@@ -31,6 +31,7 @@
 #include "base/log.h"
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
+#include "platform/render_scale.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/game_settings.h"
@@ -765,14 +766,20 @@ private:
     gt3r::UiRect menu_button_rect(App& app, const Ui& ui, float x, bool& whole) const {
         constexpr float kMinBar = 60, kH = Ui::kHeight;
         float wx0 = 0, wy1 = kH; // the window's left edge and bottom, in UI units
+        float safe_x0 = -1e9f;     // phones and tablets: the left edge clear of an iPhone's camera housing and the rounded corners
         int ww = 0, wh = 0;
         if (SDL_GetWindowSize(SDL_GetRenderWindow(app.renderer()), &ww, &wh) && ww > 0 && wh > 0) {
             float y0 = 0, x1 = 0;
             if (!SDL_RenderCoordinatesFromWindow(app.renderer(), 0, 0, &wx0, &y0) || !SDL_RenderCoordinatesFromWindow(app.renderer(), float(ww), float(wh), &x1, &wy1))
                 wx0 = 0, wy1 = kH;
+            if (gt3r::platform::is_mobile()) {
+                const SDL_FRect sa = app.safe_area_window();
+                float sx = 0, sy = 0;
+                if (SDL_RenderCoordinatesFromWindow(app.renderer(), sa.x, sa.y, &sx, &sy)) safe_x0 = sx;
+            }
         }
         wx0 = std::min(wx0, 0.0f), wy1 = std::max(wy1, kH);
-        const float left = x >= kMinBar ? 0.0f : wx0; // the bar's left edge
+        const float left = std::max(x >= kMinBar ? 0.0f : wx0, safe_x0); // the bar's left edge
         gt3r::UiRect b;
         if (x - left >= kMinBar) b = {left + 6, kH - 46, std::min(x - left - 12, 90.0f), 22};
         else if (wy1 - kH >= 34) b = {x + 6, kH + 6, 90, 22};
@@ -894,7 +901,12 @@ private:
         if (want == typing_on_) return;
         if (!want) return typing_stop();
         typing_window_ = SDL_GetRenderWindow(app.renderer());
-        gt3r::start_text_input(typing_window_, true);
+#if defined(SDL_PLATFORM_IOS)
+        // (iOS opens its screen keyboard with any text input, whatever the hint: only with a keyboard connected, whose keys
+        // then type; without one the game's keyboard is tapped and the system's stays closed, as on Android)
+        if (SDL_HasKeyboard())
+#endif
+            gt3r::start_text_input(typing_window_, true);
         typing_on_ = true;
     }
     void typing_stop() {

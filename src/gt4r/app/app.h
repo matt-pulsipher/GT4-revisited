@@ -226,6 +226,7 @@ public:
     void set_xr_settings(const gt3r::xr::Settings& s); // [vr], applied at once and kept
 #endif
     const std::string& data_dir() const { return data_dir_; }
+    SDL_FRect safe_area_window() const; // (app_settings.cpp) the window clear of a phone's cutout and rounded corners
     std::string mods_dir() const { return data_dir_ + "mods"; }
     const std::string& last_error() const { return last_error_; }
     int frame() const { return frame_; }
@@ -265,7 +266,6 @@ private:
     void use_texture_packs();
     bool pointer_token(const std::string& token); // --keys' mouse
     void push_dropped_mod(const std::string& path);
-    SDL_FRect safe_area_window() const; // (app_settings.cpp) the window clear of a phone's cutout and rounded corners
 #if GT3R_XR
     // A VR headset (app_xr.cpp, the engine's docs/dev/VR.md).
     void xr_start(gt3r::render::GpuOptions& gpu, int argc, char** argv); // the 3D device, for the headset when there is one

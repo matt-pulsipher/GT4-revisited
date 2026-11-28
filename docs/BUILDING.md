@@ -13,6 +13,7 @@ This page has the platform details.
 | Linux arm64 (Ubuntu 24.04) | Clang 18 | builds; all tests pass on both discs (x86_64 with Clang ❓ not built) |
 | Windows x64 | MSVC 2022 | builds, no-disc tests pass; package starts; see [Windows](#windows) |
 | Android arm64-v8a + x86_64 | NDK 27 Clang (Gradle) | the APK builds, debug and signed release; see [android/README.md](../android/README.md) |
+| iOS arm64 (iPhone, iPad; and the Simulator) | Apple Clang (Xcode generator) | the app builds unsigned for devices and the Simulator (a signed build ❓ not made here); runs in the Simulator (2D only); see [iOS](#ios) |
 | Meta Quest (Android arm64-v8a, `-Pquest`) | NDK 27 Clang (Gradle), SDL's development branch | the APK builds, debug and signed release; not run on a headset; see [docs/VR.md](VR.md) |
 
 ## Linux
@@ -255,6 +256,73 @@ names the functions.
 - Floats: MSVC x64 and GCC on x86-64 do not fuse `a * b + c`, clang on arm64 does; everything the
   race steps with goes through the engine's EE float arithmetic, which is the same on every host
   (`gt4tool state-hash` compares a race between two builds).
+
+## iOS
+
+### What runs where
+
+| Build | Compiler | State | Checked |
+|---|---|---|---|
+| iOS arm64, device (unsigned) | Xcode 27.2, `-G Xcode -DCMAKE_SYSTEM_NAME=iOS` | ✅ builds | `gt4r.app` (Release, iphoneos) built here as CI's `ios` job builds it (build only, as GT3 Revisited's) |
+| iOS arm64, device (signed, installed) | Xcode, your own team | ❓ not run on a device | needs an iPhone or iPad and an Apple ID; the device draws with SDL_GPU on Metal |
+| iOS Simulator arm64 | Xcode 27.2 (iOS 26 Simulator, iPhone 17) | ✅ runs, 2D only | the disc opened through the Files app's picker (from On My iPhone › GT4 Revisited), found again at the next start in the next install's folder; the game boots (copyright, name entry on the game's own keyboard with the system's closed, opening, title), Arcade's pages, Gran Turismo mode's map, the home screen (no Quit), the touch controls, GT4R menu clear of the camera housing. SDL_GPU rejects the Simulator's GPU, so it has no 3D: a race says 3D drawing is not available |
+
+The app is built from the same sources with CMake's Xcode generator (needed: it signs the app and compiles its icon
+catalog); no Xcode project is kept in the repository. SDL is always built from source (an installed one is a macOS
+build); the shaders are the MSL ones macOS uses. iOS 16 or later, iPhone and iPad, landscape. `gt4tool`, `gt4r_diff`
+and the tests are not built for iOS.
+
+```bash
+cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+      -DGT4R_IOS_TEAM=<team ID> -DGT4R_IOS_BUNDLE_ID=<your.own.identifier>
+open build-ios/GT4Revisited.xcodeproj   # scheme gt4r, pick the device, Run
+```
+
+Signing is never committed. `GT4R_IOS_TEAM` is your Apple developer team ID; Xcode then signs automatically. A free
+Apple ID is enough: signed in under Xcode → Settings → Accounts, it has a personal team, whose ID is the `OU` of its
+certificate (`security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject`); a paid membership
+shows it on developer.apple.com → Account → Membership details. With a free account the installed app stops opening
+after 7 days (installing it again renews it; the user data stays), and the iPhone needs Developer Mode (Settings →
+Privacy & Security) and the developer trusted once (Settings → General → VPN & Device Management). A bundle identifier
+belongs to the first team that registers it, so a signed build needs one of your own (`GT4R_IOS_BUNDLE_ID`); the
+project's `org.gt4revisited.gt4r` is used only for unsigned builds (CI, the Simulator). Without `GT4R_IOS_TEAM` the
+build is unsigned, which no device installs.
+
+From the command line, after configuring with your team:
+
+```bash
+cmake --build build-ios --config RelWithDebInfo --target gt4r -- -allowProvisioningUpdates
+xcrun devicectl list devices
+xcrun devicectl device install app --device <device> build-ios/RelWithDebInfo-iphoneos/gt4r.app
+```
+
+The app (`packaging/Info-iOS.plist.in`, the icon in an asset catalog made from `packaging/icon.png` at configure time,
+`cmake/Packaging.cmake`) is GT4 Revisited, `org.gt4revisited.gt4r`. The user data folder (config, saves, mods,
+screenshots, replays, `gt4r.log`) is the app's Documents, which the Files app shows as On My iPhone › GT4 Revisited and
+Finder lists under the iPhone's Files (`UIFileSharingEnabled`); a copy of the disc image can go there too. SDL has no file
+dialog on iOS, so *Choose a disc image* shows the system's document picker (the shared engine's `platform/ios_files.h`):
+the image is read where it is, never copied, and a bookmark of it opens it again at the next start; an image in the GT4
+Revisited folder needs none, its saved path is moved into the next install's folder (iOS names it anew). The save folder
+and the music folder are picked the same way, as folders; a file the game writes (a memory card image) goes into
+`exports/` in the data folder. iOS apps do not quit themselves: the home screen has no Quit and Triangle on the
+disc-choice page does nothing.
+
+The Simulator needs its own build tree (the SDK is chosen at configure time):
+
+```bash
+cmake -S . -B build-ios-sim -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64
+cmake --build build-ios-sim --config Release --target gt4r -- -sdk iphonesimulator
+xcrun simctl install booted build-ios-sim/Release-iphonesimulator/gt4r.app
+SIMCTL_CHILD_SDL_AUDIODRIVER=dummy xcrun simctl launch booted org.gt4revisited.gt4r   # (no sound)
+```
+
+There it runs with the 2D renderer only (SDL_GPU rejects the Simulator's GPU: "Device does not meet the hardware
+requirements for SDL_GPU Metal"). `-DGT3R_GLES=ON` gives it the OpenGL ES renderer on Apple's software OpenGL ES: the
+title's demonstration race draws, but a race takes seconds a frame and the pages with a car model and the race screen
+draw black (an OpenGL ES error 0x502 in SDL's 2D renderer each frame), so it is not a way to check races; races are
+checked on a device. `args.txt` in the data folder (`xcrun simctl get_app_container booted org.gt4revisited.gt4r data`,
+then `Documents/`) takes the command line, one argument a line (`--env NAME=value` sets a variable).
 
 ## Making a release
 

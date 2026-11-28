@@ -10,7 +10,7 @@ on:
   workflow_dispatch: # also builds the release packages
     inputs:
       platforms:
-        description: "Which platforms' jobs run (all, or one: macos, linux, windows (with PC VR), android (with Meta Quest))"
+        description: "Which platforms' jobs run (all, or one: macos (with iOS), linux, windows (with PC VR), android (with Meta Quest))"
         default: all
         type: choice
         options: [all, macos, linux, windows, android]
@@ -129,6 +129,20 @@ jobs:
         with:
           name: gt4r-android-debug
           path: android/app/build/outputs/apk/debug/*.apk
+
+  # iPhone and iPad (docs/BUILDING.md "iOS"): the app built unsigned with the Xcode generator, as a check that it builds. No
+  # artifact: an unsigned app installs nowhere, and each player builds and signs their own.
+  ios:
+    if: (github.event_name != 'push' || !github.event.repository.private) && (github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == 'macos')
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0
+      - name: Build app (unsigned)
+        run: cmake --build build-ios --config Release --target gt4r -- -quiet
 
   # ANGLE for the Windows package (packaging/angle.ps1, ~18 min), kept in the cache from master: a
   # tag's run restores only its own tag's caches and the default branch's. Built again when the

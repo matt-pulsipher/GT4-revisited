@@ -15,6 +15,7 @@
 #include "formats/texture_pack.h"
 #include "game/gt_save.h"
 #include "platform/crash_handlers.h"
+#include "platform/ios_files.h"
 #include "platform/mac_layer.h"
 #include "platform/render_scale.h"
 #include "vfs/mod_archive.h"
@@ -129,6 +130,11 @@ std::string user_data_dir() {
 #endif
         return dir;
     }
+#if defined(SDL_PLATFORM_IOS)
+    // iOS: the app's Documents, which the Files app and Finder show as GT4 Revisited (Info-iOS.plist's UIFileSharingEnabled):
+    // the disc image and mods go in, pictures, replays and saves come out. SDL_GetPrefPath's Library folder is hidden from both.
+    if (const char* docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS)) return docs;
+#endif
     const std::string base = SDL_GetBasePath() ? SDL_GetBasePath() : "";
     if (const std::string beside = gt3r::game::app_bundle_folder(base); !beside.empty() && gt3r::host_path_exists(beside + "portable.ini")) {
         dir = beside;
@@ -213,6 +219,7 @@ bool App::init(int argc, char** argv) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+    if (const char* driver = SDL_GetCurrentAudioDriver()) LOG_INFO("Sound: SDL's %s driver", driver); // ("dummy": none)
     scripted_ = run_.scripted;
     if (scripted_) SDL_SetEventFilter([](void*, SDL_Event* e) { return !settings::is_real_input(e->type); }, nullptr);
     data_dir_ = user_data_dir();
@@ -220,6 +227,14 @@ bool App::init(int argc, char** argv) {
     SDL_CreateDirectory(mods_dir().c_str());
     config_path_ = data_dir_ + "config.ini";
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
+    // iOS: the disc images and folders picked in the Files app's picker are readable again (their bookmarks), and those of the
+    // app's own folder from an earlier install are found in this one's (the engine's platform/ios_files.h). Elsewhere nothing.
+    {
+        bool restored = gt3r::platform::restore_disc_access(config_, data_dir_);
+        restored = gt3r::platform::restore_folder_access(config_, "music", "folder", data_dir_) || restored;
+        restored = gt3r::platform::restore_folder_access(config_, "saves", "folder", data_dir_) || restored;
+        if (restored) save_config();
+    }
     LOG_INFO("%s %s (engine %s); user data: %s", kAppName, GT4R_VERSION, GT3R_VERSION, data_dir_.c_str());
     load_settings();
     if (mobile) video_.fullscreen = true; // (phones and tablets: the whole screen, without the system's bars)
@@ -453,6 +468,13 @@ void App::show_open_dialog() {
         if (const char* path = SDL_getenv("GT4R_DIALOG")) request_disc(path);
         return;
     }
+#if defined(SDL_PLATFORM_IOS)
+    // iOS: the Files app's picker (SDL has no file dialog there); the image is read where it is, never copied.
+    if (gt3r::platform::show_document_picker(window_, kDiscFilters, SDL_arraysize(kDiscFilters), [this](std::string path) {
+            if (!path.empty()) request_disc(std::move(path));
+        }))
+        return;
+#endif
     SDL_ShowOpenFileDialog(on_dialog, this, window_, kDiscFilters, SDL_arraysize(kDiscFilters), nullptr, false);
 }
 
