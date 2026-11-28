@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. One problem per issue, please.
+        Thanks for the report. One problem per issue, please. Questions and setup help go in [Q&A](https://github.com/matt-pulsipher/GT4-revisited/discussions/categories/q-a).
 
         Don't attach or link disc images or files taken from the game.
 
@@ -96,12 +96,21 @@ body:
       required: false
 
   - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Settings → Disc & saves → Copy both logs puts the log of this session and the session before on the clipboard: paste them here. Or drag in `gt4r.log` and `gt4r.prev.log` from the data folder (Settings → Disc & saves → Data folder opens it).
+        After a crash, start the game again and copy both: `gt4r.prev.log` is the session that crashed. Look them over before you send them.
+    validations:
+      required: true
+
+  - type: textarea
     id: files
     attributes:
       label: Screenshots, video, logs
       description: |
         Drag files here. F12 saves a screenshot to the `screenshots` folder in the game's user data folder.
-        Attach the game's log: Settings → Disc & saves → Log of this session opens it, and Copy both logs puts both on the clipboard to paste here. After a crash, attach both `gt4r.log` and `gt4r.prev.log` (the session that crashed, if you started the game again since). Look them over before you attach them.
         A save or replay that shows the problem helps too: zip it first.
     validations:
       required: false

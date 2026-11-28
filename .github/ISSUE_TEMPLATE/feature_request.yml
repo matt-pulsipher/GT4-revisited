@@ -7,6 +7,8 @@ body:
       value: |
         GT4 Revisited aims to play exactly like GT4 on the PS2: where GT4 has its own way of doing something (physics, AI, rules, GT Mode), that comes first. New options and features around the game are welcome.
 
+        Open-ended ideas can start in [Ideas](https://github.com/matt-pulsipher/GT4-revisited/discussions/categories/ideas).
+
   - type: textarea
     id: request
     attributes:
@@ -37,6 +39,15 @@ body:
         - iPhone / iPad
         - Meta Quest
         - PC VR (Windows)
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Settings → Disc & saves → Copy both logs puts the game's logs on the clipboard: paste them here, so we know your version, platform and setup. Look them over before you send them.
     validations:
       required: false
 
