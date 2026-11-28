@@ -1,0 +1,124 @@
+name: Bug report
+description: Something doesn't work, crashes, or plays differently from GT4 on the PS2.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. One problem per issue, please. Questions and setup help go in [Q&A](https://github.com/matt-pulsipher/GT4-revisited/discussions/categories/q-a).
+
+        Don't attach or link disc images or files taken from the game.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and where in the game (mode, menu, event, course, car).
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. GT Mode, Beginner Hall, Sunday Cup
+        2. Win race 2
+        3. Back in the event menu, race 2 shows no finishing position
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+      description: If it's different on the PS2, say what GT4 does there. A screenshot or video from the PS2 game helps a lot.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: GT4 Revisited version
+      description: Shown at the top right of Settings, and under Settings → Disc & saves → Version. For a build from source, the commit.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iPhone / iPad
+        - Meta Quest
+        - PC VR (Windows)
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and system version
+      description: The OS version, and the graphics card or the phone / tablet model.
+      placeholder: Windows 11, GeForce RTX 3060 / Pixel 8, Android 15
+    validations:
+      required: true
+
+  - type: input
+    id: disc
+    attributes:
+      label: Game disc
+      description: Settings → Disc & saves shows which disc is open (Gran Turismo 4 or Prologue), its serial and version.
+      placeholder: Gran Turismo 4, SCUS_973.28 v1.01
+    validations:
+      required: true
+
+  - type: input
+    id: controls
+    attributes:
+      label: Controls
+      description: What you play with, if it might matter.
+      placeholder: DualSense over Bluetooth / keyboard / Logitech G29 / touch
+    validations:
+      required: false
+
+  - type: input
+    id: mods
+    attributes:
+      label: Mods enabled
+      placeholder: None
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Drag in `gt4r.log` and `gt4r.prev.log` as files; don't paste them. Settings → Disc & saves → Data folder opens the folder they're in.
+        After a crash, start the game again first: `gt4r.prev.log` is then the session that crashed. Look them over before you attach them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Screenshots, video, logs
+      description: |
+        Drag files here. F12 saves a screenshot to the `screenshots` folder in the game's user data folder.
+        A save or replay that shows the problem helps too: zip it first.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the open and closed issues for this problem.
+          required: true
