@@ -11,6 +11,20 @@ namespace gt4r {
 
 namespace {
 
+// iOS apps do not quit themselves (the app switcher closes them): Triangle does nothing on this page there.
+#if defined(SDL_PLATFORM_IOS)
+constexpr bool kCanQuit = false;
+#else
+constexpr bool kCanQuit = true;
+#endif
+
+// Where the image may be, under the page's first line (phones and tablets).
+#if defined(SDL_PLATFORM_IOS)
+constexpr const char* kMobileWhere = "It can be anywhere the Files app reaches: this device, iCloud Drive or a USB drive.";
+#else
+constexpr const char* kMobileWhere = "It can be on this device, a memory card or a USB drive.";
+#endif
+
 class SetupScreen : public Screen {
 public:
     bool menu_input_any_device() const override { return true; }
@@ -22,7 +36,7 @@ public:
                 if (p.find("://") != std::string::npos || gt3r::host_path_exists(p)) discs_.push_back(p);
         }
         build(app);
-        if (app.menu().pressed(PadButton::Triangle)) app.quit();
+        if (kCanQuit && app.menu().pressed(PadButton::Triangle)) app.quit();
         else rows_.update(app);
         build(app);
     }
@@ -31,12 +45,12 @@ public:
         ui.header("GT4 REVISITED", GT4R_VERSION);
         float y = 62;
         ui.text_center(y, "Choose your Gran Turismo 4 disc image (.iso or .chd).", colors::kText);
-        ui.text_center(y + 14, gt3r::platform::is_mobile() ? "It can be on this device, a memory card or a USB drive." : "You can also drop the file on this window.", colors::kDim);
+        ui.text_center(y + 14, gt3r::platform::is_mobile() ? kMobileWhere : "You can also drop the file on this window.", colors::kDim);
         ui.text_center(y + 34, "Nothing is copied from the disc: the game's files are read from the image as they are needed.", colors::kDim);
         y += 60;
         for (const std::string& line : Ui::wrap(app.last_error(), 400)) ui.text_center(y, line, colors::kBad), y += 12; // (as wide as the rows)
         rows_.render(ui, {120, y + 10, 400, 17 * 10});
-        ui.footer("{Cross}: choose  {Triangle}: quit");
+        ui.footer(kCanQuit ? "{Cross}: choose  {Triangle}: quit" : "{Cross}: choose");
     }
 
 private:

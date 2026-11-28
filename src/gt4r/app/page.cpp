@@ -2,6 +2,8 @@
 
 #include "gt4r/app/app.h"
 
+#include "platform/ios_files.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -352,18 +354,43 @@ bool FileWindow::scripted(App& app) {
     return true;
 }
 
+#if defined(SDL_PLATFORM_IOS)
+// iOS: the Files app's pickers (SDL has none there), the file or folder read where it is; a file to write goes into the data
+// folder's exports (the Files app shows it there).
+namespace {
+template <class Slot> std::function<void(std::string)> answer_slot(const std::shared_ptr<Slot>& slot) {
+    return [slot](std::string path) {
+        const std::lock_guard<std::mutex> lock(slot->lock);
+        slot->path = std::move(path), slot->answered = true;
+    };
+}
+} // namespace
+#endif
+
 void FileWindow::open_file(App& app, const SDL_DialogFileFilter* filters, int count) {
     if (slot_ || scripted(app)) return;
+#if defined(SDL_PLATFORM_IOS)
+    if (gt3r::platform::show_document_picker(app.window(), filters, count, answer_slot(slot_))) return;
+#endif
     SDL_ShowOpenFileDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), filters, count, nullptr, false);
 }
 
 void FileWindow::open_folder(App& app) {
     if (slot_ || scripted(app)) return;
+#if defined(SDL_PLATFORM_IOS)
+    if (gt3r::platform::show_folder_picker(app.window(), answer_slot(slot_))) return;
+#endif
     SDL_ShowOpenFolderDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), nullptr, false);
 }
 
 void FileWindow::save_file(App& app, const SDL_DialogFileFilter* filters, int count, const std::string& name) {
     if (slot_ || scripted(app)) return;
+#if defined(SDL_PLATFORM_IOS)
+    const std::string dir = app.data_dir() + "exports/";
+    SDL_CreateDirectory(dir.c_str());
+    slot_->path = dir + name, slot_->answered = true;
+    return;
+#endif
     SDL_ShowSaveFileDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), filters, count, name.c_str());
 }
 
