@@ -11,6 +11,7 @@
 #include <functional>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,9 @@ struct CarFaceSettings {
     bool advanced = true;  // action_type "advanced" (the car-selection stage) or "normal"
     std::string car_code;
     int car_color = -1;
+    // `wing`, which the wing shop sets: the wing shown, a WING row's label ("p001"), "default" the car's own spoiler;
+    // without it the garage car's fitted wing (car_face_wing).
+    std::optional<std::string> wing;
     // loadModelOptionMotion(path): a camera motion of the page's packs (a Mot1 file like the
     // stage's camera.mot) that places the camera from the picture it was given at;
     // loadModelSet(path): more models of the packs drawn with the car (a mechanic, a shadow).
@@ -58,6 +62,9 @@ struct CarFaceSettings {
     std::vector<std::string> model_sets;
 };
 CarFaceSettings car_face_settings(const Widget& face);
+// The wing fitted to the face's car: its garage car's (`car_data`, an MCarGarage) record's active sheet +0x100, a WING
+// part (db::PartId); -1: none, or no garage car given.
+s64 car_face_wing(const LiveWidget& face);
 
 // Where the face's camera puts a point of the eye's space on the page (640 x 480 units): the
 // program's projection (0x217058) for the face's rectangle. The picture's middle is the

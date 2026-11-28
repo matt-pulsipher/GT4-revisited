@@ -73,6 +73,7 @@ CarFaceSettings car_face_settings(const Widget& w) {
     s.advanced = action == "advanced" || (action != "normal" && w.number("action_type", 1) != 0);
     s.car_code = w.text("car_code");
     s.car_color = int(w.number("car_color", -1));
+    if (w.find("wing")) s.wing = w.text("wing");
     s.option_motion = w.text("option_motion");
     s.option_motion_frame = (long long)w.number("option_motion_frame", 0);
     const std::string sets = w.text("model_sets");
