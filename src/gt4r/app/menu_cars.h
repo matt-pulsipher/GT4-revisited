@@ -56,7 +56,7 @@ private:
     };
     struct Face {
         std::weak_ptr<script::Heap> widget;
-        std::string car; // car_code#paint
+        std::string car; // car_code#paint#wing
         bool seen = false;
         u64 stepped = 0; // the picture its motion was last stepped to
         std::string stream; // the model stream it stands in, "" : none
@@ -76,7 +76,7 @@ private:
         mdls::SkinTable skin;
         int skinned_model = -1; // the model drawn with the bones (symbol SKINNING)
     };
-    Car* car(const std::string& code, int color);
+    Car* car(const std::string& code, int color, const std::string& wing); // `wing`: a fitted wing's WING label, "" none
     // The face's camera and lights by its model stream; false: it has none.
     bool stream_view(const menu::LiveWidget& face, menu::CarFaceSettings& s);
     SDL_GPUTexture* env_texture(menu::Project* project, const std::string& page, const std::string& path);
@@ -85,7 +85,7 @@ private:
     std::unique_ptr<gt3r::render::View3D> view_;
     std::unique_ptr<gt3r::render::View3D> mirror_view_; // the cars' mirrored copies (`mirror`)
     SDL_Texture* mirror_target_ = nullptr; // its picture, added to the page
-    std::map<std::string, std::unique_ptr<Car>> cars_; // by code#paint
+    std::map<std::string, std::unique_ptr<Car>> cars_; // by code#paint#wing
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
     std::map<std::string, std::string> models_; // car label -> model file name

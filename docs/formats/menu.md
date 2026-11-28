@@ -1245,6 +1245,7 @@ face's:
 | `trans`, `rotate` | 0 | where a newly set car starts |
 | `mirror` | 1 | normal mode: the car turned upside down about its floor (Scale(1, -1, 1)), without its shadow, drawn first, its picture added to the page at 0.3 of the car's alpha (0x156820; the composite's ALPHA is 0x68, Cs x FIX + Cd: 0x2175D4) |
 | `action_type` | 1 "advanced" | scripts write "normal" / "advanced"; only the arcade and event car pages keep "advanced" |
+| `wing` | none | the wing shop's: the wing its focused row shows, a `WING` label (`p001`), `default` the car's own spoiler; without it the garage car's fitted wing |
 
 Projection (0x217058): the picture's middle is the face rectangle's; d = (h / 2) / tan(view /
 2) over the face's height h; on NTSC a page unit across is d x 448/480 and down d / 1.098; the
@@ -1262,7 +1263,8 @@ origin is on the body's underside, so the car is raised by its ride height to st
 (❓ judged: the program's ShowRoomCar is not read).
 
 A car set on the face (`car_code`), or given as a garage car (`car_garage`, `car_data` set to an MCarGarage, shown in
-that car's paint, its record's +0x18), stands where the layout says from that moment, so what the
+that car's paint, its record's +0x18, and with the wing fitted to it, its record's +0x100: `wing/menu/<label>` at the
+car model's wing place, as in a race), stands where the layout says from that moment, so what the
 script does after it holds (the arcade car page brings it in from `tz` 8.5 with its front to the camera at a speed of
 0.025; Home turns the garage car to its front, ry 180, when yesterday had no
 run that failed: gtmode's `isGarageCarFront`). The scripts' `loadModelOptionMotion(path)` gives a normal face

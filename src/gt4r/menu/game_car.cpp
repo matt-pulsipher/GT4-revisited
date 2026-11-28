@@ -3,6 +3,8 @@
 // docs/formats/save.md ("The car record") and docs/formats/menu.md ("A car") say what each does.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/runtime.h"
 #include "gt4r/menu/program_sort.h"
 #include "gt4r/menu/faces_graph.h"
 
@@ -1216,6 +1218,18 @@ void install_car_class(GameNatives& n, script::Module& menu) {
             for (size_t i = 0; i < keyed.size(); ++i) items[i] = keyed[i].second;
             return Value{};
         });
+}
+
+s64 car_face_wing(const LiveWidget& face) {
+    const std::string code = face.data.text("car_code");
+    if (code.empty()) return -1;
+    const auto it = face.extras.find("car_data of " + code);
+    if (it == face.extras.end()) return -1;
+    const auto cell = std::dynamic_pointer_cast<script::Variable>(it->second);
+    const CarHandle* car = cell ? car_handle(cell->value) : nullptr;
+    if (!car || car->label != code) return -1;
+    const u64 wing = r64(car->record().active() + 0x100);
+    return wing == kNoCode ? -1 : s64(wing);
 }
 
 } // namespace gt4r::menu

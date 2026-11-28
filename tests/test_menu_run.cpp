@@ -5,6 +5,7 @@
 #include "test_framework.h"
 #include "menu_run_flow.h"
 
+#include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/program_tables.h"
 #include "gt4r/menu/runtime.h"
@@ -1235,4 +1236,39 @@ TEST(menu_focus_moves_as_the_search_orders) {
     top->set_property("navigate_wraparound", Value::integer(0));
     rt.set_focus(*top, top->child("C"));
     CHECK(go(menu::Key::Right) == "C");
+}
+
+// GT Auto's wing shop: the car face shows the wing focused (its `wing`: a WING label, "default" the car's own spoiler)
+// and, once bought, every car face of that car shows it (its garage car's record +0x100).
+TEST(disc_menu_wing_shop_car_face_wing) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow a(*disc);
+    CHECK(a.gt_mode_with_a_car());
+    auto face = [&a]() -> const menu::LiveWidget* {
+        std::function<const menu::LiveWidget*(const menu::LiveWidget&)> find = [&](const menu::LiveWidget& w) -> const menu::LiveWidget* {
+            if (w.is("CarFace") && !w.data.text("car_code").empty()) return &w;
+            for (const auto& c : w.children)
+                if (const menu::LiveWidget* f = find(*c)) return f;
+            return nullptr;
+        };
+        return a.rt->current_page() ? find(*a.rt->current_page()) : nullptr;
+    };
+    auto shown = [&face]() { const menu::LiveWidget* f = face(); return f ? menu::car_face_settings(f->data).wing.value_or("(fitted)") : std::string(); };
+    a.map_focus("GTAuto");
+    a.press({menu::Key::Accept});
+    CHECK(a.page() == "GTAutoRoot" && face() && menu::car_face_wing(*face()) == -1);
+    CHECK(a.focus_on("Wing"));
+    a.press({menu::Key::Accept});
+    CHECK(a.page() == "WingShopRoot" && a.focus() == "Item" && shown() == "default");
+    a.press({menu::Key::Right});
+    CHECK(a.focus() == "Item0" && shown() == "p001");
+    a.press({menu::Key::Right});
+    CHECK(a.focus() == "Item1" && shown() == "p002");
+    a.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+    const menu::CarRecord& r = *a.rt->game().garage[0].record;
+    const u64 fitted = r.u64at(size_t(r.active() - r.bytes.data()) + 0x100);
+    CHECK(fitted == (u64(30) << 32 | 2)); // WING row 2, p002
+    CHECK(a.page() == "GTAutoRoot" && face() && shown() == "(fitted)" && menu::car_face_wing(*face()) == s64(fitted));
+    CHECK(a.clean());
 }

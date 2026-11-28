@@ -10,6 +10,7 @@
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/stage_env.h"
 #include "gt4r/menu/stage_motion.h"
+#include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/light_model.h"
@@ -92,8 +93,8 @@ void MenuCars::end_frame() {
         else ++it;
 }
 
-MenuCars::Car* MenuCars::car(const std::string& code, int color) {
-    const std::string key = code + "#" + std::to_string(color);
+MenuCars::Car* MenuCars::car(const std::string& code, int color, const std::string& wing) {
+    const std::string key = code + "#" + std::to_string(color) + "#" + wing;
     std::unique_ptr<Car>& c = cars_[key];
     if (c) {
         if (c->failed) return nullptr;
@@ -143,11 +144,17 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
         if (car::CarFile::is_car(*file))
             if (std::optional<race::ModCarBody> b = race::mod_car_body(*db, code, true, 0, int(pick))) // (a mod car's body: mod_car_body.h)
                 o.mod_body = std::make_shared<const race::ModCarBody>(std::move(*b));
+        // A fitted wing: its showroom model set (wing/menu/<label>).
+        std::optional<Bytes> wing_file = wing.empty() || !car::CarFile::is_car(*file) ? std::nullopt : app_.vfs()->read("wing/menu/" + wing);
+        if (!wing.empty() && !wing_file) LOG_WARN("Menu car %s: no wing model wing/menu/%s", code.c_str(), wing.c_str());
         render::GpuContext* gpu = app_.gpu();
-        c->loading = std::async(std::launch::async, [gpu, f = std::move(*file), p = pat ? std::move(*pat) : Bytes{}, spec = c->spec, o, code]() {
+        c->loading = std::async(std::launch::async, [gpu, f = std::move(*file), p = pat ? std::move(*pat) : Bytes{}, w = wing_file ? std::move(*wing_file) : Bytes{},
+                                                     spec = c->spec, o, code]() mutable {
+            o.wing = w;
             return race::CarVisual::make_unuploaded(*gpu, f, p, spec, o, code);
         });
-        LOG_INFO("Menu car %s asked for (%.1f ms on the drawing thread)", code.c_str(), double(SDL_GetTicksNS() - c->asked) / 1e6);
+        LOG_INFO("Menu car %s%s%s asked for (%.1f ms on the drawing thread)", code.c_str(), wing.empty() ? "" : ", wing ", wing.c_str(),
+                 double(SDL_GetTicksNS() - c->asked) / 1e6);
     } catch (const std::exception& e) {
         LOG_WARN("Menu car %s: %s", code.c_str(), e.what());
         c->failed = true;
@@ -621,7 +628,14 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         load_stage(), step_stage();
         if (stage_.empty()) s.advanced = false; // (a disc without the stage, Prologue's: its car faces know no such action)
     }
-    Car* c = car(s.car_code, s.car_color);
+    // The wing drawn with the car: the one the wing shop shows ("default": the car's own spoiler), else the one fitted to
+    // the face's garage car (its WING row's label).
+    std::string wing = s.wing && *s.wing != "default" ? *s.wing : std::string();
+    if (!s.wing)
+        if (const s64 part = menu::car_face_wing(face); part != db::kNoPart && db::part_table(part) == u32(db::PartTable::Wing) && app_.db())
+            if (const db::Labels* l = app_.db()->labels("WING"))
+                if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
+    Car* c = car(s.car_code, s.car_color, wing);
     if (!c) {
         // (The stage stands there while a car loads.)
         Mat4 view, proj;
@@ -641,7 +655,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         live.extras["car_model"] = std::make_shared<script::Variable>(menu::object_value(model));
     }
     Face& f = faces_[&face];
-    const std::string key = s.car_code + "#" + std::to_string(s.car_color);
+    const std::string key = s.car_code + "#" + std::to_string(s.car_color) + "#" + wing;
     if (model->m.placed_car != s.car_code) {
         // A car set on the face (by its code): placed where the layout says and faded in.
         model->m.set_car(s.trans, s.rotate);
