@@ -28,7 +28,9 @@ endif()
 include(${GT3R_DIR}/cmake/Dependencies.cmake)
 
 if(MSVC)
-  add_compile_options(/W4 /permissive- /utf-8)
+  # /MP: Visual Studio's MSBuild compiles a project's files one at a time without it (CI's Windows build
+  # took about 3 times as long as the others).
+  add_compile_options(/W4 /permissive- /utf-8 /MP)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   add_compile_options(-Wall -Wextra -Wno-unused-parameter)
