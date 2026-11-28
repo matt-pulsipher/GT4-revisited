@@ -901,7 +901,12 @@ private:
         if (want == typing_on_) return;
         if (!want) return typing_stop();
         typing_window_ = SDL_GetRenderWindow(app.renderer());
-        gt3r::start_text_input(typing_window_, true);
+#if defined(SDL_PLATFORM_IOS)
+        // (iOS opens its screen keyboard with any text input, whatever the hint: only with a keyboard connected, whose keys
+        // then type; without one the game's keyboard is tapped and the system's stays closed, as on Android)
+        if (SDL_HasKeyboard())
+#endif
+            gt3r::start_text_input(typing_window_, true);
         typing_on_ = true;
     }
     void typing_stop() {
