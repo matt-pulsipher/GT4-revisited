@@ -128,7 +128,7 @@ TEST(earlier_gt3r_saves_where_it_keeps_them) {
     put(dir / "saves" / "broken.sav", std::string("GT3R-GTMODE 1\ncredits x\n"));
     std::string looked;
     std::vector<save::EarlierGame> found = save::find_gt3r_games(dir.string(), "us", &looked);
-    CHECK(found.size() == 2 && found[0].name == "Played" && found[0].current && found[1].name == "Old" && looked == (dir / "saves").string() + "/");
+    CHECK(found.size() == 2 && found[0].name == "Played" && found[0].current && found[1].name == "Old" && looked == (dir / "saves" / "").string());
     found = save::find_gt3r_games(dir.string(), "uk");
     CHECK(found.size() == 1 && found[0].name == "Euro");
     // The save folder its Settings chose.
