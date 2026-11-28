@@ -139,7 +139,8 @@ The Modern rumble's feeds (judged): a hit: the step's hit records (0x350530), |j
 rough ground: F +0x62C; kerbs: a loaded wheel on the surfaces 0x36CEE8 takes for kerb strips (1, 10, 11, 21); the slide: the
 sliding measure (wheel +0xB4); wheelspin and locked wheels: the slip ratios with the pedals. The triggers': the slip ratio
 over the tire record's +0x168 x the axle's slip scale (the ABS's target), and the slips over the record's +0x164 and +0xB8
-with the friction circle; the TCS at work. Nothing is sent for a car the pad does not drive, as the program's vibration has it;
+with the friction circle (the throttle's buzz: nothing up to the tire's best slip, then rising slowly with how far past it,
+to 0.6 at two and a half times it; under 0.05 nothing); the TCS at work, by the share of the pedal it cuts. Nothing is sent for a car the pad does not drive, as the program's vibration has it;
 the program's centering force of a car the computer drives is not sent (safety).
 
 Not done: a Cheetah's condition effect (the engine plays a spring and a constant force), the wheel's own spring while the

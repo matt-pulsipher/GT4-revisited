@@ -12,7 +12,17 @@ namespace rules = sim::rules;
 
 namespace {
 
-// The shared engine's shapes (VehicleTelemetry::traction_level and abs_level) on Gran Turismo 4's tire records.
+// The throttle trigger's level from how far past their best the driven tires slip: nothing up to it (hard throttle often
+// holds Gran Turismo 4's tires at their best), then a slow start and a rise to 0.6 at two and a half times it. A level
+// under 0.05 sends nothing (an Xbox pad's impulse trigger plays any level at 0.3 or more).
+float slip_level(float past) {
+    const float x = std::clamp(past / 1.5f, 0.0f, 1.0f);
+    const float level = 0.6f * x * std::sqrt(x);
+    return level < 0.05f ? 0.0f : level;
+}
+
+// The slip of a driven tire as the shared engine measures it (VehicleTelemetry::traction_level) on Gran Turismo 4's tire
+// records: 1 at its best.
 float traction_at(const ex::Car& c, const sim::Extra& g, const rules::WheelLayout& l, int w) {
     const ex::Wheel& wh = c.w[size_t(w)];
     const rules::Tire& tire = rules::tire_record(g.tires, l, w, wh.surface);
@@ -21,8 +31,7 @@ float traction_at(const ex::Car& c, const sim::Extra& g, const rules::WheelLayou
     const float along = std::max(-wh.slip_ratio.host(), 0.0f) / best;
     const float angle = std::fabs(c.t[size_t(w)].slip_angle.host()) * wh.slip_fade.host() / peak;
     const float across = std::max(angle, circle > 0 ? std::hypot(wh.force_a.host(), wh.force_b.host()) / circle : 0.0f);
-    const float grip = std::hypot(along, across);
-    return grip < 1 ? 0.4f * std::clamp((grip - 0.85f) / 0.15f, 0.0f, 1.0f) : 0.4f + 0.6f * std::min(grip - 1, 1.0f);
+    return slip_level(std::hypot(along, across) - 1);
 }
 
 // The wheels the TCS reads (0x3F79A0's: by the drive layout, the front's, the rear's or all).
@@ -81,9 +90,10 @@ CarFeel car_feel(const sim::Session& s, size_t car) {
             }
             f.abs_level = std::max(f.abs_level, level);
         }
-        // (the TCS holds the slip short of the tire's best: its cut counts by itself, but not a gear change's)
+        // (the TCS holds the slip short of the tire's best: its cut counts by itself, by how much of the pedal it takes
+        // away, but not a gear change's)
         if (g.aids.tcs_status == 2 && c.clutch != 3 && f.throttle > 0)
-            f.traction = std::max(f.traction, 0.4f + 0.6f * std::clamp(1 - c.throttle.host() / f.throttle, 0.0f, 1.0f));
+            f.traction = std::max(f.traction, slip_level(1.5f * std::clamp(1 - c.throttle.host() / f.throttle, 0.0f, 1.0f)));
         f.traction *= std::min(f.throttle * 2, 1.0f);
         f.understeer = std::clamp(g.aids.understeer.host(), 0.0f, 1.0f);
         f.oversteer = std::clamp(g.aids.oversteer.host(), 0.0f, 1.0f);
