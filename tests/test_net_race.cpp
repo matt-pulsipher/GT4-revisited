@@ -8,6 +8,7 @@
 
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 
 using namespace gt4r;

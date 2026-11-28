@@ -3,6 +3,7 @@
 
 #include "net_machines.h"
 
+#include <cmath>
 #include <cstring>
 
 using namespace gt4r;

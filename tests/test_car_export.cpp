@@ -11,6 +11,7 @@
 
 #include "base/file.h"
 
+#include <cmath>
 #include <filesystem>
 
 using namespace gt4r;

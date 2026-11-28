@@ -1,6 +1,7 @@
 #include "gt4r/audio/analysis.h"
 
 #include <algorithm>
+#include <cmath>
 #include <complex>
 #include <cstring>
 #include <numbers>

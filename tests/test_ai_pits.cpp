@@ -9,6 +9,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/session.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 

@@ -1,6 +1,7 @@
 #include "gt4r/input/race_input.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace gt4r::input {
 

@@ -3,6 +3,7 @@
 #include "base/config.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace gt4r::input {

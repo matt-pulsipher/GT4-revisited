@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 using namespace gt4r;
