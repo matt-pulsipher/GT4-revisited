@@ -749,7 +749,7 @@ SDL_AppResult App::iterate() {
     if (gamma_frame_ && shot_gamma) gamma_pass_->end(video_.gamma), gamma_frame_ = false;
     ++frame_;
     if (!key_shot_.empty() && !shot_path_.empty()) {
-        const size_t slash = shot_path_.find_last_of('/');
+        const size_t slash = shot_path_.find_last_of("/\\");
         save_screenshot((slash == std::string::npos ? std::string() : shot_path_.substr(0, slash + 1)) + key_shot_ + ".png");
         key_shot_.clear();
     }

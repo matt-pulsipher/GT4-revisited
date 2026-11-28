@@ -59,7 +59,7 @@ std::string clean(std::string s) {
 class SweepScreen final : public Screen {
 public:
     SweepScreen(std::string list, std::string out) : out_(std::move(out)) {
-        if (!out_.empty() && out_.back() != '/') out_ += '/';
+        if (!out_.empty() && out_.back() != '/' && out_.back() != '\\') out_ += '/';
         SDL_CreateDirectory(out_.c_str());
         if (const std::optional<Bytes> b = gt3r::read_host_file(list)) {
             for (std::string_view line : gt3r::split(std::string_view(reinterpret_cast<const char*>(b->data()), b->size()), '\n')) {
