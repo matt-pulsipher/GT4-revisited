@@ -24,7 +24,15 @@ if(NOT EXISTS ${GT3R_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "engine/gt3r is missing. Run: git submodule update --init")
 endif()
 
-# SDL3, zlib and libchdr, found or fetched the way GT3 Revisited does.
+if(IOS)
+  # iPhone and iPad (docs/BUILDING.md "iOS"), as GT3 Revisited builds them: the warnings are the flags below, not Xcode's iOS
+  # defaults on top (-Wshorten-64-to-32); libtool's note on every file that compiles to nothing on iOS (src/xr without GT3R_XR,
+  # SDL's other platforms) is turned off for the static libraries (gt3r_engine, gt4r_engine, SDL3-static).
+  set(CMAKE_XCODE_ATTRIBUTE_GCC_WARN_64_TO_32_BIT_CONVERSION NO)
+  set(GT3R_LIBTOOL_QUIET -no_warning_for_no_symbols)
+endif()
+
+# SDL3, zlib and libchdr, found or fetched the way GT3 Revisited does (iOS: always SDL built from source).
 include(${GT3R_DIR}/cmake/Dependencies.cmake)
 
 if(MSVC)
@@ -45,6 +53,10 @@ target_include_directories(gt3r_engine PUBLIC ${GT3R_DIR}/src)
 target_link_libraries(gt3r_engine PUBLIC SDL3::SDL3 ZLIB::ZLIB chdr-static)
 if(APPLE)
   target_link_libraries(gt3r_engine PUBLIC objc)
+endif()
+if(IOS)
+  target_link_libraries(gt3r_engine PUBLIC "-framework UniformTypeIdentifiers") # the engine's platform/ios_files.cpp (UTType)
+  set_target_properties(gt3r_engine PROPERTIES STATIC_LIBRARY_OPTIONS ${GT3R_LIBTOOL_QUIET})
 endif()
 if(WIN32)
   target_link_libraries(gt3r_engine PUBLIC ws2_32)
@@ -121,6 +133,9 @@ list(FILTER GT4R_ENGINE_SOURCES EXCLUDE REGEX "/src/gt4r/app/")
 add_library(gt4r_engine STATIC ${GT4R_ENGINE_SOURCES})
 target_include_directories(gt4r_engine PUBLIC src)
 target_link_libraries(gt4r_engine PUBLIC gt3r_engine)
+if(IOS)
+  set_target_properties(gt4r_engine PROPERTIES STATIC_LIBRARY_OPTIONS ${GT3R_LIBTOOL_QUIET})
+endif()
 
 file(GLOB GT4R_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/gt4r/app/*.cpp)
 if(ANDROID)
@@ -138,7 +153,7 @@ if(GT3R_OPENXR_LOADER)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GT3R_OPENXR_LOADER} $<TARGET_FILE_DIR:gt4r>)
 endif()
 
-if(GT4R_BUILD_TOOLS)
+if(GT4R_BUILD_TOOLS AND NOT IOS) # (no command-line tools or tests on a phone)
   file(GLOB GT4TOOL_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/gt4tool/*.cpp)
   add_executable(gt4tool ${GT4TOOL_SOURCES})
   target_link_libraries(gt4tool PRIVATE gt4r_engine)
@@ -150,7 +165,7 @@ if(GT4R_BUILD_TOOLS)
   target_link_libraries(gt4r_diff PRIVATE gt4r_engine ${CMAKE_DL_LIBS})
 endif()
 
-if(GT4R_BUILD_TESTS)
+if(GT4R_BUILD_TESTS AND NOT IOS)
   enable_testing()
   file(GLOB GT4R_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/*.cpp)
   # (with the checks against the user's own program: tools/gt4diff/diff.cpp on the shared engine's interpreter)

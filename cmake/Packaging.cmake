@@ -18,7 +18,50 @@ set(GT4R_PACKAGING_DIR ${CMAKE_SOURCE_DIR}/packaging)
 # the docs, the scripted runs and the tests' recipes name; the release builds turn it on.
 option(GT4R_MAC_BUNDLE "macOS: build gt4r as the app bundle gt4r.app (release packages)" OFF)
 
-if(APPLE AND GT4R_MAC_BUNDLE)
+if(IOS)
+  # iPhone and iPad (docs/BUILDING.md "iOS"), with the Xcode generator. Signing is never committed: a device build gets the
+  # builder's own team and bundle identifier at configure time. A bundle identifier belongs to the first team that registers
+  # it, so the project's own (org.gt4revisited.gt4r, the identifier the app gives SDL) is only used unsigned (CI, the
+  # Simulator), never registered by accident.
+  set(GT4R_IOS_TEAM "" CACHE STRING "Apple development team ID that signs the iOS app (empty: unsigned)")
+  set(GT4R_IOS_BUNDLE_ID "" CACHE STRING "Bundle identifier of a signed iOS build, e.g. com.example.gt4r")
+  if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
+    message(FATAL_ERROR "iOS builds need the Xcode generator (-G Xcode): it signs the app and compiles its icon")
+  endif()
+  if(GT4R_IOS_TEAM STREQUAL "")
+    set(_ios_bundle_id org.gt4revisited.gt4r)
+    set_target_properties(gt4r PROPERTIES XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
+  elseif(GT4R_IOS_BUNDLE_ID STREQUAL "")
+    message(FATAL_ERROR "GT4R_IOS_TEAM is set: also set GT4R_IOS_BUNDLE_ID to an identifier of your own")
+  else()
+    set(_ios_bundle_id ${GT4R_IOS_BUNDLE_ID})
+    set_target_properties(gt4r PROPERTIES
+      XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
+      XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${GT4R_IOS_TEAM})
+  endif()
+  # An asset catalog with the single 1024 px icon, packaging/icon.png (Xcode makes every size from it). It is a directory
+  # source, so it is written at configure time; Xcode's actool compiles it.
+  set(_xcassets ${CMAKE_BINARY_DIR}/gt4r-ios.xcassets)
+  configure_file(${GT4R_PACKAGING_DIR}/icon.png ${_xcassets}/AppIcon.appiconset/icon.png COPYONLY)
+  file(WRITE ${_xcassets}/Contents.json "{\"info\": {\"author\": \"xcode\", \"version\": 1}}\n")
+  file(WRITE ${_xcassets}/AppIcon.appiconset/Contents.json
+    "{\"images\": [{\"filename\": \"icon.png\", \"idiom\": \"universal\", \"platform\": \"ios\",\n"
+    "  \"size\": \"1024x1024\"}],\n"
+    " \"info\": {\"author\": \"xcode\", \"version\": 1}}\n")
+  target_sources(gt4r PRIVATE ${_xcassets})
+  set_source_files_properties(${_xcassets} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  set_target_properties(gt4r PROPERTIES
+    MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_INFO_PLIST ${GT4R_PACKAGING_DIR}/Info-iOS.plist.in
+    MACOSX_BUNDLE_GUI_IDENTIFIER ${_ios_bundle_id}
+    MACOSX_BUNDLE_BUNDLE_NAME "GT4 Revisited"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${_ios_bundle_id}
+    XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone, iPad
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon)
+  return() # (installed from Xcode by each builder: no package)
+elseif(APPLE AND GT4R_MAC_BUNDLE)
   if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     message(FATAL_ERROR "GT4R_MAC_BUNDLE: set CMAKE_OSX_DEPLOYMENT_TARGET (the release uses 12.0); "
                         "Info.plist's LSMinimumSystemVersion comes from it")
