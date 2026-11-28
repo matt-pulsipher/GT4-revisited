@@ -100,7 +100,10 @@ android {
     buildTypes {
         // The engine is far too slow unoptimized on a phone, so debug APKs build the native code
         // like the desktop default: optimized with debug info. The APK itself stays debuggable.
+        // A debug build is its own app (org.gt4revisited.gt4r.debug, "GT4R Debug" in the launcher,
+        // src/debug/res): it installs beside a release copy, which keeps its own saves and settings.
         debug {
+            applicationIdSuffix '.debug'
             externalNativeBuild {
                 cmake {
                     arguments '-DCMAKE_BUILD_TYPE=RelWithDebInfo'

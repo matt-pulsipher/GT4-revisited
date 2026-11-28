@@ -15,7 +15,9 @@ cd android && ./gradlew assembleDebug
 ```
 
 The APK is written to `app/build/outputs/apk/debug/`. Install it with
-`adb install -r app/build/outputs/apk/debug/app-debug.apk`. From a git worktree (no
+`adb install -r app/build/outputs/apk/debug/app-debug.apk`: it is "GT4R Debug"
+(`org.gt4revisited.gt4r.debug`), so it goes on a phone or tablet beside a release copy and never
+replaces it or its saves. Its disc image is chosen once, as a new install's is. From a git worktree (no
 `local.properties`), set `ANDROID_HOME` (macOS: `~/Library/Android/sdk`) first.
 
 `fetch-sdl.sh` checks out SDL3, at the release the shared engine pins, into
@@ -34,7 +36,9 @@ What the app is made of:
   (a documents provider), the display's cutout and corners. `GT4Activity` is the app's own
   activity on top of it. The engine's Java reads its resources through `org.gt3revisited.gt3r.R`,
   so that is the Gradle `namespace`; the app's own identity is its application id,
-  `org.gt4revisited.gt4r`, its name "GT4 Revisited" and its icon (`packaging/make_icon.py`).
+  `org.gt4revisited.gt4r`, its name "GT4 Revisited" and its icon (`packaging/make_icon.py`). A
+  debug build is a second app beside it: `org.gt4revisited.gt4r.debug`, "GT4R Debug" in the
+  launcher and the Files app (`app/src/debug/res`), with its own storage.
 - The version comes from the top-level `CMakeLists.txt`: versionName `x.y.z`, versionCode
   `x*10000 + y*100 + z`.
 
@@ -67,8 +71,8 @@ reads. For example, with the disc image copied to `/data/local/tmp/gt4.iso`
 ```bash
 printf '/data/local/tmp/gt4.iso\n--screen\ngame\n' > args.txt
 adb push args.txt /data/local/tmp/
-adb shell run-as org.gt4revisited.gt4r sh -c 'mkdir -p files && cp /data/local/tmp/args.txt files/'
-adb shell am start -n org.gt4revisited.gt4r/.GT4Activity
+adb shell run-as org.gt4revisited.gt4r.debug sh -c 'mkdir -p files && cp /data/local/tmp/args.txt files/'
+adb shell am start -n org.gt4revisited.gt4r.debug/org.gt4revisited.gt4r.GT4Activity
 ```
 
 A fresh install has no `files/` folder: make it first, as above. `adb logcat -s SDL GT4R` shows
@@ -85,8 +89,8 @@ a person) and keep the `.jks` and its password in a password manager. Then set `
 (`app-release-unsigned.apk`). The release workflow signs it from the repository secrets
 `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`, and fails without them
 ([docs/BUILDING.md](../docs/BUILDING.md#making-a-release) has the one-time steps). Debug builds use the
-local debug key, so a debug and a release build cannot update each other: uninstall one first
-(which removes the app's storage: move the saves out first).
+local debug key under their own application id (`org.gt4revisited.gt4r.debug`), so a debug build
+installs beside a release copy instead of over it.
 
 ## Meta Quest
 
