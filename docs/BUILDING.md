@@ -13,7 +13,7 @@ This page has the platform details.
 | Linux arm64 (Ubuntu 24.04) | Clang 18 | builds; all tests pass on both discs (x86_64 with Clang ❓ not built) |
 | Windows x64 | MSVC 2022 | builds, no-disc tests pass; package starts; see [Windows](#windows) |
 | Android arm64-v8a + x86_64 | NDK 27 Clang (Gradle) | the APK builds, debug and signed release; see [android/README.md](../android/README.md) |
-| iOS arm64 (iPhone, iPad; and the Simulator) | Apple Clang (Xcode generator) | the app builds, unsigned and signed; runs in the Simulator (2D only); see [iOS](#ios) |
+| iOS arm64 (iPhone, iPad; and the Simulator) | Apple Clang (Xcode generator) | the app builds unsigned for devices and the Simulator (a signed build ❓ not made here); runs in the Simulator (2D only); see [iOS](#ios) |
 | Meta Quest (Android arm64-v8a, `-Pquest`) | NDK 27 Clang (Gradle), SDL's development branch | the APK builds, debug and signed release; not run on a headset; see [docs/VR.md](VR.md) |
 
 ## Linux
@@ -263,7 +263,7 @@ names the functions.
 
 | Build | Compiler | State | Checked |
 |---|---|---|---|
-| iOS arm64, device (unsigned) | Xcode 27.2, `-G Xcode -DCMAKE_SYSTEM_NAME=iOS` | ✅ builds | CI's `ios` job (build only, as GT3 Revisited's) |
+| iOS arm64, device (unsigned) | Xcode 27.2, `-G Xcode -DCMAKE_SYSTEM_NAME=iOS` | ✅ builds | `gt4r.app` (Release, iphoneos) built here as CI's `ios` job builds it (build only, as GT3 Revisited's) |
 | iOS arm64, device (signed, installed) | Xcode, your own team | ❓ not run on a device | needs an iPhone or iPad and an Apple ID; the device draws with SDL_GPU on Metal |
 | iOS Simulator arm64 | Xcode 27.2 (iOS 26 Simulator, iPhone 17) | ✅ runs, 2D only | the disc opened through the Files app's picker (from On My iPhone › GT4 Revisited), found again at the next start in the next install's folder; the game boots (copyright, name entry on the game's own keyboard with the system's closed, opening, title), Arcade's pages, Gran Turismo mode's map, the home screen (no Quit), the touch controls, GT4R menu clear of the camera housing. SDL_GPU rejects the Simulator's GPU, so it has no 3D: a race says 3D drawing is not available |
 
