@@ -1796,6 +1796,8 @@ public:
     }
     // A run watched with a replay's controls (the program's play modes 2 and 3).
     bool viewing() const { return replaying_ || demo_run_.has_value(); }
+    // One of the car's own views (not a chase view, not the TV camera), outside replays.
+    bool car_view() const { return !viewing() && !race::DriveCamera::chase(mount_) && mount_ != kTvView; }
     void set_replay_style(race::ReplayStyle s) { replay_style_ = s; }
     const race::ReplayView& view() const { return view_; }
     void begin_view() {
@@ -2013,7 +2015,9 @@ public:
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         // The speedometer's face by the car's top speed as the program estimates it (P +0xFD8).
         if (const float top = world_->car_top_speed(shown_car); top > 0) h.top_speed = top;
-        h.driver_view = !viewing() && !race::DriveCamera::chase(mount_) && mount_ != kTvView; // (a replay's meters are the small panel)
+        // The driver's panel in the in-car views and the bumper's; the roof view, the chase views and a replay's meters show
+        // the small panel (race_display.md "The meters").
+        h.driver_view = !viewing() && (race::DriveCamera::in_car(mount_) || mount_ == race::DriveCamera::kBumper);
         h.mode_text.clear(), h.mode_opacity = 0;
         if (viewing() && mode_time_ >= 0) {
             // The playback mode's plate (0x39F018): in over 0.25 s, 3 s, out over 0.25 s.
@@ -5828,7 +5832,7 @@ private:
         e.penalty = h.replay ? 0 : race_->penalty_seconds();
         race_->aid_status(e.asm_status, e.tcs_status);
         if (float limit = 0, shift = 0; race_->rev_marks(limit, shift), limit > 0 && shift > 0) e.rev_limit = limit, e.shift_rpm = shift;
-        e.onboard = h.driver_view && !race_->opening() && !h.replay;
+        e.onboard = race_->car_view() && !race_->opening() && !h.replay; // (Prologue: the car's own views, the roof's too)
         const race::CarState& me = race_->player();
         e.accelerator = me.throttle, e.brake = me.brake;
         if (!h.replay) {
