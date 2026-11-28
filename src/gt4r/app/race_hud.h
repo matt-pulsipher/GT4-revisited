@@ -26,7 +26,7 @@ struct HudState {
     std::array<int, 3> signs{}; // the stability aid's, the brake's and the oil's signs: 0 out, 1 half lit, 2 lit, 3 blinking
     float gear_flash = 0;             // 1 as a new gear is taken with the clutch locked, falling to 0 in 0.15 s
     bool stepless = false;            // a stepless gearbox: forward "C"
-    bool driver_view = false;         // the in-car and roof views' panel, else the chase view's
+    bool driver_view = false;         // the in-car views' panel (and the bumper's), else the small one
     int place = 1;                    // 1 the leader
     int lap = 1, laps = 0;            // the lap being driven; the race's laps (0: no count)
     bool no_lap = false;              // no lap count at all

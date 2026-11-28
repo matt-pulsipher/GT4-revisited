@@ -286,8 +286,8 @@ and shows one, chosen from a **panel layout** number (0x3A18A8, 0x3A1970):
 
 | Layout | When | Panel | Its rectangle (x, y, w, h, anchors) | Also placed |
 |---|---|---|---|---|
-| 0 | The driver's views (the camera's view number 0 or 1 🔎) | `RaceOnboardPanel` (member 0x108) | 320, 452, 640, 0 (2, 1) | Status message (0x228C) 320, 348 (2, 1); text line (0x23DC) 24, 328, w 280 (4, 1) |
-| 1 | The other views (the chase views); every two-player half above / below; replays that show meters | `RaceSimplePanel` (member 0xD58) | 320, 464, 640, 0 (2, 1) | Status message 320, 430, w 240 (2, 1); text line 320, 430, w 240 (2, 1); `RaceSteeringDisplay` (0x10E4) 320, 450, 85 x 85 (2, 2) |
+| 0 | The driver's view (the in-car view, mount 0) | `RaceOnboardPanel` (member 0x108) | 320, 452, 640, 0 (2, 1) | Status message (0x228C) 320, 348 (2, 1); text line (0x23DC) 24, 328, w 280 (4, 1) |
+| 1 | The other views (the chase view, the roof view: the original's roof view shows this panel ✔ by picture); every two-player half above / below; replays that show meters | `RaceSimplePanel` (member 0xD58) | 320, 464, 640, 0 (2, 1) | Status message 320, 430, w 240 (2, 1); text line 320, 430, w 240 (2, 1); `RaceSteeringDisplay` (0x10E4) 320, 450, 85 x 85 (2, 2) |
 | 2 | Display mode 1 | `RaceSimplePanel`, reduced | 320, 463, 640, 0 (2, 1) | Status message 320, 400 (2, 1); tool tip bar (0x2DA0) 0, 480, 640 x 42 (0, 1) |
 | 3 | Two players side by side | `RaceSimplePanel`, split form | 213, 464, 426, 0 (6, 1) | Status message 203, 380 (6, 1); text line 203, 410, w 240 (6, 1) |
 | 4 | A car the program's hybrid test accepts (🔎 the Prius), outside replays | `RacePriusPanel` (member 0x39FC; `meter_prius_base_*`, 406 x 42) | 617, 459, 406 x 42 (1, 1) | Text line 24, 360, w 280 (4, 1) |
