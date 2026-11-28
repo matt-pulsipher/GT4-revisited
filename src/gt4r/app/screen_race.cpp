@@ -3840,7 +3840,9 @@ public:
                 }
                 race_->draw_icons(ui, RaceHud::canvas(), icons);
             }
-            else draw_results(ui);
+            // The plain page only where the disc has no results movie: the frame the car finishes in, its movie is not open
+            // yet (the next update opens it), and nothing is drawn in its place.
+            else if (result_tried_) draw_results(ui);
         }
         if (panel_ && hud_ && !results_shown()) hud_->draw_movie(*monitor_movie_, *panel_);
         if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
